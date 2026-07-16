@@ -1,0 +1,19 @@
+{
+  "name": "@project-e/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pocketbase": "^0.25.0",
+    "@project-e/shared": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^22.19.0"
+  }
+}

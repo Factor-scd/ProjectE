@@ -1,0 +1,332 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* shadcn base variables — mapped from current design */
+    --background: 80 10% 95%;
+    --foreground: 150 15% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 150 15% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 150 15% 10%;
+    --primary: 224 100% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 80 8% 93%;
+    --secondary-foreground: 150 15% 10%;
+    --muted: 80 8% 93%;
+    --muted-foreground: 140 5% 40%;
+    --accent: 80 8% 93%;
+    --accent-foreground: 150 15% 10%;
+    --destructive: 14 76% 62%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 110 5% 89%;
+    --input: 110 5% 89%;
+    --ring: 224 100% 60%;
+    --radius: 18px;
+
+    /* Project E custom variables */
+    --sidebar: 150 25% 11%;
+    --sidebar-foreground: 140 20% 93%;
+    --sidebar-accent: 150 15% 18%;
+    --green: 150 50% 28%;
+    --coral: 14 76% 62%;
+    --amber: 37 65% 53%;
+    --domain-personal: 150 55% 37%;
+    --domain-work: 224 100% 60%;
+    --domain-ots: 14 80% 63%;
+  }
+
+  .dark {
+    --background: 150 15% 7%;
+    --foreground: 80 10% 95%;
+    --card: 150 15% 10%;
+    --card-foreground: 80 10% 95%;
+    --popover: 150 15% 10%;
+    --popover-foreground: 80 10% 95%;
+    --primary: 224 100% 65%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 150 10% 15%;
+    --secondary-foreground: 80 10% 95%;
+    --muted: 150 10% 15%;
+    --muted-foreground: 140 5% 60%;
+    --accent: 150 10% 15%;
+    --accent-foreground: 80 10% 95%;
+    --destructive: 14 76% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 150 10% 18%;
+    --input: 150 10% 18%;
+    --ring: 224 100% 65%;
+
+    --sidebar: 150 25% 8%;
+    --sidebar-foreground: 140 20% 90%;
+    --sidebar-accent: 150 15% 14%;
+    --green: 150 50% 35%;
+    --coral: 14 76% 55%;
+    --amber: 37 65% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-geist-sans), system-ui, sans-serif;
+  }
+}
+
+/* Density variants */
+[data-density='compact'] {
+  --spacing-unit: 0.75rem;
+  --radius: 12px;
+}
+
+[data-density='comfortable'] {
+  --spacing-unit: 1rem;
+  --radius: 18px;
+}
+
+[data-density='spacious'] {
+  --spacing-unit: 1.25rem;
+  --radius: 22px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+[data-reduced-motion='true'] * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Skip link for accessibility */
+.skip-link {
+  position: fixed;
+  left: 12px;
+  top: -50px;
+  z-index: 200;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: top 0.2s;
+}
+.skip-link:focus {
+  top: 12px;
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* React Calendar Heatmap */
+.react-calendar-heatmap rect {
+  rx: 2;
+  ry: 2;
+}
+
+.heatmap-empty {
+  fill: hsl(var(--muted));
+}
+
+.heatmap-scale-1 {
+  fill: hsl(var(--primary) / 0.25);
+}
+
+.heatmap-scale-2 {
+  fill: hsl(var(--primary) / 0.5);
+}
+
+.heatmap-scale-3 {
+  fill: hsl(var(--primary) / 0.75);
+}
+
+.heatmap-scale-4 {
+  fill: hsl(var(--primary));
+}
+
+.react-calendar-heatmap .react-calendar-heatmap-month-label,
+.react-calendar-heatmap .react-calendar-heatmap-weekday-label {
+  font-size: 0.625rem;
+  fill: hsl(var(--muted-foreground));
+}
+
+/* TipTap Editor */
+.tiptap-editor .tiptap {
+  outline: none;
+  min-height: 400px;
+}
+
+.tiptap-editor .tiptap p {
+  margin-bottom: 0.75rem;
+  line-height: 1.7;
+}
+
+.tiptap-editor .tiptap h1,
+.tiptap-editor .tiptap h2,
+.tiptap-editor .tiptap h3 {
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.tiptap-editor .tiptap h1 {
+  font-size: 1.5rem;
+}
+
+.tiptap-editor .tiptap h2 {
+  font-size: 1.25rem;
+}
+
+.tiptap-editor .tiptap h3 {
+  font-size: 1.125rem;
+}
+
+.tiptap-editor .tiptap ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.tiptap-editor .tiptap ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.tiptap-editor .tiptap li {
+  margin-bottom: 0.25rem;
+}
+
+.tiptap-editor .tiptap blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding-left: 1rem;
+  margin-left: 0;
+  margin-bottom: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.tiptap-editor .tiptap code {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+  padding: 0.15rem 0.35rem;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.875em;
+}
+
+.tiptap-editor .tiptap pre {
+  background: hsl(var(--muted));
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+  overflow-x: auto;
+}
+
+.tiptap-editor .tiptap pre code {
+  background: none;
+  padding: 0;
+}
+
+.tiptap-editor .tiptap a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tiptap-editor .tiptap a:hover {
+  opacity: 0.8;
+}
+
+.tiptap-editor .tiptap hr {
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+  margin: 1.5rem 0;
+}
+
+.tiptap-editor .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  height: 0;
+}
+
+/* React Big Calendar */
+.rbc-calendar {
+  font-family: inherit;
+}
+
+.rbc-toolbar {
+  margin-bottom: 1em;
+}
+
+.rbc-toolbar button {
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+
+.rbc-toolbar button:hover {
+  background-color: hsl(var(--accent));
+}
+
+.rbc-toolbar button.rbc-active {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border-color: hsl(var(--primary));
+}
+
+.rbc-month-view,
+.rbc-time-view {
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+}
+
+.rbc-header {
+  padding: 0.5rem;
+  font-weight: 600;
+  border-bottom: 1px solid hsl(var(--border));
+  background-color: hsl(var(--muted));
+}
+
+.rbc-day-bg {
+  background-color: hsl(var(--background));
+}
+
+.rbc-off-range-bg {
+  background-color: hsl(var(--muted) / 0.5);
+}
+
+.rbc-today {
+  background-color: hsl(var(--primary) / 0.1);
+}
+
+.rbc-event {
+  padding: 2px 5px;
+  font-size: 12px;
+}
+
+.rbc-show-more {
+  color: hsl(var(--primary));
+  font-size: 12px;
+  font-weight: 500;
+}

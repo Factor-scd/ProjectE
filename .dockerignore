@@ -1,0 +1,14 @@
+node_modules
+.next
+dist
+build
+.turbo
+.git
+*.md
+.env*
+.vscode
+.idea
+coverage
+test-results
+playwright-report
+pocketbase/pb_data
