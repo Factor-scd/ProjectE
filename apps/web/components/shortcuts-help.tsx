@@ -21,7 +21,10 @@ export function ShortcutsHelp() {
         if (
           target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
-          target.isContentEditable
+          target.tagName === 'SELECT' ||
+          target.tagName === 'BUTTON' ||
+          target.isContentEditable ||
+          target.closest('[role="dialog"], [role="menu"], [role="listbox"], [role="combobox"]')
         ) {
           return;
         }

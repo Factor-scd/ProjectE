@@ -59,7 +59,7 @@ export function HabitCard({ habit, onComplete }: HabitCardProps) {
             <span className="text-muted-foreground">Score</span>
             <span className="font-semibold">{habit.score}/100</span>
           </div>
-          <Progress value={habit.score} className="h-2" />
+          <Progress value={habit.score} className="h-2" aria-label={`${habit.name} score: ${habit.score} out of 100`} />
         </div>
 
         {/* Frequency badge */}

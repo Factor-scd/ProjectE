@@ -58,7 +58,7 @@ export function ProjectProgressWidget() {
                     {project.progress}%
                   </span>
                 </div>
-                <Progress value={project.progress} className="h-2" />
+                <Progress value={project.progress} className="h-2" aria-label={`${project.name} progress: ${project.progress}%`} />
               </div>
             ))}
           </div>

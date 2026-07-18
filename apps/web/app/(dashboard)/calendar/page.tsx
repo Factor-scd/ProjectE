@@ -27,16 +27,17 @@ interface CalendarEvent {
   title: string;
   start: Date;
   end: Date;
-  type: 'task' | 'habit' | 'project' | 'milestone';
+  type: 'task' | 'project' | 'milestone';
   domain: string;
   color: string;
+  href: string;
 }
 
 export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showTasks, setShowTasks] = useState(true);
-  const [showHabits, setShowHabits] = useState(true);
   const [showProjects, setShowProjects] = useState(true);
   const [showMilestones, setShowMilestones] = useState(true);
   const [selectedDomains, setSelectedDomains] = useState<string[]>([]);
@@ -46,18 +47,24 @@ export default function CalendarPage() {
   }, []);
 
   async function fetchEvents() {
+    setLoading(true);
+    setError(null);
     try {
-      // Fetch tasks with due dates
-      const tasksResponse = await fetch('/api/tasks?filter=due_date!%3D%22%22&perPage=500');
-      const tasksData = tasksResponse.ok ? await tasksResponse.json() : { items: [] };
+      const [tasksResponse, projectsResponse, milestonesResponse] = await Promise.all([
+        fetch('/api/tasks?filter=due_date!%3D%22%22&perPage=500'),
+        fetch('/api/projects?filter=due_date!%3D%22%22&perPage=500'),
+        fetch('/api/milestones?filter=due_date!%3D%22%22&perPage=500'),
+      ]);
 
-      // Fetch projects with target dates
-      const projectsResponse = await fetch('/api/projects?filter=target_date!%3D%22%22&perPage=500');
-      const projectsData = projectsResponse.ok ? await projectsResponse.json() : { items: [] };
+      if (!tasksResponse.ok || !projectsResponse.ok || !milestonesResponse.ok) {
+        throw new Error('One or more calendar sources could not be loaded.');
+      }
 
-      // Fetch milestones with target dates
-      const milestonesResponse = await fetch('/api/milestones?filter=target_date!%3D%22%22&perPage=500');
-      const milestonesData = milestonesResponse.ok ? await milestonesResponse.json() : { items: [] };
+      const [tasksData, projectsData, milestonesData] = await Promise.all([
+        tasksResponse.json(),
+        projectsResponse.json(),
+        milestonesResponse.json(),
+      ]);
 
       const calendarEvents: CalendarEvent[] = [];
 
@@ -73,7 +80,8 @@ export default function CalendarPage() {
               end: date,
               type: 'task',
               domain: task.domain ?? 'personal',
-              color: '#3b82f6', // blue
+              color: '#3b82f6',
+              href: '/tasks',
             });
           }
         }
@@ -82,16 +90,17 @@ export default function CalendarPage() {
       // Add projects
       if (projectsData.items) {
         for (const project of projectsData.items) {
-          if (project.target_date) {
-            const date = new Date(project.target_date);
+          if (project.due_date) {
+            const date = new Date(project.due_date);
             calendarEvents.push({
               id: `project-${project.id}`,
-              title: `📁 ${project.name}`,
+              title: project.name,
               start: date,
               end: date,
               type: 'project',
               domain: project.domain ?? 'personal',
-              color: '#8b5cf6', // purple
+              color: '#8b5cf6',
+              href: `/projects/${project.id}`,
             });
           }
         }
@@ -100,16 +109,17 @@ export default function CalendarPage() {
       // Add milestones
       if (milestonesData.items) {
         for (const milestone of milestonesData.items) {
-          if (milestone.target_date) {
-            const date = new Date(milestone.target_date);
+          if (milestone.due_date) {
+            const date = new Date(milestone.due_date);
             calendarEvents.push({
               id: `milestone-${milestone.id}`,
-              title: `🎯 ${milestone.name}`,
+              title: milestone.name || milestone.title,
               start: date,
               end: date,
               type: 'milestone',
               domain: milestone.domain ?? 'work',
-              color: '#f59e0b', // amber
+              color: '#f59e0b',
+              href: milestone.project_id ? `/projects/${milestone.project_id}` : '/projects',
             });
           }
         }
@@ -118,6 +128,7 @@ export default function CalendarPage() {
       setEvents(calendarEvents);
     } catch (error) {
       console.error('Failed to fetch calendar events:', error);
+      setError('Calendar events could not be loaded. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -127,7 +138,6 @@ export default function CalendarPage() {
     return events.filter((event) => {
       // Filter by type
       if (event.type === 'task' && !showTasks) return false;
-      if (event.type === 'habit' && !showHabits) return false;
       if (event.type === 'project' && !showProjects) return false;
       if (event.type === 'milestone' && !showMilestones) return false;
 
@@ -138,7 +148,7 @@ export default function CalendarPage() {
 
       return true;
     });
-  }, [events, showTasks, showHabits, showProjects, showMilestones, selectedDomains]);
+  }, [events, showTasks, showProjects, showMilestones, selectedDomains]);
 
   function toggleDomain(domain: string) {
     setSelectedDomains((prev) =>
@@ -150,6 +160,15 @@ export default function CalendarPage() {
     return (
       <div className="flex items-center justify-center py-20">
         <p className="text-muted-foreground">Loading calendar...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-4 py-20 text-center">
+        <p className="text-muted-foreground" role="alert">{error}</p>
+        <Button onClick={fetchEvents}>Retry</Button>
       </div>
     );
   }
@@ -186,17 +205,6 @@ export default function CalendarPage() {
                   <Label htmlFor="tasks" className="flex items-center gap-2">
                     <div className="h-3 w-3 rounded" style={{ backgroundColor: '#3b82f6' }} />
                     Tasks
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="habits"
-                    checked={showHabits}
-                    onCheckedChange={(checked) => setShowHabits(checked === true)}
-                  />
-                  <Label htmlFor="habits" className="flex items-center gap-2">
-                    <div className="h-3 w-3 rounded" style={{ backgroundColor: '#10b981' }} />
-                    Habits
                   </Label>
                 </div>
                 <div className="flex items-center space-x-2">

@@ -1,11 +1,23 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
-import { Plus, FileBarChart, Calendar, Target, TrendingUp, Clock } from 'lucide-react';
+import { useEffect, useRef, useState, Suspense } from 'react';
+import { Plus, FileBarChart, Calendar, Target, TrendingUp, Clock, Trash2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 // Lazy load TipTap report editor (~80KB)
 const ReportEditor = dynamic(
@@ -50,24 +62,34 @@ export default function ReportsPage() {
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'Saved' | 'Saving' | 'Failed'>('Saved');
+  const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const pendingSave = useRef<{ id: string; updates: Partial<Report> } | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveVersion = useRef(0);
 
   useEffect(() => {
     fetchReports();
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
   }, []);
 
   async function fetchReports() {
+    setLoading(true);
+    setError(null);
     try {
       const response = await fetch('/api/reports?sort=-created');
-      if (response.ok) {
-        const data = await response.json();
-        const reportsList = data.items || [];
-        setReports(reportsList);
-        if (reportsList.length > 0 && !selectedReport) {
-          setSelectedReport(reportsList[0]);
-        }
-      }
+      if (!response.ok) throw new Error('Unable to load reports.');
+      const data = await response.json();
+      const reportsList = data.items || [];
+      setReports(reportsList);
+      setSelectedReport((current) => current || reportsList[0] || null);
     } catch (error) {
       console.error('Failed to fetch reports:', error);
+      setError('Unable to load reports. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -86,42 +108,73 @@ export default function ReportsPage() {
           ...overrides,
         }),
       });
-      if (response.ok) {
-        const newReport = await response.json();
-        setReports([newReport, ...reports]);
-        setSelectedReport(newReport);
-        setShowTemplates(false);
-      }
+      if (!response.ok) throw new Error('Unable to create report.');
+      const newReport = await response.json();
+      setReports((current) => [newReport, ...current]);
+      setSelectedReport(newReport);
+      setShowTemplates(false);
+      toast.success('Report created');
     } catch (error) {
       console.error('Failed to create report:', error);
+      toast.error('Unable to create report');
     }
   }
 
-  async function updateReport(reportId: string, updates: Partial<Report>) {
+  function scheduleSave(reportId: string, updates: Partial<Report>) {
+    const version = ++saveVersion.current;
+    pendingSave.current = {
+      id: reportId,
+      updates: { ...(pendingSave.current?.id === reportId ? pendingSave.current.updates : {}), ...updates },
+    };
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSaveStatus('Saving');
+    saveTimer.current = setTimeout(() => {
+      const save = pendingSave.current;
+      pendingSave.current = null;
+      if (save) updateReport(save.id, save.updates, version);
+    }, 700);
+  }
+
+  async function updateReport(reportId: string, updates: Partial<Report>, version: number) {
     try {
-      await fetch(`/api/reports/${reportId}`, {
+      const response = await fetch(`/api/reports/${reportId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
-      fetchReports();
+      if (!response.ok) throw new Error('Unable to save report.');
+      const updated = await response.json();
+      setReports((current) => current.map((report) => (report.id === reportId ? updated : report)));
+      if (saveVersion.current === version) setSaveStatus('Saved');
     } catch (error) {
       console.error('Failed to update report:', error);
+      if (saveVersion.current === version) setSaveStatus('Failed');
+      toast.error('Unable to save report');
     }
   }
 
-  async function deleteReport(reportId: string) {
-    if (!confirm('Are you sure you want to delete this report?')) return;
-
+  async function deleteReport() {
+    if (!reportToDelete) return;
+    if (pendingSave.current?.id === reportToDelete.id && saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      pendingSave.current = null;
+    }
+    ++saveVersion.current;
+    setDeleting(true);
     try {
-      await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
-      const updatedReports = reports.filter((r) => r.id !== reportId);
-      setReports(updatedReports);
-      if (selectedReport?.id === reportId) {
-        setSelectedReport(updatedReports[0] || null);
-      }
+      const response = await fetch(`/api/reports/${reportToDelete.id}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Unable to delete report.');
+      setReports((current) => current.filter((report) => report.id !== reportToDelete.id));
+      setSelectedReport((selected) =>
+        selected?.id === reportToDelete.id ? reports.find((report) => report.id !== reportToDelete.id) || null : selected
+      );
+      setReportToDelete(null);
+      toast.success('Report deleted');
     } catch (error) {
       console.error('Failed to delete report:', error);
+      toast.error('Unable to delete report');
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -143,7 +196,11 @@ export default function ReportsPage() {
   }
 
   if (loading) {
-    return <p className="text-muted-foreground">Loading reports...</p>;
+    return <p className="text-muted-foreground" role="status">Loading reports...</p>;
+  }
+
+  if (error) {
+    return <div className="space-y-3"><p className="text-muted-foreground" role="alert">{error}</p><Button onClick={fetchReports}>Retry</Button></div>;
   }
 
   if (showTemplates) {
@@ -171,7 +228,7 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Reports</h1>
           <p className="mt-1 text-muted-foreground">Step back and see what changed.</p>
@@ -189,12 +246,16 @@ export default function ReportsPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_1fr]">
         {/* Reports list */}
-        <Card className="h-[calc(100vh-200px)] overflow-auto">
+        <Card className="max-h-80 overflow-auto lg:h-[calc(100vh-200px)] lg:max-h-none">
           <div className="p-2">
             {reports.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                No reports yet
-              </p>
+                <div className="py-8 text-center">
+                  <p className="text-sm text-muted-foreground">No reports yet</p>
+                  <Button className="mt-3" size="sm" onClick={() => createReport()}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Create your first report
+                  </Button>
+                </div>
             ) : (
               <div className="space-y-1">
                 {reports.map((report) => (
@@ -236,26 +297,35 @@ export default function ReportsPage() {
         </Card>
 
         {/* Report editor */}
-        <Card className="h-[calc(100vh-200px)]">
+        <Card className="min-h-[420px] lg:h-[calc(100vh-200px)]">
           {selectedReport ? (
             <div className="flex h-full flex-col">
               <div className="border-b p-4">
                 <label htmlFor="report-title" className="sr-only">
                   Report title
                 </label>
-                <input
+                <div className="flex items-center gap-3">
+                  <input
                   id="report-title"
                   type="text"
                   value={selectedReport.title}
-                  onChange={(e) =>
-                    setSelectedReport({ ...selectedReport, title: e.target.value })
-                  }
-                  onBlur={() =>
-                    updateReport(selectedReport.id, { title: selectedReport.title })
-                  }
-                  className="w-full text-xl font-semibold outline-none"
+                  onChange={(e) => { const title = e.target.value; setSelectedReport({ ...selectedReport, title }); scheduleSave(selectedReport.id, { title }); }}
+                  className="min-w-0 flex-1 text-xl font-semibold outline-none"
                   placeholder="Report title"
-                />
+                  />
+                  <span className="text-xs text-muted-foreground" role="status">{saveStatus}</span>
+                  <AlertDialog open={reportToDelete?.id === selectedReport.id} onOpenChange={(open) => !open && setReportToDelete(null)}>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="ghost" size="icon" aria-label={`Delete ${selectedReport.title}`} onClick={() => setReportToDelete(selectedReport)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader><AlertDialogTitle>Delete {reportToDelete?.title}?</AlertDialogTitle><AlertDialogDescription>This permanently deletes this report.</AlertDialogDescription></AlertDialogHeader>
+                      <AlertDialogFooter><AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel><AlertDialogAction onClick={deleteReport} disabled={deleting}>{deleting ? 'Deleting...' : 'Delete report'}</AlertDialogAction></AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
                 <div className="mt-2 flex gap-2">
                   <Badge variant="outline">{selectedReport.report_type}</Badge>
                   <Badge variant="outline">{selectedReport.domain}</Badge>
@@ -280,12 +350,7 @@ export default function ReportsPage() {
                 >
                   <ReportEditor
                     content={selectedReport.content}
-                    onChange={(content) =>
-                      setSelectedReport({ ...selectedReport, content })
-                    }
-                    onBlur={() =>
-                      updateReport(selectedReport.id, { content: selectedReport.content })
-                    }
+                    onChange={(content) => { setSelectedReport({ ...selectedReport, content }); scheduleSave(selectedReport.id, { content }); }}
                   />
                 </Suspense>
               </div>

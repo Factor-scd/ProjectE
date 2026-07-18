@@ -4,6 +4,7 @@ import React, { Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useDashboardStore } from '@/lib/stores/use-dashboard-store';
 import { WidgetErrorBoundary } from '@/components/widget-error-boundary';
+import { Button } from '@/components/ui/button';
 
 // Lazy load react-grid-layout (client-only, ~45KB)
 const ResponsiveGridLayout = dynamic(
@@ -125,6 +126,7 @@ const widgetComponents: Record<string, React.ComponentType> = {
 
 export default function DashboardPage() {
   const { widgets, setWidgets } = useDashboardStore();
+  const [layoutAnnouncement, setLayoutAnnouncement] = React.useState('');
 
   const layout = widgets.map((w) => ({
     i: w.id,
@@ -134,7 +136,7 @@ export default function DashboardPage() {
     h: w.h,
   }));
 
-  function handleLayoutChange(newLayout: { i: string; x: number; y: number; w: number; h: number }[]) {
+  function handleLayoutChange(newLayout: ReadonlyArray<{ i: string; x: number; y: number; w: number; h: number }>) {
     const updated = widgets.map((w) => {
       const layoutItem = newLayout.find((l) => l.i === w.id);
       if (layoutItem) {
@@ -151,12 +153,66 @@ export default function DashboardPage() {
     setWidgets(updated);
   }
 
+  function moveWidget(id: string, direction: -1 | 1) {
+    const ordered = [...widgets].sort((a, b) => a.y - b.y || a.x - b.x);
+    const index = ordered.findIndex((widget) => widget.id === id);
+    const targetIndex = index + direction;
+    if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
+
+    const current = ordered[index];
+    const target = ordered[targetIndex];
+    setWidgets(widgets.map((widget) => {
+      if (widget.id === current.id) return { ...widget, x: target.x, y: target.y };
+      if (widget.id === target.id) return { ...widget, x: current.x, y: current.y };
+      return widget;
+    }));
+    setLayoutAnnouncement(`${current.type} moved ${direction < 0 ? 'earlier' : 'later'} on the dashboard.`);
+  }
+
+  function resizeWidget(id: string, direction: -1 | 1) {
+    const widget = widgets.find((item) => item.id === id);
+    if (!widget) return;
+    const width = Math.max(2, Math.min(12, widget.w + direction));
+    if (width === widget.w) return;
+    setWidgets(widgets.map((item) => item.id === id ? { ...item, w: width } : item));
+    setLayoutAnnouncement(`${widget.type} is now ${width} columns wide.`);
+  }
+
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold">Dashboard</h1>
         <p className="mt-1 text-muted-foreground">Your day, at a glance.</p>
       </div>
+
+      <details className="mb-4 rounded-lg border bg-card p-3">
+        <summary className="cursor-pointer text-sm font-medium">Customize dashboard layout</summary>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Use these controls to reorder or resize widgets without dragging.
+        </p>
+        <div className="mt-3 space-y-2">
+          {[...widgets].sort((a, b) => a.y - b.y || a.x - b.x).map((widget, index, ordered) => (
+            <div key={widget.id} className="flex items-center justify-between gap-3 rounded-md bg-muted/50 px-3 py-2">
+              <span className="text-sm">{widget.type}</span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => moveWidget(widget.id, -1)} disabled={index === 0}>
+                  Move earlier
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => moveWidget(widget.id, 1)} disabled={index === ordered.length - 1}>
+                  Move later
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => resizeWidget(widget.id, -1)} disabled={widget.w <= 2}>
+                  Narrower
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => resizeWidget(widget.id, 1)} disabled={widget.w >= 12}>
+                  Wider
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </details>
+      <p className="sr-only" aria-live="polite">{layoutAnnouncement}</p>
 
       <ResponsiveGridLayout layout={layout} onLayoutChange={handleLayoutChange}>
         {widgets.map((widget) => {

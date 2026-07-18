@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import Link from 'next/link';
+import { CreateItemDialog } from '@/components/create-item-dialog';
 
 interface Project {
   id: string;
@@ -23,27 +24,41 @@ interface Project {
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
   useEffect(() => {
     fetchProjects();
   }, []);
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('new') === 'true') setCreateOpen(true);
+  }, []);
+
+  function handleCreateOpenChange(open: boolean) {
+    setCreateOpen(open);
+    if (!open && new URLSearchParams(window.location.search).get('new') === 'true') {
+      window.history.replaceState(null, '', '/projects');
+    }
+  }
+
   async function fetchProjects() {
     try {
+      setError(null);
       const response = await fetch('/api/projects?sort=-created');
-      if (response.ok) {
-        const data = await response.json();
-        setProjects(data.items || []);
-      }
+      if (!response.ok) throw new Error('Unable to load projects.');
+      const data = await response.json();
+      setProjects(data.items || []);
     } catch (error) {
       console.error('Failed to fetch projects:', error);
+      setError('Unable to load projects. Please try again.');
     } finally {
       setLoading(false);
     }
   }
 
   if (loading) {
-    return <p className="text-muted-foreground">Loading projects...</p>;
+    return <p role="status" className="text-muted-foreground">Loading projects...</p>;
   }
 
   const activeProjects = projects.filter((p) => p.status === 'active');
@@ -57,11 +72,18 @@ export default function ProjectsPage() {
           <h1 className="text-2xl font-bold">Projects</h1>
           <p className="mt-1 text-muted-foreground">Every outcome has a home.</p>
         </div>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" />
+        <Button onClick={() => setCreateOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
           New project
         </Button>
       </div>
+
+      {error && (
+        <div role="alert" className="mb-6 flex items-center justify-between gap-4 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+          <span>{error}</span>
+          <Button variant="outline" size="sm" onClick={fetchProjects}>Retry</Button>
+        </div>
+      )}
 
       {/* Active projects */}
       {activeProjects.length > 0 && (
@@ -107,9 +129,16 @@ export default function ProjectsPage() {
             <p className="mt-1 text-sm text-muted-foreground">
               Create your first project to get started
             </p>
+            <Button className="mt-4" onClick={() => setCreateOpen(true)}>Create a project</Button>
           </CardContent>
         </Card>
       )}
+      <CreateItemDialog
+        type="project"
+        open={createOpen}
+        onOpenChange={handleCreateOpenChange}
+        onCreated={fetchProjects}
+      />
     </div>
   );
 }
@@ -149,7 +178,7 @@ function ProjectCard({ project }: { project: Project }) {
               <span className="text-muted-foreground">Progress</span>
               <span className="font-semibold">{project.progress}%</span>
             </div>
-            <Progress value={project.progress} className="h-2" />
+            <Progress value={project.progress} className="h-2" aria-label={`${project.name} progress: ${project.progress}%`} />
           </div>
 
           {/* Task count */}

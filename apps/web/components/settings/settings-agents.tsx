@@ -9,6 +9,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface Agent {
   id: string;
@@ -24,20 +34,27 @@ export function SettingsAgents() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newAgentName, setNewAgentName] = useState('');
   const [newAgentTier, setNewAgentTier] = useState('read_only');
+  const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [agentToDelete, setAgentToDelete] = useState<Agent | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAgents();
   }, []);
 
   async function fetchAgents() {
+    setLoading(true);
+    setError(null);
     try {
       const response = await fetch('/api/agents');
-      if (response.ok) {
-        const data = await response.json();
-        setAgents(data.items || []);
-      }
+      if (!response.ok) throw new Error('Unable to load agents.');
+      const data = await response.json();
+      setAgents(data.items || []);
     } catch (error) {
       console.error('Failed to fetch agents:', error);
+      setError('Unable to load agents. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -46,8 +63,11 @@ export function SettingsAgents() {
   async function createAgent() {
     if (!newAgentName.trim()) return;
 
+    setCreating(true);
+    setError(null);
+    setStatus(null);
     try {
-      await fetch('/api/agents', {
+      const response = await fetch('/api/agents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -56,22 +76,36 @@ export function SettingsAgents() {
           status: 'active',
         }),
       });
+      if (!response.ok) throw new Error('Unable to create agent.');
       setNewAgentName('');
       setCreateDialogOpen(false);
-      fetchAgents();
+      setStatus('Agent created successfully.');
+      await fetchAgents();
     } catch (error) {
       console.error('Failed to create agent:', error);
+      setError('Unable to create agent. Please try again.');
+    } finally {
+      setCreating(false);
     }
   }
 
-  async function deleteAgent(id: string) {
-    if (!confirm('Are you sure? This will revoke the agent\'s access.')) return;
+  async function deleteAgent() {
+    if (!agentToDelete) return;
 
+    setDeletingId(agentToDelete.id);
+    setError(null);
+    setStatus(null);
     try {
-      await fetch(`/api/agents/${id}`, { method: 'DELETE' });
-      fetchAgents();
+      const response = await fetch(`/api/agents/${agentToDelete.id}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Unable to delete agent.');
+      setAgentToDelete(null);
+      setStatus('Agent deleted successfully.');
+      await fetchAgents();
     } catch (error) {
       console.error('Failed to delete agent:', error);
+      setError('Unable to delete agent. Please try again.');
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -132,6 +166,13 @@ export function SettingsAgents() {
         </div>
       </CardHeader>
       <CardContent>
+        {error && (
+          <div className="mb-4 flex items-center justify-between gap-3 text-sm text-destructive" role="alert">
+            <span>{error}</span>
+            <Button variant="outline" size="sm" onClick={fetchAgents} disabled={loading}>Retry</Button>
+          </div>
+        )}
+        {status && <p className="mb-4 text-sm text-muted-foreground" role="status">{status}</p>}
         {loading ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
             Loading agents...
@@ -173,8 +214,9 @@ export function SettingsAgents() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => deleteAgent(agent.id)}
+                    onClick={() => setAgentToDelete(agent)}
                     aria-label={`Delete agent: ${agent.name}`}
+                    disabled={deletingId === agent.id}
                   >
                     <Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" />
                   </Button>
@@ -183,6 +225,20 @@ export function SettingsAgents() {
             ))}
           </div>
         )}
+        <AlertDialog open={!!agentToDelete} onOpenChange={(open) => !open && setAgentToDelete(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete {agentToDelete?.name}?</AlertDialogTitle>
+              <AlertDialogDescription>This will revoke the agent's access.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={!!deletingId}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={deleteAgent} disabled={!!deletingId}>
+                {deletingId ? 'Deleting...' : 'Delete agent'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   );

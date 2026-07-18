@@ -26,39 +26,39 @@ export default function SettingsPage() {
         <p className="mt-1 text-muted-foreground">Tune Project E to fit your work.</p>
       </div>
 
-      <Tabs defaultValue="appearance" orientation="vertical" className="flex gap-6">
-        <TabsList className="flex w-[200px] flex-col gap-1 bg-transparent h-auto">
-          <TabsTrigger value="appearance" className="justify-start gap-2">
+      <Tabs defaultValue="appearance" orientation="vertical" className="flex flex-col gap-6 md:flex-row">
+        <TabsList className="flex h-auto w-full flex-row justify-start gap-1 overflow-x-auto bg-transparent p-0 md:w-[200px] md:flex-col">
+          <TabsTrigger value="appearance" className="shrink-0 justify-start gap-2">
             <Palette className="h-4 w-4" aria-hidden="true" />
             Appearance
           </TabsTrigger>
-          <TabsTrigger value="domains" className="justify-start gap-2">
+          <TabsTrigger value="domains" className="shrink-0 justify-start gap-2">
             <Globe className="h-4 w-4" aria-hidden="true" />
             Domains
           </TabsTrigger>
-          <TabsTrigger value="shortcuts" className="justify-start gap-2">
+          <TabsTrigger value="shortcuts" className="shrink-0 justify-start gap-2">
             <Keyboard className="h-4 w-4" aria-hidden="true" />
             Keyboard Shortcuts
           </TabsTrigger>
-          <TabsTrigger value="agents" className="justify-start gap-2">
+          <TabsTrigger value="agents" className="shrink-0 justify-start gap-2">
             <Bot className="h-4 w-4" aria-hidden="true" />
             Agents & Permissions
           </TabsTrigger>
-          <TabsTrigger value="webhooks" className="justify-start gap-2">
+          <TabsTrigger value="webhooks" className="shrink-0 justify-start gap-2">
             <Webhook className="h-4 w-4" aria-hidden="true" />
             Webhooks
           </TabsTrigger>
-          <TabsTrigger value="import-export" className="justify-start gap-2">
+          <TabsTrigger value="import-export" className="shrink-0 justify-start gap-2">
             <Download className="h-4 w-4" aria-hidden="true" />
             Import & Export
           </TabsTrigger>
-          <TabsTrigger value="error-log" className="justify-start gap-2">
+          <TabsTrigger value="error-log" className="shrink-0 justify-start gap-2">
             <AlertTriangle className="h-4 w-4" aria-hidden="true" />
             Error Log
           </TabsTrigger>
         </TabsList>
 
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <TabsContent value="appearance">
             <SettingsAppearance />
           </TabsContent>

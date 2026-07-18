@@ -1,14 +1,26 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
-import { Plus, FileText, Link2, GitBranch } from 'lucide-react';
+import { useEffect, useRef, useState, Suspense } from 'react';
+import { Plus, FileText, Link2, GitBranch, Trash2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { DailyNoteButton } from '@/components/notes/daily-note-button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 // Lazy load TipTap editor (~80KB TipTap + extensions)
 const NoteEditor = dynamic(
@@ -55,9 +67,30 @@ export default function NotesPage() {
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [backlinks, setBacklinks] = useState<Backlink[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [backlinksError, setBacklinksError] = useState<string | null>(null);
+  const [backlinksLoading, setBacklinksLoading] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'Saved' | 'Saving' | 'Failed'>('Saved');
+  const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const createdFromQuery = useRef(false);
+  const pendingSave = useRef<{ id: string; updates: Partial<Note> } | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveVersion = useRef(0);
 
   useEffect(() => {
     fetchNotes();
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('new') !== 'true' || createdFromQuery.current) return;
+    createdFromQuery.current = true;
+    createNote().finally(() => window.history.replaceState(null, '', '/notes'));
+  // Route-triggered creation should only run once per page visit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -67,32 +100,36 @@ export default function NotesPage() {
   }, [selectedNote]);
 
   async function fetchNotes() {
+    setLoading(true);
+    setError(null);
     try {
       const response = await fetch('/api/notes?sort=-updated');
-      if (response.ok) {
-        const data = await response.json();
-        const notesList = data.items || [];
-        setNotes(notesList);
-        if (notesList.length > 0 && !selectedNote) {
-          setSelectedNote(notesList[0]);
-        }
-      }
+      if (!response.ok) throw new Error('Unable to load notes.');
+      const data = await response.json();
+      const notesList = data.items || [];
+      setNotes(notesList);
+      setSelectedNote((current) => current || notesList[0] || null);
     } catch (error) {
       console.error('Failed to fetch notes:', error);
+      setError('Unable to load notes. Please try again.');
     } finally {
       setLoading(false);
     }
   }
 
   async function fetchBacklinks(noteId: string) {
+    setBacklinksLoading(true);
+    setBacklinksError(null);
     try {
       const response = await fetch(`/api/notes/${noteId}/backlinks`);
-      if (response.ok) {
-        const data = await response.json();
-        setBacklinks(data.items || []);
-      }
+      if (!response.ok) throw new Error('Unable to load backlinks.');
+      const data = await response.json();
+      setBacklinks(data.items || []);
     } catch (error) {
       console.error('Failed to fetch backlinks:', error);
+      setBacklinksError('Unable to load backlinks.');
+    } finally {
+      setBacklinksLoading(false);
     }
   }
 
@@ -107,13 +144,14 @@ export default function NotesPage() {
           domain: 'personal',
         }),
       });
-      if (response.ok) {
-        const newNote = await response.json();
-        setNotes([newNote, ...notes]);
-        setSelectedNote(newNote);
-      }
+      if (!response.ok) throw new Error('Unable to create note.');
+      const newNote = await response.json();
+      setNotes((current) => [newNote, ...current]);
+      setSelectedNote(newNote);
+      toast.success('Note created');
     } catch (error) {
       console.error('Failed to create note:', error);
+      toast.error('Unable to create note');
     }
   }
 
@@ -126,45 +164,94 @@ export default function NotesPage() {
       return;
     }
     // Otherwise prepend it and select
-    setNotes([note, ...notes]);
+    setNotes((current) => [note, ...current]);
     setSelectedNote(note);
   }
 
-  async function updateNote(noteId: string, updates: Partial<Note>) {
+  function scheduleSave(noteId: string, updates: Partial<Note>) {
+    const version = ++saveVersion.current;
+    pendingSave.current = {
+      id: noteId,
+      updates: { ...(pendingSave.current?.id === noteId ? pendingSave.current.updates : {}), ...updates },
+    };
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSaveStatus('Saving');
+    saveTimer.current = setTimeout(() => {
+      const save = pendingSave.current;
+      pendingSave.current = null;
+      if (save) updateNote(save.id, save.updates, version);
+    }, 700);
+  }
+
+  async function updateNote(noteId: string, updates: Partial<Note>, version: number) {
     try {
-      await fetch(`/api/notes/${noteId}`, {
+      const response = await fetch(`/api/notes/${noteId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
-      fetchNotes();
+      if (!response.ok) throw new Error('Unable to save note.');
+      const updated = await response.json();
+      setNotes((current) => current.map((note) => (note.id === noteId ? updated : note)));
+      if (saveVersion.current === version) setSaveStatus('Saved');
     } catch (error) {
       console.error('Failed to update note:', error);
+      if (saveVersion.current === version) setSaveStatus('Failed');
+      toast.error('Unable to save note');
     }
   }
 
-  async function deleteNote(noteId: string) {
-    if (!confirm('Are you sure you want to delete this note?')) return;
-
+  async function deleteNote() {
+    if (!noteToDelete) return;
+    if (pendingSave.current?.id === noteToDelete.id && saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      pendingSave.current = null;
+    }
+    ++saveVersion.current;
+    setDeleting(true);
     try {
-      await fetch(`/api/notes/${noteId}`, { method: 'DELETE' });
-      const updatedNotes = notes.filter((n) => n.id !== noteId);
-      setNotes(updatedNotes);
-      if (selectedNote?.id === noteId) {
-        setSelectedNote(updatedNotes[0] || null);
-      }
+      const response = await fetch(`/api/notes/${noteToDelete.id}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Unable to delete note.');
+      setNotes((current) => current.filter((note) => note.id !== noteToDelete.id));
+      setSelectedNote((selected) =>
+        selected?.id === noteToDelete.id ? notes.find((note) => note.id !== noteToDelete.id) || null : selected
+      );
+      setNoteToDelete(null);
+      toast.success('Note deleted');
     } catch (error) {
       console.error('Failed to delete note:', error);
+      toast.error('Unable to delete note');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function openBacklink(link: Backlink) {
+    const existing = notes.find((note) => note.id === link.id);
+    if (existing) return setSelectedNote(existing);
+    try {
+      const response = await fetch(`/api/notes/${link.id}`);
+      if (!response.ok) throw new Error('Unable to load linked note.');
+      const note = await response.json() as Note;
+      setNotes((current) => [note, ...current]);
+      setSelectedNote(note);
+    } catch (error) {
+      console.error('Failed to fetch linked note:', error);
+      toast.error('Unable to open linked note');
     }
   }
 
   if (loading) {
-    return <p className="text-muted-foreground">Loading notes...</p>;
+    return <p className="text-muted-foreground" role="status">Loading notes...</p>;
+  }
+
+  if (error) {
+    return <div className="space-y-3"><p className="text-muted-foreground" role="alert">{error}</p><Button onClick={fetchNotes}>Retry</Button></div>;
   }
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Notes</h1>
           <p className="mt-1 text-muted-foreground">
@@ -182,13 +269,17 @@ export default function NotesPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[250px_1fr_300px]">
         {/* Notes list */}
-        <Card className="h-[calc(100vh-200px)]">
-          <ScrollArea className="h-full">
+        <Card className="max-h-80 lg:h-[calc(100vh-200px)] lg:max-h-none">
+          <ScrollArea className="max-h-80 lg:h-full lg:max-h-none">
             <div className="p-2">
               {notes.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  No notes yet
-                </p>
+                <div className="py-8 text-center">
+                  <p className="text-sm text-muted-foreground">No notes yet</p>
+                  <Button className="mt-3" size="sm" onClick={createNote}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Create your first note
+                  </Button>
+                </div>
               ) : (
                 <div className="space-y-1">
                   {notes.map((note) => (
@@ -226,31 +317,42 @@ export default function NotesPage() {
         </Card>
 
         {/* Note editor */}
-        <Card className="h-[calc(100vh-200px)]">
+        <Card className="min-h-[420px] lg:h-[calc(100vh-200px)]">
           {selectedNote ? (
             <div className="flex h-full flex-col">
               <div className="border-b p-4">
                 <label htmlFor="note-title" className="sr-only">
                   Note title
                 </label>
-                <input
+                <div className="flex items-center gap-3">
+                  <input
                   id="note-title"
                   type="text"
                   value={selectedNote.title}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const title = e.target.value;
                     setSelectedNote({
                       ...selectedNote,
-                      title: e.target.value,
-                    })
-                  }
-                  onBlur={() =>
-                    updateNote(selectedNote.id, {
-                      title: selectedNote.title,
-                    })
-                  }
-                  className="w-full text-xl font-semibold outline-none"
+                      title,
+                    });
+                    scheduleSave(selectedNote.id, { title });
+                  }}
+                  className="min-w-0 flex-1 text-xl font-semibold outline-none"
                   placeholder="Note title"
-                />
+                  />
+                  <span className="text-xs text-muted-foreground" role="status">{saveStatus}</span>
+                  <AlertDialog open={noteToDelete?.id === selectedNote.id} onOpenChange={(open) => !open && setNoteToDelete(null)}>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="ghost" size="icon" aria-label={`Delete ${selectedNote.title}`} onClick={() => setNoteToDelete(selectedNote)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader><AlertDialogTitle>Delete {noteToDelete?.title}?</AlertDialogTitle><AlertDialogDescription>This permanently deletes this note.</AlertDialogDescription></AlertDialogHeader>
+                      <AlertDialogFooter><AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel><AlertDialogAction onClick={deleteNote} disabled={deleting}>{deleting ? 'Deleting...' : 'Delete note'}</AlertDialogAction></AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               </div>
               <div className="flex-1 overflow-auto p-4">
                 <Suspense
@@ -264,14 +366,7 @@ export default function NotesPage() {
                 >
                   <NoteEditor
                     content={selectedNote.content}
-                    onChange={(content) =>
-                      setSelectedNote({ ...selectedNote, content })
-                    }
-                    onBlur={() =>
-                      updateNote(selectedNote.id, {
-                        content: selectedNote.content,
-                      })
-                    }
+                    onChange={(content) => { setSelectedNote({ ...selectedNote, content }); scheduleSave(selectedNote.id, { content }); }}
                   />
                 </Suspense>
               </div>
@@ -286,7 +381,7 @@ export default function NotesPage() {
         </Card>
 
         {/* Backlinks and graph */}
-        <Card className="h-[calc(100vh-200px)]">
+        <Card className="min-h-[360px] lg:h-[calc(100vh-200px)]">
           <Tabs defaultValue="backlinks" className="h-full">
             <div className="border-b p-2">
               <TabsList className="w-full">
@@ -302,7 +397,7 @@ export default function NotesPage() {
             </div>
 
             <TabsContent value="backlinks" className="h-full overflow-auto p-4">
-              {backlinks.length === 0 ? (
+              {backlinksLoading ? <p className="py-8 text-center text-sm text-muted-foreground" role="status">Loading backlinks...</p> : backlinksError ? <div className="py-8 text-center"><p className="text-sm text-muted-foreground" role="alert">{backlinksError}</p><Button className="mt-3" size="sm" onClick={() => selectedNote && fetchBacklinks(selectedNote.id)}>Retry</Button></div> : backlinks.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">
                   No backlinks
                 </p>
@@ -311,10 +406,7 @@ export default function NotesPage() {
                   {backlinks.map((link) => (
                     <button
                       key={link.id}
-                      onClick={() => {
-                        const note = notes.find((n) => n.id === link.id);
-                        if (note) setSelectedNote(note);
-                      }}
+                      onClick={() => openBacklink(link)}
                       aria-label={`Open linked note: ${link.title}`}
                       className="w-full rounded-lg border p-3 text-left transition-colors hover:bg-accent"
                     >

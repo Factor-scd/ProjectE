@@ -5,6 +5,16 @@ import { Plus, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface Domain {
   id: string;
@@ -18,20 +28,27 @@ export function SettingsDomains() {
   const [domains, setDomains] = useState<Domain[]>([]);
   const [newDomainName, setNewDomainName] = useState('');
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [domainToDelete, setDomainToDelete] = useState<Domain | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDomains();
   }, []);
 
   async function fetchDomains() {
+    setLoading(true);
+    setError(null);
     try {
       const response = await fetch('/api/domains?sort=sort_order');
-      if (response.ok) {
-        const data = await response.json();
-        setDomains(data.items || []);
-      }
+      if (!response.ok) throw new Error('Unable to load domains.');
+      const data = await response.json();
+      setDomains(data.items || []);
     } catch (error) {
       console.error('Failed to fetch domains:', error);
+      setError('Unable to load domains. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -40,8 +57,11 @@ export function SettingsDomains() {
   async function addDomain() {
     if (!newDomainName.trim()) return;
 
+    setCreating(true);
+    setError(null);
+    setStatus(null);
     try {
-      await fetch('/api/domains', {
+      const response = await fetch('/api/domains', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -51,21 +71,35 @@ export function SettingsDomains() {
           sort_order: domains.length,
         }),
       });
+      if (!response.ok) throw new Error('Unable to add domain.');
       setNewDomainName('');
-      fetchDomains();
+      setStatus('Domain added successfully.');
+      await fetchDomains();
     } catch (error) {
       console.error('Failed to add domain:', error);
+      setError('Unable to add domain. Please try again.');
+    } finally {
+      setCreating(false);
     }
   }
 
-  async function deleteDomain(id: string) {
-    if (!confirm('Are you sure? This cannot be undone.')) return;
+  async function deleteDomain() {
+    if (!domainToDelete) return;
 
+    setDeletingId(domainToDelete.id);
+    setError(null);
+    setStatus(null);
     try {
-      await fetch(`/api/domains/${id}`, { method: 'DELETE' });
-      fetchDomains();
+      const response = await fetch(`/api/domains/${domainToDelete.id}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Unable to delete domain.');
+      setDomainToDelete(null);
+      setStatus('Domain deleted successfully.');
+      await fetchDomains();
     } catch (error) {
       console.error('Failed to delete domain:', error);
+      setError('Unable to delete domain. Please try again.');
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -76,6 +110,13 @@ export function SettingsDomains() {
         <CardDescription>Manage your workspace domains (e.g., Personal, Work, OTS).</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {error && (
+          <div className="flex items-center justify-between gap-3 text-sm text-destructive" role="alert">
+            <span>{error}</span>
+            <Button variant="outline" size="sm" onClick={fetchDomains} disabled={loading}>Retry</Button>
+          </div>
+        )}
+        {status && <p className="text-sm text-muted-foreground" role="status">{status}</p>}
         {/* Existing domains */}
         <div className="space-y-2">
           {loading ? (
@@ -93,8 +134,9 @@ export function SettingsDomains() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => deleteDomain(domain.id)}
+                  onClick={() => setDomainToDelete(domain)}
                   aria-label={`Delete domain: ${domain.name}`}
+                  disabled={deletingId === domain.id}
                 >
                   <Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" />
                 </Button>
@@ -114,12 +156,27 @@ export function SettingsDomains() {
             value={newDomainName}
             onChange={(e) => setNewDomainName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addDomain()}
+            disabled={creating}
           />
-          <Button onClick={addDomain}>
+          <Button onClick={addDomain} disabled={creating || !newDomainName.trim()}>
             <Plus className="mr-1 h-4 w-4" />
-            Add
+            {creating ? 'Adding...' : 'Add'}
           </Button>
         </div>
+        <AlertDialog open={!!domainToDelete} onOpenChange={(open) => !open && setDomainToDelete(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete {domainToDelete?.name}?</AlertDialogTitle>
+              <AlertDialogDescription>This cannot be undone.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={!!deletingId}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={deleteDomain} disabled={!!deletingId}>
+                {deletingId ? 'Deleting...' : 'Delete domain'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   );

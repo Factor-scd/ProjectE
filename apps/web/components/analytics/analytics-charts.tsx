@@ -67,6 +67,13 @@ export function AnalyticsCharts({
   habitData,
   activeTab,
 }: AnalyticsChartsProps) {
+  const hasActivity = timeData.some((day) => day.tasks > 0 || day.habits > 0 || day.time > 0);
+  const hasRecentActivity = timeData.slice(-7).some((day) => day.tasks > 0 || day.habits > 0);
+  const activitySummary = timeData
+    .filter((day) => day.tasks > 0 || day.habits > 0 || day.time > 0)
+    .map((day) => `${day.date}: ${day.tasks} tasks completed, ${day.habits} habits logged, ${day.time} minutes tracked.`)
+    .join(' ');
+
   if (activeTab === 'trends') {
     return (
       <div className="grid grid-cols-1 gap-6">
@@ -79,43 +86,23 @@ export function AnalyticsCharts({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={timeData}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="hsl(var(--border))"
-                />
-                <XAxis
-                  dataKey="date"
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                />
-                <YAxis
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                />
-                <Tooltip contentStyle={chartTooltipStyle} />
-                <Legend />
-                <Area
-                  type="monotone"
-                  dataKey="tasks"
-                  stackId="1"
-                  stroke="#3b82f6"
-                  fill="#3b82f6"
-                  fillOpacity={0.6}
-                  name="Tasks Completed"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="habits"
-                  stackId="1"
-                  stroke="#10b981"
-                  fill="#10b981"
-                  fillOpacity={0.6}
-                  name="Habits Logged"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {!hasActivity ? (
+              <p className="py-8 text-center text-muted-foreground">No completed tasks or habit logs in the last 30 days.</p>
+            ) : (
+              <div role="img" aria-label={`Productivity trend. ${activitySummary}`}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <AreaChart data={timeData} aria-hidden="true">
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                    <Tooltip contentStyle={chartTooltipStyle} />
+                    <Legend />
+                    <Area type="monotone" dataKey="tasks" stackId="1" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.6} name="Tasks Completed" />
+                    <Area type="monotone" dataKey="habits" stackId="1" stroke="#10b981" fill="#10b981" fillOpacity={0.6} name="Habits Logged" />
+                </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -128,37 +115,21 @@ export function AnalyticsCharts({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={timeData}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="hsl(var(--border))"
-                />
-                <XAxis
-                  dataKey="date"
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                />
-                <YAxis
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                  label={{
-                    value: 'Minutes',
-                    angle: -90,
-                    position: 'insideLeft',
-                  }}
-                />
-                <Tooltip contentStyle={chartTooltipStyle} />
-                <Line
-                  type="monotone"
-                  dataKey="time"
-                  stroke="#8b5cf6"
-                  strokeWidth={2}
-                  dot={{ fill: '#8b5cf6', r: 3 }}
-                  name="Time (minutes)"
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            {timeData.some((day) => day.time > 0) ? (
+              <div role="img" aria-label={`Time tracked over the last 30 days. ${activitySummary}`}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={timeData} aria-hidden="true">
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} label={{ value: 'Minutes', angle: -90, position: 'insideLeft' }} />
+                    <Tooltip contentStyle={chartTooltipStyle} />
+                    <Line type="monotone" dataKey="time" stroke="#8b5cf6" strokeWidth={2} dot={{ fill: '#8b5cf6', r: 3 }} name="Time (minutes)" />
+                </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="py-8 text-center text-muted-foreground">No time tracked in the last 30 days.</p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -182,8 +153,9 @@ export function AnalyticsCharts({
                 No habits tracked
               </p>
             ) : (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={habitData} layout="vertical">
+              <div role="img" aria-label={`Habit streaks: ${habitData.map((habit) => `${habit.name}, ${habit.streak} days`).join('; ')}.`}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={habitData} layout="vertical">
                   <CartesianGrid
                     strokeDasharray="3 3"
                     stroke="hsl(var(--border))"
@@ -207,8 +179,9 @@ export function AnalyticsCharts({
                     radius={[0, 4, 4, 0]}
                     name="Current Streak (days)"
                   />
-                </BarChart>
-              </ResponsiveContainer>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -239,6 +212,11 @@ export function AnalyticsCharts({
                       <div
                         className="h-full rounded-full bg-primary transition-all"
                         style={{ width: `${habit.score}%` }}
+                        role="progressbar"
+                        aria-label={`${habit.name} score`}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={habit.score}
                       />
                     </div>
                   </div>
@@ -269,6 +247,7 @@ export function AnalyticsCharts({
               </p>
             ) : (
               <div className="flex items-center gap-8">
+                <p className="sr-only">Time by domain: {domainData.map((domain) => `${domain.name}, ${domain.value} minutes`).join('; ')}.</p>
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie
@@ -304,8 +283,12 @@ export function AnalyticsCharts({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={timeData.slice(-7)}>
+            {!hasRecentActivity ? (
+              <p className="py-8 text-center text-muted-foreground">No task or habit activity in the last 7 days.</p>
+            ) : (
+              <div role="img" aria-label={`Daily activity for the last 7 days. ${activitySummary}`}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={timeData.slice(-7)}>
                 <CartesianGrid
                   strokeDasharray="3 3"
                   stroke="hsl(var(--border))"
@@ -333,8 +316,10 @@ export function AnalyticsCharts({
                   name="Habits"
                   radius={[4, 4, 0, 0]}
                 />
-              </BarChart>
-            </ResponsiveContainer>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

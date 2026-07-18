@@ -5,7 +5,11 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get('pb_auth')?.value;
 
   // If no token and trying to access protected routes, redirect to login
-  if (!token && request.nextUrl.pathname.startsWith('/dashboard')) {
+  const protectedRoutes = [
+    '/dashboard', '/tasks', '/habits', '/projects', '/notes', '/reports',
+    '/calendar', '/analytics', '/agents', '/settings',
+  ];
+  if (!token && protectedRoutes.some((route) => request.nextUrl.pathname === route || request.nextUrl.pathname.startsWith(`${route}/`))) {
     const loginUrl = new URL('/login', request.url);
     return NextResponse.redirect(loginUrl);
   }

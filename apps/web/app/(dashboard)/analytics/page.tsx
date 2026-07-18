@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import {
   Tabs,
   TabsContent,
@@ -65,86 +66,108 @@ interface HabitData {
   consistency: number;
 }
 
+function countByDate(records: Array<Record<string, unknown>>, field: string) {
+  return records.reduce<Record<string, number>>((counts, record) => {
+    const value = record[field];
+    if (typeof value === 'string' && !Number.isNaN(new Date(value).getTime())) {
+      const date = new Date(value).toISOString().slice(0, 10);
+      counts[date] = (counts[date] || 0) + 1;
+    }
+    return counts;
+  }, {});
+}
+
 export default function AnalyticsPage() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [timeData, setTimeData] = useState<TimeData[]>([]);
   const [domainData, setDomainData] = useState<DomainData[]>([]);
   const [habitData, setHabitData] = useState<HabitData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAnalytics();
   }, []);
 
   async function fetchAnalytics() {
+    setLoading(true);
+    setError(null);
     try {
-      // Fetch overall analytics
-      const analyticsResponse = await fetch('/api/analytics?period=30');
-      if (analyticsResponse.ok) {
-        const analyticsData = await analyticsResponse.json();
-        setAnalytics(analyticsData);
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 29);
+      const start = startDate.toISOString();
+      const [analyticsResponse, timeResponse, habitsResponse, tasksResponse, habitLogsResponse] = await Promise.all([
+        fetch('/api/analytics?period=30'),
+        fetch(`/api/time-summary?start=${encodeURIComponent(start)}`),
+        fetch('/api/habits/streaks'),
+        fetch('/api/tasks?perPage=500'),
+        fetch(`/api/habit-logs?start=${encodeURIComponent(start)}`),
+      ]);
+
+      if (![analyticsResponse, timeResponse, habitsResponse, tasksResponse, habitLogsResponse].every((response) => response.ok)) {
+        throw new Error('One or more analytics sources could not be loaded.');
       }
 
-      // Fetch time summary
-      const timeResponse = await fetch('/api/time-summary?period=30');
-      if (timeResponse.ok) {
-        const timeSummary = await timeResponse.json();
+      const [analyticsData, timeSummary, habitsData, tasksData, habitLogsData] = await Promise.all([
+        analyticsResponse.json(),
+        timeResponse.json(),
+        habitsResponse.json(),
+        tasksResponse.json(),
+        habitLogsResponse.json(),
+      ]);
 
-        // Transform to domain data for pie chart
-        const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
-        const domains: DomainData[] = Object.entries(
-          timeSummary.byDomain || {}
-        ).map(([name, value], index) => ({
-          name,
-          value: value as number,
-          color: COLORS[index % COLORS.length],
-        }));
-        setDomainData(domains);
-      }
-
-      // Fetch habit streaks
-      const habitsResponse = await fetch('/api/habits/streaks');
-      if (habitsResponse.ok) {
-        const habitsData = await habitsResponse.json();
-        const habits: HabitData[] = (habitsData.streaks || []).map(
-          (s: {
-            habit: { name: string; score?: number };
-            current_streak: number;
-            best_streak: number;
-          }) => ({
-            name: s.habit.name,
-            streak: s.current_streak,
-            score: s.habit.score || 0,
-            consistency: 0, // Would need to calculate from logs
-          })
-        );
-        setHabitData(habits);
-      }
-
-      // Generate sample time data (would come from API in production)
-      const sampleTimeData: TimeData[] = Array.from({ length: 30 }, (_, i) => {
-        const date = new Date();
-        date.setDate(date.getDate() - (29 - i));
+      const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
+      const domains: DomainData[] = Object.entries(timeSummary.byDomain || {}).map(([name, value], index) => ({
+        name,
+        value: value as number,
+        color: COLORS[index % COLORS.length],
+      }));
+      const habits: HabitData[] = (habitsData.streaks || []).map(
+        (s: { habit: { name: string; score?: number }; current_streak: number }) => ({
+          name: s.habit.name,
+          streak: s.current_streak,
+          score: s.habit.score || 0,
+          consistency: 0,
+        })
+      );
+      const completedByDate = countByDate(tasksData.items || [], 'completed_at');
+      const habitsByDate = countByDate(habitLogsData.items || [], 'logged_at');
+      const minutesByDate = timeSummary.byDate || {};
+      const dailyData = Array.from({ length: 30 }, (_, index) => {
+        const date = new Date(startDate);
+        date.setDate(startDate.getDate() + index);
+        const key = date.toISOString().slice(0, 10);
         return {
-          date: date.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-          }),
-          tasks: Math.floor(Math.random() * 10) + 2,
-          habits: Math.floor(Math.random() * 5) + 1,
-          time: Math.floor(Math.random() * 180) + 30,
+          date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          tasks: completedByDate[key] || 0,
+          habits: habitsByDate[key] || 0,
+          time: minutesByDate[key] || 0,
         };
       });
-      setTimeData(sampleTimeData);
+
+      setAnalytics(analyticsData);
+      setDomainData(domains);
+      setHabitData(habits);
+      setTimeData(dailyData);
     } catch (error) {
       console.error('Failed to fetch analytics:', error);
+      setError('Analytics could not be loaded. Please try again.');
     } finally {
       setLoading(false);
     }
   }
 
-  if (loading || !analytics) {
+  if (loading) {
     return <p className="text-muted-foreground">Loading analytics...</p>;
+  }
+
+  if (error || !analytics) {
+    return (
+      <div className="space-y-4 py-20 text-center">
+        <p className="text-muted-foreground" role="alert">{error || 'Analytics are unavailable.'}</p>
+        <Button onClick={fetchAnalytics}>Retry</Button>
+      </div>
+    );
   }
 
   return (

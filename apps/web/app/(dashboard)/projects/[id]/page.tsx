@@ -162,7 +162,7 @@ export default function ProjectDetailPage() {
                 </div>
                 <CheckCircle2 className="h-8 w-8 text-green-600" aria-hidden="true" />
               </div>
-              <Progress value={project.progress} className="mt-2 h-2" />
+              <Progress value={project.progress} className="mt-2 h-2" aria-label={`${project.name} progress: ${project.progress}%`} />
             </CardContent>
           </Card>
 
@@ -361,6 +361,7 @@ export default function ProjectDetailPage() {
                                 : 0
                             }
                             className="h-1.5"
+                            aria-label={`${milestone.name} task progress: ${milestone.completed_tasks} of ${milestone.total_tasks}`}
                           />
                         </div>
                       </div>

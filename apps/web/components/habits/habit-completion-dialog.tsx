@@ -89,7 +89,7 @@ export function HabitCompletionDialog({
             <Input
               id="quantity"
               type="number"
-              placeholder="e.g., 30 minutes, 10 pages"
+              placeholder="e.g., 30"
               value={quantity ?? ''}
               onChange={(e) =>
                 setQuantity(e.target.value ? Number(e.target.value) : undefined)

@@ -27,6 +27,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -46,13 +53,88 @@ const workspaceItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { collapsed, toggle } = useSidebarStore();
+  const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebarStore();
+
+  const navigation = (isCollapsed: boolean, onNavigate?: () => void) => (
+    <ScrollArea className="flex-1 py-2">
+      <nav className="flex flex-col gap-1 px-2" aria-label="Primary">
+        {navItems.map((item) => {
+          const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+          const link = (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={onNavigate}
+              className={cn(
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                isActive
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+              )}
+              aria-current={isActive ? 'page' : undefined}
+            >
+              <item.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {!isCollapsed && <span>{item.label}</span>}
+            </Link>
+          );
+          if (isCollapsed) {
+            return (
+              <Tooltip key={item.href}>
+                <TooltipTrigger asChild>{link}</TooltipTrigger>
+                <TooltipContent side="right">{item.label}</TooltipContent>
+              </Tooltip>
+            );
+          }
+
+          return link;
+        })}
+      </nav>
+      <Separator className="my-3" />
+      <nav className="flex flex-col gap-1 px-2" aria-label="Workspace">
+        {!isCollapsed && (
+          <p className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Workspace
+          </p>
+        )}
+        {workspaceItems.map((item) => {
+          const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+          const link = (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={onNavigate}
+              className={cn(
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                isActive
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+              )}
+              aria-current={isActive ? 'page' : undefined}
+            >
+              <item.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {!isCollapsed && <span>{item.label}</span>}
+            </Link>
+          );
+          if (isCollapsed) {
+            return (
+              <Tooltip key={item.href}>
+                <TooltipTrigger asChild>{link}</TooltipTrigger>
+                <TooltipContent side="right">{item.label}</TooltipContent>
+              </Tooltip>
+            );
+          }
+
+          return link;
+        })}
+      </nav>
+    </ScrollArea>
+  );
 
   return (
     <TooltipProvider delayDuration={0}>
       <aside
         className={cn(
-          'flex flex-col border-r bg-card transition-all duration-200',
+          'hidden flex-col border-r bg-card transition-all duration-200 md:flex',
           collapsed ? 'w-16' : 'w-60'
         )}
         aria-label="Main navigation"
@@ -80,82 +162,17 @@ export function Sidebar() {
 
         <Separator />
 
-        {/* Navigation */}
-        <ScrollArea className="flex-1 py-2">
-          <nav className="flex flex-col gap-1 px-2" aria-label="Primary">
-            {navItems.map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
-              const link = (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                    isActive
-                      ? 'bg-accent text-accent-foreground'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                  )}
-                  aria-current={isActive ? 'page' : undefined}
-                >
-                  <item.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                  {!collapsed && <span>{item.label}</span>}
-                </Link>
-              );
-
-              if (collapsed) {
-                return (
-                  <Tooltip key={item.href}>
-                    <TooltipTrigger asChild>{link}</TooltipTrigger>
-                    <TooltipContent side="right">{item.label}</TooltipContent>
-                  </Tooltip>
-                );
-              }
-
-              return link;
-            })}
-          </nav>
-
-          <Separator className="my-3" />
-
-          <nav className="flex flex-col gap-1 px-2" aria-label="Workspace">
-            {!collapsed && (
-              <p className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Workspace
-              </p>
-            )}
-            {workspaceItems.map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
-              const link = (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                    isActive
-                      ? 'bg-accent text-accent-foreground'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                  )}
-                  aria-current={isActive ? 'page' : undefined}
-                >
-                  <item.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                  {!collapsed && <span>{item.label}</span>}
-                </Link>
-              );
-
-              if (collapsed) {
-                return (
-                  <Tooltip key={item.href}>
-                    <TooltipTrigger asChild>{link}</TooltipTrigger>
-                    <TooltipContent side="right">{item.label}</TooltipContent>
-                  </Tooltip>
-                );
-              }
-
-              return link;
-            })}
-          </nav>
-        </ScrollArea>
+        {navigation(collapsed)}
       </aside>
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent side="left" className="flex w-72 flex-col p-0 md:hidden">
+          <SheetHeader className="border-b px-4 py-4 pr-12">
+            <SheetTitle>Project E</SheetTitle>
+            <SheetDescription>Navigate your workspace.</SheetDescription>
+          </SheetHeader>
+          {navigation(false, () => setMobileOpen(false))}
+        </SheetContent>
+      </Sheet>
     </TooltipProvider>
   );
 }

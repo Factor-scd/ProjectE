@@ -1,4 +1,4 @@
-module.exports = {
+exports = {
   up: async (app) => {
     const collection = new app.models.Collection({
       name: 'webhooks',

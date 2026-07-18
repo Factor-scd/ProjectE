@@ -43,7 +43,14 @@ export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [activity, setActivity] = useState<AgentActivity[]>([]);
   const [agentTasks, setAgentTasks] = useState<AgentTask[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [agentTasksLoading, setAgentTasksLoading] = useState(true);
+  const [agentsError, setAgentsError] = useState<string | null>(null);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  const [agentTasksError, setAgentTasksError] = useState<string | null>(null);
+  const [undoingActivityId, setUndoingActivityId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
 
   useEffect(() => {
@@ -53,51 +60,76 @@ export default function AgentsPage() {
   }, []);
 
   async function fetchAgents() {
+    setAgentsLoading(true);
+    setAgentsError(null);
     try {
       const response = await fetch('/api/agents');
-      if (response.ok) {
-        const data = await response.json();
-        setAgents(data.items || []);
+      if (!response.ok) {
+        throw new Error('Unable to load agents.');
       }
+      const data = await response.json();
+      setAgents(data.items || []);
     } catch (error) {
       console.error('Failed to fetch agents:', error);
+      setAgentsError('Unable to load agents. Please try again.');
     } finally {
-      setLoading(false);
+      setAgentsLoading(false);
     }
   }
 
   async function fetchActivity() {
+    setActivityLoading(true);
+    setActivityError(null);
     try {
       const response = await fetch('/api/agent-activity?sort=-created&perPage=50');
-      if (response.ok) {
-        const data = await response.json();
-        setActivity(data.items || []);
+      if (!response.ok) {
+        throw new Error('Unable to load agent activity.');
       }
+      const data = await response.json();
+      setActivity(data.items || []);
     } catch (error) {
       console.error('Failed to fetch activity:', error);
+      setActivityError('Unable to load agent activity. Please try again.');
+    } finally {
+      setActivityLoading(false);
     }
   }
 
   async function fetchAgentTasks() {
+    setAgentTasksLoading(true);
+    setAgentTasksError(null);
     try {
       const response = await fetch('/api/agent-tasks?sort=-created&perPage=50');
-      if (response.ok) {
-        const data = await response.json();
-        setAgentTasks(data.items || []);
+      if (!response.ok) {
+        throw new Error('Unable to load agent tasks.');
       }
+      const data = await response.json();
+      setAgentTasks(data.items || []);
     } catch (error) {
       console.error('Failed to fetch agent tasks:', error);
+      setAgentTasksError('Unable to load agent tasks. Please try again.');
+    } finally {
+      setAgentTasksLoading(false);
     }
   }
 
   async function undoActivity(activityId: string) {
+    setUndoingActivityId(activityId);
+    setFeedback(null);
     try {
-      await fetch(`/api/agent-activity/${activityId}/undo`, {
+      const response = await fetch(`/api/agent-activity/${activityId}/undo`, {
         method: 'POST',
       });
-      fetchActivity();
+      if (!response.ok) {
+        throw new Error('Unable to undo this activity.');
+      }
+      setFeedback({ type: 'success', message: 'Activity undone successfully.' });
+      await fetchActivity();
     } catch (error) {
       console.error('Failed to undo activity:', error);
+      setFeedback({ type: 'error', message: 'Unable to undo this activity. Please try again.' });
+    } finally {
+      setUndoingActivityId(null);
     }
   }
 
@@ -130,10 +162,6 @@ export default function AgentsPage() {
     return labels[action] || action;
   }
 
-  if (loading) {
-    return <p className="text-muted-foreground">Loading agent activity...</p>;
-  }
-
   return (
     <div>
       <div className="mb-6">
@@ -141,6 +169,16 @@ export default function AgentsPage() {
         <p className="mt-1 text-muted-foreground">
           Every agent action, visible and reversible.
         </p>
+        {feedback && (
+          <p
+            className={`mt-3 text-sm ${
+              feedback.type === 'success' ? 'text-green-600' : 'text-red-600'
+            }`}
+            role={feedback.type === 'error' ? 'alert' : 'status'}
+          >
+            {feedback.message}
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_1fr]">
@@ -150,10 +188,22 @@ export default function AgentsPage() {
             <CardTitle className="text-base">Agents</CardTitle>
           </CardHeader>
           <CardContent>
-            {agents.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                No agents configured
-              </p>
+            {agentsLoading ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">Loading agents...</p>
+            ) : agentsError ? (
+              <div className="py-8 text-center">
+                <p className="text-sm text-red-600" role="alert">{agentsError}</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={fetchAgents}>
+                  Retry
+                </Button>
+              </div>
+            ) : agents.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-sm text-muted-foreground">No agents configured</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={fetchAgents}>
+                  Refresh agents
+                </Button>
+              </div>
             ) : (
               <div className="space-y-2">
                 {agents.map((agent) => (
@@ -217,10 +267,22 @@ export default function AgentsPage() {
               </TabsList>
 
               <TabsContent value="activity" className="mt-4">
-                {activity.length === 0 ? (
-                  <p className="py-8 text-center text-muted-foreground">
-                    No agent activity yet
-                  </p>
+                {activityLoading ? (
+                  <p className="py-8 text-center text-muted-foreground">Loading agent activity...</p>
+                ) : activityError ? (
+                  <div className="py-8 text-center">
+                    <p className="text-sm text-red-600" role="alert">{activityError}</p>
+                    <Button variant="outline" size="sm" className="mt-3" onClick={fetchActivity}>
+                      Retry
+                    </Button>
+                  </div>
+                ) : activity.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <p className="text-muted-foreground">No agent activity yet</p>
+                    <Button variant="outline" size="sm" className="mt-3" onClick={fetchActivity}>
+                      Refresh activity
+                    </Button>
+                  </div>
                 ) : (
                   <div className="space-y-3">
                     {activity.map((item) => (
@@ -277,11 +339,12 @@ export default function AgentsPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => undoActivity(item.id)}
+                            disabled={undoingActivityId !== null}
                             className="shrink-0"
                             aria-label={`Undo activity: ${getActionLabel(item.action)} ${item.entity_type}`}
                           >
                             <RotateCcw className="mr-1 h-3 w-3" aria-hidden="true" />
-                            Undo
+                            {undoingActivityId === item.id ? 'Undoing...' : 'Undo'}
                           </Button>
                         </div>
                       </div>
@@ -291,10 +354,22 @@ export default function AgentsPage() {
               </TabsContent>
 
               <TabsContent value="tasks" className="mt-4">
-                {agentTasks.length === 0 ? (
-                  <p className="py-8 text-center text-muted-foreground">
-                    No agent tasks yet
-                  </p>
+                {agentTasksLoading ? (
+                  <p className="py-8 text-center text-muted-foreground">Loading agent tasks...</p>
+                ) : agentTasksError ? (
+                  <div className="py-8 text-center">
+                    <p className="text-sm text-red-600" role="alert">{agentTasksError}</p>
+                    <Button variant="outline" size="sm" className="mt-3" onClick={fetchAgentTasks}>
+                      Retry
+                    </Button>
+                  </div>
+                ) : agentTasks.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <p className="text-muted-foreground">No agent tasks yet</p>
+                    <Button variant="outline" size="sm" className="mt-3" onClick={fetchAgentTasks}>
+                      Refresh tasks
+                    </Button>
+                  </div>
                 ) : (
                   <div className="space-y-3">
                     {agentTasks.map((task) => (

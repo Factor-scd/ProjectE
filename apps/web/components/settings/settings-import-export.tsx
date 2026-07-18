@@ -66,16 +66,20 @@ export function SettingsImportExport() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [confirmImport, setConfirmImport] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   // ── Export ────────────────────────────────────────────────────────────────
 
   async function handleExport() {
     setExporting(true);
     setExportProgress(0);
+    setExportError(null);
+    let progressInterval: ReturnType<typeof setInterval> | undefined;
 
     try {
       // Simulate progress while fetching
-      const progressInterval = setInterval(() => {
+      progressInterval = setInterval(() => {
         setExportProgress((prev) => Math.min(prev + 10, 90));
       }, 200);
 
@@ -86,6 +90,7 @@ export function SettingsImportExport() {
       });
 
       clearInterval(progressInterval);
+      progressInterval = undefined;
 
       if (!response.ok) {
         throw new Error('Export failed');
@@ -108,8 +113,10 @@ export function SettingsImportExport() {
       toast.success('Export completed successfully');
     } catch (error) {
       console.error('Failed to export:', error);
+      setExportError('Failed to export data. Please try again.');
       toast.error('Failed to export data');
     } finally {
+      if (progressInterval) clearInterval(progressInterval);
       setExporting(false);
       setExportProgress(0);
     }
@@ -131,6 +138,7 @@ export function SettingsImportExport() {
 
     setPendingImportFile(file);
     setImportResult(null);
+    setImportError(null);
     setConfirmImport(true);
   }
 
@@ -140,18 +148,21 @@ export function SettingsImportExport() {
     setConfirmImport(false);
     setImporting(true);
     setImportProgress(0);
+    setImportError(null);
+    let progressInterval: ReturnType<typeof setInterval> | undefined;
 
     try {
       const text = await pendingImportFile.text();
       const data = JSON.parse(text);
 
       if (!data.version) {
+        setImportError('Invalid file. Select a valid Project E export and try again.');
         toast.error('Invalid file — missing version field. Is this a valid Project E export?');
         return;
       }
 
       // Simulate progress
-      const progressInterval = setInterval(() => {
+      progressInterval = setInterval(() => {
         setImportProgress((prev) => Math.min(prev + 5, 90));
       }, 300);
 
@@ -162,16 +173,25 @@ export function SettingsImportExport() {
       });
 
       clearInterval(progressInterval);
+      progressInterval = undefined;
 
       if (!response.ok) {
-        const errorData = await response.json();
-        toast.error(errorData.error?.message || 'Import failed');
+        let message = 'Import failed. Please try again.';
+        try {
+          const errorData = await response.json();
+          message = errorData.error?.message || message;
+        } catch {
+          // Use the default message when the server does not return JSON.
+        }
+        setImportError(message);
+        toast.error(message);
         return;
       }
 
       const result: ImportResult = await response.json();
       setImportProgress(100);
       setImportResult(result);
+      setPendingImportFile(null);
 
       if (result.success) {
         toast.success(`Import complete: ${result.imported} records imported`);
@@ -182,10 +202,11 @@ export function SettingsImportExport() {
       }
     } catch (error) {
       console.error('Failed to import:', error);
+      setImportError('Failed to parse or import the file. Please try again.');
       toast.error('Failed to parse import file. Please check the format.');
     } finally {
+      if (progressInterval) clearInterval(progressInterval);
       setImporting(false);
-      setPendingImportFile(null);
     }
   }
 
@@ -255,7 +276,7 @@ export function SettingsImportExport() {
           {/* Progress */}
           {exporting && (
             <div className="mt-4 space-y-2">
-              <Progress value={exportProgress} className="h-2" />
+              <Progress value={exportProgress} className="h-2" aria-label={`Export progress: ${exportProgress}%`} />
               <p className="text-xs text-muted-foreground">Exporting... {exportProgress}%</p>
             </div>
           )}
@@ -272,6 +293,7 @@ export function SettingsImportExport() {
             )}
             {exporting ? 'Exporting...' : 'Export to JSON'}
           </Button>
+          {exportError && <p className="mt-2 text-sm text-destructive" role="alert">{exportError}</p>}
         </div>
 
         {/* ── Import Section ─────────────────────────────────────────────────── */}
@@ -284,7 +306,7 @@ export function SettingsImportExport() {
           {/* Progress */}
           {importing && (
             <div className="mt-4 space-y-2">
-              <Progress value={importProgress} className="h-2" />
+              <Progress value={importProgress} className="h-2" aria-label={`Import progress: ${importProgress}%`} />
               <p className="text-xs text-muted-foreground">Importing... {importProgress}%</p>
             </div>
           )}
@@ -356,6 +378,12 @@ export function SettingsImportExport() {
               </span>
             </Button>
           </label>
+          {importError && (
+            <div className="mt-2 flex items-center gap-3 text-sm text-destructive" role="alert">
+              <span>{importError}</span>
+              {pendingImportFile && <Button variant="outline" size="sm" onClick={executeImport} disabled={importing}>Retry import</Button>}
+            </div>
+          )}
         </div>
 
         {/* ── Import Confirmation Dialog ─────────────────────────────────────── */}

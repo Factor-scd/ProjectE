@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
+import { toast } from 'sonner';
 import {
   Sheet,
   SheetContent,
   SheetHeader,
-  SheetTitle,
+  SheetTitle
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,8 +17,18 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
+  SelectValue
 } from '@/components/ui/select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
 
 interface Task {
   id: string;
@@ -42,7 +53,7 @@ export function TaskDetailPanel({
   task,
   open,
   onOpenChange,
-  onUpdate,
+  onUpdate
 }: TaskDetailPanelProps) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description || '');
@@ -51,11 +62,13 @@ export function TaskDetailPanel({
   const [domain, setDomain] = useState(task.domain);
   const [dueDate, setDueDate] = useState(task.due_date || '');
   const [saving, setSaving] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   async function handleSave() {
     setSaving(true);
     try {
-      await fetch(`/api/tasks/${task.id}`, {
+      const response = await fetch(`/api/tasks/${task.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -64,27 +77,37 @@ export function TaskDetailPanel({
           status,
           priority,
           domain,
-          due_date: dueDate || null,
-        }),
+          due_date: dueDate || null
+        })
       });
+      if (!response.ok) throw new Error('Unable to save task');
       onUpdate();
       onOpenChange(false);
+      toast.success('Task saved');
     } catch (error) {
       console.error('Failed to update task:', error);
+      toast.error('Unable to save task');
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDelete() {
-    if (!confirm('Are you sure you want to delete this task?')) return;
-
+    setDeleting(true);
     try {
-      await fetch(`/api/tasks/${task.id}`, { method: 'DELETE' });
+      const response = await fetch(`/api/tasks/${task.id}`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) throw new Error('Unable to delete task');
       onUpdate();
+      setDeleteOpen(false);
       onOpenChange(false);
+      toast.success('Task deleted');
     } catch (error) {
       console.error('Failed to delete task:', error);
+      toast.error('Unable to delete task');
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -189,13 +212,37 @@ export function TaskDetailPanel({
             </Button>
             <Button
               variant="destructive"
-              onClick={handleDelete}
+              onClick={() => setDeleteOpen(true)}
               className="ml-auto"
             >
               Delete
             </Button>
           </div>
         </div>
+
+        <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete task?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently deletes &quot;{task.title}&quot;.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(event) => {
+                  event.preventDefault();
+                  handleDelete();
+                }}
+                disabled={deleting}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </SheetContent>
     </Sheet>
   );

@@ -13,9 +13,11 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setErrorMessage('');
     setLoading(true);
 
     try {
@@ -32,6 +34,7 @@ export default function LoginPage() {
 
       router.push('/dashboard');
     } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to sign in. Check your credentials and try again.');
       handleApiError(error, 'Login failed');
     } finally {
       setLoading(false);
@@ -47,6 +50,11 @@ export default function LoginPage() {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
+            {errorMessage && (
+              <div id="login-error" role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                {errorMessage}
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -56,6 +64,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                aria-describedby={errorMessage ? 'login-error' : undefined}
               />
             </div>
             <div className="space-y-2">
@@ -66,6 +75,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                aria-describedby={errorMessage ? 'login-error' : undefined}
               />
             </div>
           </CardContent>

@@ -2,17 +2,30 @@
 
 import { useEffect, useState } from 'react';
 import {
+  KeyboardSensor,
   DndContext,
   DragEndEvent,
   DragOverlay,
   DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
   useDraggable,
-  useDroppable,
+  useDroppable
 } from '@dnd-kit/core';
+import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, MoreHorizontal } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import { Calendar, GripVertical } from 'lucide-react';
+import { toast } from 'sonner';
 import { TaskDetailPanel } from './task-detail-panel';
 
 interface Task {
@@ -30,25 +43,27 @@ interface Task {
 const columns = [
   { id: 'todo', title: 'To Do', color: 'bg-slate-500' },
   { id: 'in_progress', title: 'In Progress', color: 'bg-blue-500' },
-  { id: 'done', title: 'Done', color: 'bg-green-500' },
+  { id: 'done', title: 'Done', color: 'bg-green-500' }
 ];
 
 function DraggableTask({
   task,
   onClick,
+  onStatusChange
 }: {
   task: Task;
   onClick: () => void;
+  onStatusChange: (task: Task, status: Task['status']) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: task.id,
-      data: { task },
+      data: { task }
     });
 
   const style = transform
     ? {
-        transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+        transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`
       }
     : undefined;
 
@@ -56,11 +71,7 @@ function DraggableTask({
     <div
       ref={setNodeRef}
       style={style}
-      {...listeners}
-      {...attributes}
-      className={`cursor-grab active:cursor-grabbing ${
-        isDragging ? 'opacity-50' : ''
-      }`}
+      className={isDragging ? 'opacity-50' : ''}
     >
       <Card className="mb-2 hover:shadow-md transition-shadow">
         <CardContent className="p-4">
@@ -77,12 +88,32 @@ function DraggableTask({
             <Button
               variant="ghost"
               size="icon"
-              className="h-11 w-11 shrink-0"
-              aria-label={`More options for ${task.title}`}
+              className="h-11 w-11 shrink-0 cursor-grab active:cursor-grabbing"
+              aria-label={`Drag ${task.title}`}
+              {...listeners}
+              {...attributes}
             >
-              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+              <GripVertical className="h-4 w-4" aria-hidden="true" />
             </Button>
           </div>
+          <Select
+            value={task.status}
+            onValueChange={(status) =>
+              onStatusChange(task, status as Task['status'])
+            }
+          >
+            <SelectTrigger
+              className="mb-2 h-9"
+              aria-label={`Move ${task.title} to a status`}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todo">To Do</SelectItem>
+              <SelectItem value="in_progress">In Progress</SelectItem>
+              <SelectItem value="done">Done</SelectItem>
+            </SelectContent>
+          </Select>
           <div className="flex items-center gap-2 flex-wrap">
             <Badge
               variant={
@@ -118,12 +149,14 @@ function DroppableColumn({
   color,
   tasks,
   onTaskClick,
+  onStatusChange
 }: {
   id: string;
   title: string;
   color: string;
   tasks: Task[];
   onTaskClick: (task: Task) => void;
+  onStatusChange: (task: Task, status: Task['status']) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
@@ -132,9 +165,7 @@ function DroppableColumn({
       <div className="mb-3 flex items-center gap-2">
         <div className={`h-2 w-2 rounded-full ${color}`} aria-hidden="true" />
         <h3 className="font-semibold">{title}</h3>
-        <span className="text-sm text-muted-foreground">
-          ({tasks.length})
-        </span>
+        <span className="text-sm text-muted-foreground">({tasks.length})</span>
       </div>
       <div
         ref={setNodeRef}
@@ -149,6 +180,7 @@ function DroppableColumn({
             key={task.id}
             task={task}
             onClick={() => onTaskClick(task)}
+            onStatusChange={onStatusChange}
           />
         ))}
       </div>
@@ -161,6 +193,12 @@ export function TasksKanbanView() {
   const [loading, setLoading] = useState(true);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates
+    })
+  );
 
   useEffect(() => {
     fetchTasks();
@@ -169,12 +207,14 @@ export function TasksKanbanView() {
   async function fetchTasks() {
     try {
       const response = await fetch('/api/tasks?sort=-created');
-      if (response.ok) {
-        const data = await response.json();
-        setTasks(data.items || []);
+      if (!response.ok) {
+        throw new Error('Unable to load tasks');
       }
+      const data = await response.json();
+      setTasks(data.items || []);
     } catch (error) {
       console.error('Failed to fetch tasks:', error);
+      toast.error('Unable to load tasks');
     } finally {
       setLoading(false);
     }
@@ -182,28 +222,44 @@ export function TasksKanbanView() {
 
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
-    if (!over) return;
+    if (!over) {
+      setActiveTask(null);
+      return;
+    }
 
     const task = active.data.current?.task as Task;
     const newStatus = over.id as Task['status'];
 
     if (task.status !== newStatus) {
-      try {
-        await fetch(`/api/tasks/${task.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: newStatus }),
-        });
-        fetchTasks();
-      } catch (error) {
-        console.error('Failed to update task status:', error);
-      }
+      await updateTaskStatus(task, newStatus);
     }
+    setActiveTask(null);
   }
 
   function handleDragStart(event: DragStartEvent) {
     const task = event.active.data.current?.task as Task;
     setActiveTask(task);
+  }
+
+  async function updateTaskStatus(task: Task, status: Task['status']) {
+    if (task.status === status) return;
+
+    try {
+      const response = await fetch(`/api/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      if (!response.ok) throw new Error('Unable to move task');
+
+      await fetchTasks();
+      toast.success(
+        `Moved ${task.title} to ${columns.find((column) => column.id === status)?.title}`
+      );
+    } catch (error) {
+      console.error('Failed to update task status:', error);
+      toast.error(`Unable to move ${task.title}`);
+    }
   }
 
   if (loading) {
@@ -212,7 +268,12 @@ export function TasksKanbanView() {
 
   return (
     <>
-      <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveTask(null)}
+      >
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           {columns.map((column) => (
             <DroppableColumn
@@ -222,6 +283,7 @@ export function TasksKanbanView() {
               color={column.color}
               tasks={tasks.filter((t) => t.status === column.id)}
               onTaskClick={setSelectedTask}
+              onStatusChange={updateTaskStatus}
             />
           ))}
         </div>

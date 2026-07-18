@@ -15,12 +15,15 @@ export function useKeyboardShortcuts() {
     let pendingTimeout: ReturnType<typeof setTimeout>;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is typing in an input/textarea
+      // Never override native behavior inside controls or modal UI.
       const target = e.target as HTMLElement;
       if (
         target.tagName === 'INPUT' ||
         target.tagName === 'TEXTAREA' ||
-        target.isContentEditable
+        target.tagName === 'SELECT' ||
+        target.tagName === 'BUTTON' ||
+        target.isContentEditable ||
+        target.closest('[role="dialog"], [role="menu"], [role="listbox"], [role="combobox"]')
       ) {
         return;
       }
@@ -61,11 +64,6 @@ export function useKeyboardShortcuts() {
         case 'n':
           // New (context-dependent)
           document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }));
-          e.preventDefault();
-          break;
-        case '?':
-          // Show shortcuts help
-          console.log('Show shortcuts help');
           e.preventDefault();
           break;
       }
