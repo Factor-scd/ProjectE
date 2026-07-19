@@ -12,7 +12,7 @@ export const GET = withAuth<RouteContext>(async (request: NextRequest, _user, co
   const { searchParams } = new URL(request.url);
   const page = parseInt(searchParams.get('page') || '1');
   const perPage = parseInt(searchParams.get('perPage') || '50');
-  const filter = searchParams.get('filter') || '';
+  const filter = searchParams.get('filter') || undefined;
   const sort = searchParams.get('sort') || '-logged_at';
 
   const pb = createPocketBaseClient();

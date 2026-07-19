@@ -20,7 +20,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 
   const pb = createPocketBaseClient();
   const result = await pb.collection('habit_logs').getList(1, 1000, {
-    filter,
+    ...(filter ? { filter } : {}),
     sort: '-logged_at',
   });
 

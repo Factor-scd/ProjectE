@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createPocketBaseClient } from './pocketbase';
 
 export interface AuthUser {
   id: string;
@@ -23,13 +22,24 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
   if (!token) return null;
 
   try {
-    const pb = createPocketBaseClient(token);
-    const authData = await pb.collection('users').authRefresh();
+    // Decode JWT to get user ID
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+    const userId = payload.id;
+
+    // Use raw fetch with admin token to get the user record
+    // (avoids PocketBase SDK authStore issues with superuser tokens)
+    const adminToken = process.env.POCKETBASE_ADMIN_TOKEN || '';
+    const pbUrl = process.env.POCKETBASE_URL || 'http://localhost:8090';
+    const res = await fetch(pbUrl + '/api/collections/users/records/' + userId, {
+      headers: { Authorization: adminToken },
+    });
+    if (!res.ok) return null;
+    const record = await res.json();
 
     return {
-      id: authData.record.id,
-      email: authData.record.email,
-      name: authData.record.name || authData.record.email,
+      id: record.id,
+      email: record.email,
+      name: record.name || record.email,
     };
   } catch {
     return null;
@@ -78,8 +88,9 @@ export function withAuth<T>(
         );
       }
 
+      console.error('[withAuth] error:', error);
       return NextResponse.json(
-        { error: { code: 'INTERNAL_ERROR', message: 'Authentication failed' } },
+        { error: { code: 'INTERNAL_ERROR', message: 'Auth error: ' + (error instanceof Error ? error.message : String(error)) } },
         { status: 500 }
       );
     }

@@ -29,7 +29,7 @@ export function createAdminClient(): PocketBase {
   const pb = new PocketBase(pocketbaseUrl);
   const adminToken = getAdminToken();
   if (adminToken) {
-    pb.authStore.save(adminToken, null);
+    pb.authStore.save(adminToken, { id: 'admin', email: 'admin@projecte.local', collectionId: '_superusers', collectionName: '_superusers' } as any);
   }
   return pb;
 }
