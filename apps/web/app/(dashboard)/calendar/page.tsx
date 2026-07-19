@@ -51,9 +51,9 @@ export default function CalendarPage() {
     setError(null);
     try {
       const [tasksResponse, projectsResponse, milestonesResponse] = await Promise.all([
-        fetch('/api/tasks?filter=due_date!%3D%22%22&perPage=500'),
-        fetch('/api/projects?filter=due_date!%3D%22%22&perPage=500'),
-        fetch('/api/milestones?filter=due_date!%3D%22%22&perPage=500'),
+        fetch('/api/tasks?perPage=500'),
+        fetch('/api/projects?perPage=500'),
+        fetch('/api/milestones?perPage=500'),
       ]);
 
       if (!tasksResponse.ok || !projectsResponse.ok || !milestonesResponse.ok) {
