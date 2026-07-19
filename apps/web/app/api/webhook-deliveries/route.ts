@@ -7,7 +7,7 @@ export const GET = withAuth(async (request: NextRequest, _user) => {
   const { searchParams } = new URL(request.url);
   const page = parseInt(searchParams.get('page') || '1');
   const perPage = parseInt(searchParams.get('perPage') || '50');
-  const filter = searchParams.get('filter') || '';
+  const filter = searchParams.get('filter') || undefined;
   const sort = searchParams.get('sort') || '-created';
   const webhookId = searchParams.get('webhook_id') || '';
 

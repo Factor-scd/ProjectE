@@ -7,8 +7,8 @@ services:
     # For Nginx Proxy Manager: Don't expose ports directly
     # NPM will connect via Docker network using container name
     # Only uncomment ports if you need direct access for debugging
-    # ports:
-    #   - "3000:3000"
+    ports:
+        - "3000:3000"
     environment:
       - NODE_ENV=production
       - POCKETBASE_URL=http://db:8090
@@ -38,8 +38,8 @@ services:
     container_name: project-e-db
     # For Nginx Proxy Manager: Don't expose ports directly
     # Only uncomment if you need direct PocketBase admin access
-    # ports:
-    #   - "8090:8090"
+    ports:
+        - "8090:8090"
     volumes:
       - project-e-pb-data:/pb_data
     networks:
