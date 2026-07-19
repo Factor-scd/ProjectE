@@ -13,4 +13,4 @@ COPY packages/shared/ ./packages/shared/
 
 ENV NODE_ENV=production
 
-CMD ["node", "worker/index.js"]
+CMD ["npx", "tsx", "worker/index.ts"]

@@ -19,7 +19,7 @@ export const agentActivitySchema = z.object({
   action: z.string(),
   entity_type: z.string().optional(),
   entity_id: z.string().optional(),
-  details: z.record(z.unknown()).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
   success: z.boolean().default(true),
   error_message: z.string().optional(),
   created: z.string().datetime(),
