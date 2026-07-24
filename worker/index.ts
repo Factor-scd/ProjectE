@@ -1,7 +1,4 @@
-import PocketBase from 'pocketbase';
-
-const POCKETBASE_URL = process.env.POCKETBASE_URL || 'http://localhost:8090';
-const ADMIN_TOKEN = process.env.POCKETBASE_ADMIN_TOKEN || '';
+import { createDatabaseClient } from './database.js';
 const POLL_INTERVAL_BASE = 5000; // 5 seconds base
 const POLL_INTERVAL_MAX = 60000; // 60 seconds max
 
@@ -20,12 +17,8 @@ interface QueueJob {
 let currentPollInterval = POLL_INTERVAL_BASE;
 let isProcessing = false;
 
-function createAdminClient(): PocketBase {
-  const pb = new PocketBase(POCKETBASE_URL);
-  if (ADMIN_TOKEN) {
-    pb.authStore.save(ADMIN_TOKEN, null);
-  }
-  return pb;
+function createAdminClient() {
+  return createDatabaseClient();
 }
 
 /**
@@ -43,7 +36,7 @@ async function poll(): Promise<void> {
     const jobs = await pb.collection('queue_jobs').getList(1, 10, {
       filter: `status = "pending" && scheduled_at <= "${now}"`,
       sort: 'created',
-    }) as { items: QueueJob[] };
+    }) as unknown as { items: QueueJob[] };
 
     if (jobs.items.length > 0) {
       console.log(`[Worker] Processing ${jobs.items.length} job(s)`);
@@ -335,7 +328,7 @@ async function scheduleCleanup(): Promise<void> {
 
 // Start the worker
 console.log('[Worker] Starting Project E worker...');
-console.log(`[Worker] PocketBase URL: ${POCKETBASE_URL}`);
+console.log('[Worker] PostgreSQL queue enabled');
 console.log(`[Worker] Poll interval: ${POLL_INTERVAL_BASE}ms (base), ${POLL_INTERVAL_MAX}ms (max)`);
 
 // Initial cleanup schedule

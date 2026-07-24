@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export function middleware(request: NextRequest) {
   // Check if user is authenticated
-  const token = request.cookies.get('pb_auth')?.value;
+  const token = request.cookies.get('next-auth.session-token')?.value
+    || request.cookies.get('__Secure-next-auth.session-token')?.value;
 
   // If no token and trying to access protected routes, redirect to login
   const protectedRoutes = [

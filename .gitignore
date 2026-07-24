@@ -43,3 +43,4 @@ pocketbase/pb_data/
 *.tmp
 .wrangler/
 .vinext/
+pb_data/

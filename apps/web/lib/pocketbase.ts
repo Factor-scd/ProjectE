@@ -1,37 +1,18 @@
-import PocketBase from 'pocketbase';
+import { createAdminClient as createDatabaseAdminClient, createDatabaseClient } from './database';
 
-const pocketbaseUrl = process.env.POCKETBASE_URL || 'http://localhost:8090';
-
-/**
- * Create a PocketBase client instance
- * @param token - Optional auth token for authenticated requests
- */
-export function createPocketBaseClient(token?: string): PocketBase {
-  const pb = new PocketBase(pocketbaseUrl);
-  if (token) {
-    pb.authStore.save(token, null);
-  }
-  return pb;
+/** @deprecated Import from `@/lib/database` in new code. */
+export function createPocketBaseClient(_token?: string) {
+  return createDatabaseClient();
 }
 
-/**
- * Get admin token from environment
- */
+/** @deprecated PostgreSQL access is authenticated by the application session. */
 export function getAdminToken(): string {
-  return process.env.POCKETBASE_ADMIN_TOKEN || '';
+  return '';
 }
 
-/**
- * Create an admin-authenticated PocketBase client
- * Used for server-side operations that need admin privileges
- */
-export function createAdminClient(): PocketBase {
-  const pb = new PocketBase(pocketbaseUrl);
-  const adminToken = getAdminToken();
-  if (adminToken) {
-    pb.authStore.save(adminToken, { id: 'admin', email: 'admin@projecte.local', collectionId: '_superusers', collectionName: '_superusers' } as any);
-  }
-  return pb;
+/** @deprecated Import from `@/lib/database` in new code. */
+export function createAdminClient() {
+  return createDatabaseAdminClient();
 }
 
 /**
@@ -42,8 +23,8 @@ export async function getRecord<T extends Record<string, unknown>>(
   id: string,
   token?: string
 ): Promise<T> {
-  const pb = createPocketBaseClient(token);
-  return pb.collection(collection).getOne(id) as Promise<T>;
+  const db = createPocketBaseClient(token);
+  return db.collection(collection).getOne(id) as Promise<T>;
 }
 
 /**
@@ -59,8 +40,8 @@ export async function listRecords<T extends Record<string, unknown>>(
     token?: string;
   }
 ): Promise<{ items: T[]; totalItems: number; totalPages: number }> {
-  const pb = createPocketBaseClient(options?.token);
-  const result = await pb.collection(collection).getList(
+  const db = createPocketBaseClient(options?.token);
+  const result = await db.collection(collection).getList(
     options?.page || 1,
     options?.perPage || 50,
     {
@@ -83,8 +64,8 @@ export async function createRecord<T extends Record<string, unknown>>(
   data: Partial<T>,
   token?: string
 ): Promise<T> {
-  const pb = createPocketBaseClient(token);
-  return pb.collection(collection).create(data) as Promise<T>;
+  const db = createPocketBaseClient(token);
+  return db.collection(collection).create(data) as Promise<T>;
 }
 
 /**
@@ -96,8 +77,8 @@ export async function updateRecord<T extends Record<string, unknown>>(
   data: Partial<T>,
   token?: string
 ): Promise<T> {
-  const pb = createPocketBaseClient(token);
-  return pb.collection(collection).update(id, data) as Promise<T>;
+  const db = createPocketBaseClient(token);
+  return db.collection(collection).update(id, data) as Promise<T>;
 }
 
 /**
@@ -108,6 +89,6 @@ export async function deleteRecord(
   id: string,
   token?: string
 ): Promise<boolean> {
-  const pb = createPocketBaseClient(token);
-  return pb.collection(collection).delete(id);
+  const db = createPocketBaseClient(token);
+  return db.collection(collection).delete(id);
 }

@@ -11,8 +11,11 @@ services:
         - "3000:3000"
     environment:
       - NODE_ENV=production
-      - POCKETBASE_URL=http://db:8090
-      - POCKETBASE_ADMIN_TOKEN=${POCKETBASE_ADMIN_TOKEN:-}
+      - DATABASE_URL=postgresql://project_e:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/project_e
+      - NEXTAUTH_URL=${PUBLIC_URL:-http://localhost:3000}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?Set NEXTAUTH_SECRET}
+      - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL:?Set INITIAL_ADMIN_EMAIL}
+      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:?Set INITIAL_ADMIN_PASSWORD}
       - PUBLIC_URL=${PUBLIC_URL:-http://localhost:3000}
       - COOKIE_SECURE=${COOKIE_SECURE:-false}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost}
@@ -24,7 +27,7 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -32,24 +35,24 @@ services:
     restart: unless-stopped
 
   db:
-    build:
-      context: .
-      dockerfile: Dockerfile.pocketbase
+    image: postgres:16-alpine
     container_name: project-e-db
-    # For Nginx Proxy Manager: Don't expose ports directly
-    # Only uncomment if you need direct PocketBase admin access
     ports:
-        - "8090:8090"
+        - "5432:5432"
+    environment:
+      - POSTGRES_DB=project_e
+      - POSTGRES_USER=project_e
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
     volumes:
-      - project-e-pb-data:/pb_data
+      - project-e-pg-data:/var/lib/postgresql/data
+      - ./drizzle/0000_first_mauler.sql:/docker-entrypoint-initdb.d/0000_first_mauler.sql:ro
     networks:
       - project-e-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8090/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      test: ["CMD-SHELL", "pg_isready -U project_e -d project_e"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   worker:
@@ -59,8 +62,7 @@ services:
     container_name: project-e-worker
     environment:
       - NODE_ENV=production
-      - POCKETBASE_URL=http://db:8090
-      - POCKETBASE_ADMIN_TOKEN=${POCKETBASE_ADMIN_TOKEN:-}
+      - DATABASE_URL=postgresql://project_e:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/project_e
     networks:
       - project-e-network
     depends_on:
@@ -73,5 +75,5 @@ networks:
     driver: bridge
 
 volumes:
-  project-e-pb-data:
+  project-e-pg-data:
   project-e-web-uploads:

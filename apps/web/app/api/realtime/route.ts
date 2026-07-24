@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
-import { getAuthUser, getAuthToken } from '@/lib/auth';
-import { createPocketBaseClient } from '@/lib/pocketbase';
+import { getAuthUser } from '@/lib/auth';
+import postgres from 'postgres';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes
@@ -15,7 +15,7 @@ const DEFAULT_COLLECTIONS = [
   'notifications',
 ];
 
-// GET /api/realtime — Multiplexed SSE endpoint for PocketBase realtime subscriptions
+// GET /api/realtime — Multiplexed SSE endpoint backed by PostgreSQL LISTEN/NOTIFY.
 export async function GET(request: NextRequest) {
   const user = await getAuthUser(request);
   if (!user) {
@@ -36,10 +36,10 @@ export async function GET(request: NextRequest) {
   const subscribedCollections =
     collections.length > 0 ? collections : DEFAULT_COLLECTIONS;
 
-  const token = getAuthToken(request);
-  const pb = createPocketBaseClient(token || undefined);
   const encoder = new TextEncoder();
-  const unsubscribeFns: Array<() => Promise<void>> = [];
+  const listener = postgres(process.env.DATABASE_URL!, { max: 1 });
+  let unlisten: (() => Promise<void>) | undefined;
+  let keepalive: ReturnType<typeof setInterval> | undefined;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -50,53 +50,32 @@ export async function GET(request: NextRequest) {
         )
       );
 
-      // Subscribe to each collection
-      for (const collection of subscribedCollections) {
+      const subscription = await listener.listen('project_e_events', (payload) => {
         try {
-          const unsub = await pb.collection(collection).subscribe('*', (e) => {
-            try {
-              const event = {
-                type: e.action,
-                collection,
-                record: e.record,
-              };
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
-              );
-            } catch {
-              // Controller might be closed
-            }
-          });
-          unsubscribeFns.push(unsub);
+          const event = JSON.parse(payload) as { collection?: string };
+          if (!event.collection || subscribedCollections.includes(event.collection)) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          }
         } catch {
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ type: 'subscription_error', collection })}\n\n`
-            )
-          );
+          // Ignore malformed database notifications and closed streams.
         }
-      }
+      });
+      unlisten = subscription.unlisten;
 
       // Keepalive ping every 30 seconds
-      const keepalive = setInterval(() => {
+      keepalive = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(':ping\n\n'));
         } catch {
-          clearInterval(keepalive);
+          if (keepalive) clearInterval(keepalive);
         }
       }, 30000);
     },
 
     async cancel() {
-      // Client disconnected — cleanup all subscriptions
-      for (const unsub of unsubscribeFns) {
-        try {
-          await unsub();
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-      unsubscribeFns.length = 0;
+      if (keepalive) clearInterval(keepalive);
+      await unlisten?.();
+      await listener.end({ timeout: 5 });
     },
   });
 

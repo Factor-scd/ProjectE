@@ -5,11 +5,13 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY worker/package.json worker/package.json
 COPY packages/shared/package.json packages/shared/package.json
+COPY packages/db/package.json packages/db/package.json
 
 RUN npm ci --omit=dev
 
 COPY worker/ ./worker/
 COPY packages/shared/ ./packages/shared/
+COPY packages/db/ ./packages/db/
 
 ENV NODE_ENV=production
 

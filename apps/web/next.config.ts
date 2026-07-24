@@ -7,9 +7,8 @@ const allowedHosts = (process.env.ALLOWED_HOSTS || 'localhost')
   .filter(Boolean);
 
 const nextConfig: NextConfig = {
-  transpilePackages: ['@project-e/shared'],
+  transpilePackages: ['@project-e/shared', '@project-e/db'],
   output: 'standalone',
-  serverExternalPackages: ['pocketbase'],
 
   // Allow requests from configured hosts (for Nginx Proxy Manager)
   allowedDevOrigins: allowedHosts,

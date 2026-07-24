@@ -30,10 +30,10 @@ A personal project, habit, and task tracker built for the AI-agent era. Track ta
 │                   API Layer (Next.js Routes)                  │
 │  Auth · Validation (Zod) · Realtime SSE Proxy · MCP Server  │
 └──────────────────────────┬──────────────────────────────────┘
-                           │ PocketBase SDK
+                            │ Drizzle ORM
 ┌──────────────────────────▼──────────────────────────────────┐
-│                   Data Layer (PocketBase)                     │
-│  SQLite · Auth · Realtime · File Storage · Admin UI          │
+│           Data Layer (PostgreSQL + Drizzle ORM)               │
+│  PostgreSQL · Drizzle migrations · NextAuth credentials      │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
@@ -50,7 +50,7 @@ A personal project, habit, and task tracker built for the AI-agent era. Track ta
 | Frontend | Next.js 15, React 19, TypeScript 5.9 |
 | UI Components | shadcn/ui, Radix UI, Lucide icons |
 | Styling | Tailwind CSS 3.4, tailwind-merge, class-variance-authority |
-| State Management | Zustand 5 (UI), PocketBase realtime (data) |
+| State Management | Zustand 5 |
 | Rich Text | Tiptap 3 |
 | Forms | React Hook Form 7, Zod 4 validation |
 | Calendar | react-big-calendar, date-fns |
@@ -58,19 +58,18 @@ A personal project, habit, and task tracker built for the AI-agent era. Track ta
 | Graph Visualization | react-force-graph-2d |
 | Drag & Drop | @dnd-kit |
 | Backend | Next.js API routes (App Router) |
-| Database | PocketBase 0.25 (SQLite) |
+| Database | PostgreSQL 16 with Drizzle ORM |
+| Authentication | NextAuth 4 with credentials authentication |
 | Background Jobs | Node.js worker with polling and exponential backoff |
 | MCP Server | @modelcontextprotocol/sdk 1.29 |
 | Monorepo | Turborepo 2.5, npm workspaces |
 | Testing | Jest (unit/component), Playwright 1.61 (E2E) |
-| Deployment | Docker Compose (3 containers) |
 
 ## Prerequisites
 
 - **Node.js** 22.13.0 or later
 - **npm** 10.0.0 or later
-- **Docker** and Docker Compose (for production deployment)
-- **PocketBase** 0.25.5 (included in Docker setup)
+- **PostgreSQL** 16 or later
 
 ## Quick Start
 
@@ -89,68 +88,46 @@ A personal project, habit, and task tracker built for the AI-agent era. Track ta
    npm install
    ```
 
-3. **Start PocketBase** (in a separate terminal)
+3. **Create the database**
 
-   ```bash
-   # Download PocketBase if you haven't already
-   # https://pocketbase.io/docs/
-
-   # Start PocketBase with migrations
-   pocketbase serve --dir=./pb_data --publicDir=./pb_public --migrationDir=./pocketbase/pb_migrations
-   ```
-
-   Or use Docker:
-
-   ```bash
-   docker compose up db -d
-   ```
+    ```bash
+    createuser -P project_e
+    createdb -O project_e project_e
+    ```
 
 4. **Set environment variables**
 
    Create a `.env.local` file in the root:
 
-   ```bash
-   POCKETBASE_URL=http://localhost:8090
-   POCKETBASE_ADMIN_TOKEN=your_admin_token_here
-   ```
+    ```bash
+    DATABASE_URL=postgresql://project_e:your_postgres_password@localhost:5432/project_e
+    POSTGRES_PASSWORD=your_postgres_password
+    NEXTAUTH_SECRET=your_long_random_secret
+    INITIAL_ADMIN_EMAIL=admin@example.com
+    INITIAL_ADMIN_PASSWORD=your_initial_admin_password
+    ```
 
-   Get the admin token from PocketBase after creating your first admin account.
+    `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD` create the first admin account when you sign in with those credentials.
 
-5. **Start the development server**
+5. **Apply the database schema**
+
+    ```bash
+    psql "postgresql://project_e:your_postgres_password@localhost:5432/project_e" -f drizzle/0000_postgres.sql
+    ```
+
+6. **Start the development server**
 
    ```bash
    npm run dev
    ```
 
-   This starts all packages via Turborepo:
-   - Web app at `http://localhost:3000`
-   - PocketBase at `http://localhost:8090`
-   - Worker (if configured)
+    This starts all packages via Turborepo:
+    - Web app at `http://localhost:3000`
+    - Worker (if configured)
 
-6. **Create your first user**
+7. **Sign in as the initial admin**
 
-   Open `http://localhost:3000` and sign up, or use the PocketBase admin UI at `http://localhost:8090/_/` to create users.
-
-### Production Deployment (Docker)
-
-```bash
-# Build and start all containers
-docker compose up -d
-
-# Check status
-docker compose ps
-
-# View logs
-docker compose logs -f
-
-# Stop all containers
-docker compose down
-```
-
-The deployment starts three containers:
-- **web:** Next.js app on port 3000
-- **db:** PocketBase on port 8090
-- **worker:** Background job processor
+    Open `http://localhost:3000` and sign in with `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD`.
 
 ## Project Structure
 
@@ -174,38 +151,33 @@ project-e/
 │       │   │   ├── agents/     # Agent CRUD
 │       │   │   ├── webhooks/   # Webhook CRUD
 │       │   │   ├── analytics/  # Analytics data
-│       │   │   ├── realtime/   # SSE proxy for PocketBase
+│       │   │   ├── realtime/   # SSE updates
 │       │   │   ├── mcp/        # MCP server endpoint
 │       │   │   └── health/     # Health check
 │       │   └── layout.tsx      # Root layout
 │       ├── components/         # React components (shadcn/ui)
 │       ├── hooks/              # Custom React hooks
-│       ├── lib/                # Utilities and services
+│       ├── lib/                # Utilities, services, and NextAuth config
 │       │   ├── mcp/            # MCP server and tools
 │       │   ├── services/       # Business logic services
 │       │   ├── stores/         # Zustand stores
 │       │   ├── events/         # Event bus
-│       │   ├── auth.ts         # Auth middleware
-│       │   ├── pocketbase.ts   # PocketBase client
+│       │   ├── auth-config.ts  # NextAuth configuration
 │       │   └── errors.ts       # Error handling
 │       └── types/              # TypeScript type definitions
 ├── packages/
+│   ├── db/                     # Drizzle schema and PostgreSQL client
 │   └── shared/                 # Shared package
 │       └── src/
 │           ├── schemas/        # Zod validation schemas
 │           ├── types/          # TypeScript types
 │           └── constants/      # Shared constants
-├── pocketbase/
-│   ├── pb_migrations/          # Database migrations
-│   └── schema.ts               # TypeScript types for collections
+├── drizzle/                    # Generated PostgreSQL migrations
 ├── worker/
 │   └── index.ts                # Background job worker
 ├── e2e/                        # Playwright E2E tests
 ├── tests/                      # Unit and component tests
-├── docker-compose.yml          # Docker Compose configuration
-├── Dockerfile.web              # Web container build
-├── Dockerfile.pocketbase       # PocketBase container build
-├── Dockerfile.worker           # Worker container build
+├── drizzle.config.ts           # Drizzle Kit configuration
 ├── turbo.json                  # Turborepo configuration
 └── package.json                # Root package.json
 ```
@@ -222,14 +194,17 @@ project-e/
 | `npm run test:e2e:ui` | Run Playwright tests with UI mode |
 | `npm run test:e2e:report` | Show Playwright test report |
 | `npm run typecheck` | Run TypeScript type checking |
-| `npm run db:generate` | Generate database types |
+| `npm run db:generate` | Generate Drizzle migrations |
 
 ## Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `POCKETBASE_URL` | PocketBase server URL | `http://localhost:8090` |
-| `POCKETBASE_ADMIN_TOKEN` | Admin authentication token | (required for worker) |
+| `DATABASE_URL` | PostgreSQL connection string | (required) |
+| `POSTGRES_PASSWORD` | Password for the `project_e` PostgreSQL user | (required) |
+| `NEXTAUTH_SECRET` | Secret used to sign NextAuth sessions | (required) |
+| `INITIAL_ADMIN_EMAIL` | Email for the account created on first sign-in | (required) |
+| `INITIAL_ADMIN_PASSWORD` | Password for the account created on first sign-in | (required) |
 | `NODE_ENV` | Environment (`development`, `production`) | `development` |
 
 Create a `.env.local` file in the root directory for local development.
@@ -271,41 +246,29 @@ Tests run against five browser configurations: Chromium, Firefox, WebKit, Mobile
 
 ## Deployment
 
-### Docker Compose (Recommended)
-
-```bash
-# Build and start
-docker compose up -d
-
-# View logs
-docker compose logs -f
-
-# Stop
-docker compose down
-
-# Rebuild after code changes
-docker compose up -d --build
-```
-
 ### Environment Configuration
 
-Set these in your deployment environment:
+Provision PostgreSQL, apply `drizzle/0000_postgres.sql`, and set these in your deployment environment:
 
 ```bash
-POCKETBASE_URL=http://db:8090
-POCKETBASE_ADMIN_TOKEN=your_secure_admin_token
+DATABASE_URL=postgresql://project_e:your_postgres_password@your-postgres-host:5432/project_e
+POSTGRES_PASSWORD=your_postgres_password
+NEXTAUTH_SECRET=your_long_random_secret
+INITIAL_ADMIN_EMAIL=admin@example.com
+INITIAL_ADMIN_PASSWORD=your_initial_admin_password
 ```
 
-### Volumes
+Start the web app and worker after the database is available:
 
-- `project-e-pb-data`: PocketBase database files
-- `project-e-web-uploads`: Uploaded files
+```bash
+npm run build
+npm run --workspace @project-e/web start
+npm run --workspace @project-e/worker start
+```
 
 ### Health Checks
 
-All containers include health checks:
-- Web: `GET /api/health`
-- PocketBase: `GET /api/health`
+Use `GET /api/health` to check the web app.
 
 ## Documentation
 

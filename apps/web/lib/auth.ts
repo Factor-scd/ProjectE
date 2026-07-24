@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from './auth-config';
 
 export interface AuthUser {
   id: string;
@@ -10,7 +12,9 @@ export interface AuthUser {
  * Extract auth token from request cookies
  */
 export function getAuthToken(request: NextRequest): string | null {
-  return request.cookies.get('pb_auth')?.value || null;
+  return request.cookies.get('next-auth.session-token')?.value
+    || request.cookies.get('__Secure-next-auth.session-token')?.value
+    || null;
 }
 
 /**
@@ -18,32 +22,10 @@ export function getAuthToken(request: NextRequest): string | null {
  * Returns null if not authenticated
  */
 export async function getAuthUser(request: NextRequest): Promise<AuthUser | null> {
-  const token = getAuthToken(request);
-  if (!token) return null;
-
-  try {
-    // Decode JWT to get user ID
-    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-    const userId = payload.id;
-
-    // Use raw fetch with admin token to get the user record
-    // (avoids PocketBase SDK authStore issues with superuser tokens)
-    const adminToken = process.env.POCKETBASE_ADMIN_TOKEN || '';
-    const pbUrl = process.env.POCKETBASE_URL || 'http://localhost:8090';
-    const res = await fetch(pbUrl + '/api/collections/users/records/' + userId, {
-      headers: { Authorization: adminToken },
-    });
-    if (!res.ok) return null;
-    const record = await res.json();
-
-    return {
-      id: record.id,
-      email: record.email,
-      name: record.name || record.email,
-    };
-  } catch {
-    return null;
-  }
+  if (!getAuthToken(request)) return null;
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id || !session.user.email) return null;
+  return { id: session.user.id, email: session.user.email, name: session.user.name || session.user.email };
 }
 
 /**
