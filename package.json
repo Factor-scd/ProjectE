@@ -5,7 +5,8 @@
   "workspaces": [
     "apps/*",
     "packages/*",
-    "worker"
+    "worker",
+    "packages/cli"
   ],
   "scripts": {
     "dev": "turbo dev",
@@ -15,11 +16,13 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
-    "db:generate": "turbo db:generate",
-    "typecheck": "turbo typecheck"
+    "db:generate": "drizzle-kit generate",
+    "typecheck": "turbo typecheck",
+    "cli": "tsx packages/cli/index.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
+    "drizzle-kit": "^0.31.10",
     "tsx": "^4.23.1",
     "turbo": "^2.5.0",
     "typescript": "^5.9.3"
