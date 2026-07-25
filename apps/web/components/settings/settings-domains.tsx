@@ -27,6 +27,7 @@ interface Domain {
 export function SettingsDomains() {
   const [domains, setDomains] = useState<Domain[]>([]);
   const [newDomainName, setNewDomainName] = useState('');
+  const [newDomainColor, setNewDomainColor] = useState('#3b82f6');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -150,14 +151,25 @@ export function SettingsDomains() {
           <label htmlFor="new-domain-name" className="sr-only">
             New domain name
           </label>
-          <Input
-            id="new-domain-name"
-            placeholder="New domain name"
-            value={newDomainName}
-            onChange={(e) => setNewDomainName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addDomain()}
-            disabled={creating}
-          />
+          <div className="flex gap-2 flex-1">
+            <Input
+              id="new-domain-name"
+              placeholder="New domain name"
+              value={newDomainName}
+              onChange={(e) => setNewDomainName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addDomain()}
+              disabled={creating}
+              className="flex-1"
+            />
+            <input
+              type="color"
+              value={newDomainColor}
+              onChange={(e) => setNewDomainColor(e.target.value)}
+              className="h-10 w-10 cursor-pointer rounded border"
+              title="Domain color"
+              disabled={creating}
+            />
+          </div>
           <Button onClick={addDomain} disabled={creating || !newDomainName.trim()}>
             <Plus className="mr-1 h-4 w-4" />
             {creating ? 'Adding...' : 'Add'}

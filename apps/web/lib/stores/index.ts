@@ -4,3 +4,4 @@ export { useDashboardStore } from './use-dashboard-store';
 export { useTimerStore } from './use-timer-store';
 export { useFilterStore } from './use-filter-store';
 export { useKeyboardShortcutsStore } from './use-keyboard-shortcuts-store';
+export { useCreateDialogStore } from './use-create-dialog-store';

@@ -43,13 +43,15 @@ export async function GET(request: NextRequest) {
 
   await server.connect(transport);
 
-  // Store transport for POST requests
+  // Handle the request first — sessionId is set during handleRequest
+  const response = await transport.handleRequest(request);
+
+  // Store transport AFTER handleRequest sets the session ID
   if (transport.sessionId) {
     transports.set(transport.sessionId, transport);
   }
 
-  // Handle the request
-  return transport.handleRequest(request);
+  return response;
 }
 
 export async function POST(request: NextRequest) {
@@ -84,12 +86,15 @@ export async function POST(request: NextRequest) {
 
   await server.connect(transport);
 
-  // Store transport for subsequent requests
+  // Handle the request first — sessionId is set during handleRequest
+  const response = await transport.handleRequest(request);
+
+  // Store transport AFTER handleRequest sets the session ID
   if (transport.sessionId) {
     transports.set(transport.sessionId, transport);
   }
 
-  return transport.handleRequest(request);
+  return response;
 }
 
 export async function DELETE(request: NextRequest) {

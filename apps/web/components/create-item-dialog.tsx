@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -12,6 +12,13 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 type ItemType = 'task' | 'project' | 'habit';
 
@@ -20,6 +27,12 @@ const labels = {
   project: { title: 'New project', field: 'Project name' },
   habit: { title: 'New habit', field: 'Habit name' },
 } as const;
+
+interface Domain {
+  id: string;
+  name: string;
+  color: string;
+}
 
 export function CreateItemDialog({
   type,
@@ -33,10 +46,28 @@ export function CreateItemDialog({
   onCreated: () => void;
 }) {
   const [name, setName] = useState('');
-  const [domain, setDomain] = useState('General');
+  const [domain, setDomain] = useState('');
+  const [domains, setDomains] = useState<Domain[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const copy = labels[type];
+
+  useEffect(() => {
+    if (open) {
+      fetch('/api/domains?sort=sort_order')
+        .then((res) => res.json())
+        .then((data) => {
+          const items = data.items || [];
+          setDomains(items);
+          if (items.length > 0 && !domain) {
+            setDomain(items[0].id);
+          }
+        })
+        .catch(() => {
+          setDomains([]);
+        });
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -100,19 +131,35 @@ export function CreateItemDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor={`${type}-domain`}>Domain</Label>
-            <Input
-              id={`${type}-domain`}
-              value={domain}
-              onChange={(event) => setDomain(event.target.value)}
-              required
-            />
+            {domains.length > 0 ? (
+              <Select value={domain} onValueChange={setDomain}>
+                <SelectTrigger id={`${type}-domain`}>
+                  <SelectValue placeholder="Select a domain" />
+                </SelectTrigger>
+                <SelectContent>
+                  {domains.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      <span
+                        className="mr-2 inline-block h-3 w-3 rounded-full"
+                        style={{ backgroundColor: d.color }}
+                      />
+                      {d.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No domains found. Create one in Settings first.
+              </p>
+            )}
           </div>
           {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={submitting}>
+            <Button type="submit" disabled={submitting || !domain}>
               {submitting ? 'Creating...' : `Create ${type}`}
             </Button>
           </DialogFooter>

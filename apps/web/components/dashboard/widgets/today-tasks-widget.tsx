@@ -14,9 +14,12 @@ interface Task {
   domain: string;
 }
 
+interface Domain { id: string; name: string; color: string; }
+
 export function TodayTasksWidget() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [domainMap, setDomainMap] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     fetchTasks();
@@ -97,7 +100,7 @@ export function TodayTasksWidget() {
                   {task.title}
                 </span>
                 <Badge variant="outline" className="text-xs">
-                  {task.domain}
+                  {domainMap.get(task.domain) || task.domain}
                 </Badge>
               </div>
             ))}

@@ -41,10 +41,22 @@ export default function CalendarPage() {
   const [showProjects, setShowProjects] = useState(true);
   const [showMilestones, setShowMilestones] = useState(true);
   const [selectedDomains, setSelectedDomains] = useState<string[]>([]);
+  const [domainOptions, setDomainOptions] = useState<{id: string; name: string}[]>([]);
 
   useEffect(() => {
     fetchEvents();
+    fetchDomains();
   }, []);
+
+  async function fetchDomains() {
+    try {
+      const res = await fetch('/api/domains?sort=sort_order');
+      if (res.ok) {
+        const data = await res.json();
+        setDomainOptions(data.items || []);
+      }
+    } catch {}
+  }
 
   async function fetchEvents() {
     setLoading(true);

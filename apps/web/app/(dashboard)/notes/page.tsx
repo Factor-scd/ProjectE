@@ -65,6 +65,8 @@ interface Backlink {
 export default function NotesPage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [domainForCreate, setDomainForCreate] = useState('personal');
+  const [domainOptions, setDomainOptions] = useState<{id: string; name: string}[]>([]);
   const [backlinks, setBacklinks] = useState<Backlink[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +100,17 @@ export default function NotesPage() {
       fetchBacklinks(selectedNote.id);
     }
   }, [selectedNote]);
+
+  async function fetchDomains() {
+    try {
+      const res = await fetch('/api/domains?sort=sort_order');
+      if (res.ok) {
+        const data = await res.json();
+        setDomainOptions(data.items || []);
+        if (data.items?.length > 0) setDomainForCreate(data.items[0].id);
+      }
+    } catch {}
+  }
 
   async function fetchNotes() {
     setLoading(true);
@@ -141,7 +154,7 @@ export default function NotesPage() {
         body: JSON.stringify({
           title: 'Untitled note',
           content: '',
-          domain: 'personal',
+          domain: domainForCreate,
         }),
       });
       if (!response.ok) throw new Error('Unable to create note.');
@@ -304,7 +317,7 @@ export default function NotesPage() {
                             {new Date(note.updated).toLocaleDateString()}
                           </p>
                           <Badge variant="outline" className="mt-1 text-xs">
-                            {note.domain}
+                            {domainOptions.find(d => d.id === note.domain)?.name || note.domain}
                           </Badge>
                         </div>
                       </div>

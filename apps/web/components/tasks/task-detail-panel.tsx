@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
   Sheet,
@@ -60,6 +60,11 @@ export function TaskDetailPanel({
   const [status, setStatus] = useState(task.status);
   const [priority, setPriority] = useState(task.priority);
   const [domain, setDomain] = useState(task.domain);
+  const [domains, setDomains] = useState<{id: string; name: string}[]>([]);
+
+  useEffect(() => {
+    fetch('/api/domains?sort=sort_order').then(r => r.json()).then(data => setDomains(data.items || [])).catch(() => {});
+  }, []);
   const [dueDate, setDueDate] = useState(task.due_date || '');
   const [saving, setSaving] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -185,9 +190,9 @@ export function TaskDetailPanel({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="personal">Personal</SelectItem>
-                  <SelectItem value="work">Work</SelectItem>
-                  <SelectItem value="ots">OTS</SelectItem>
+                  {domains.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

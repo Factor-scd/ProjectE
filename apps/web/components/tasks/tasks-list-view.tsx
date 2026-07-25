@@ -16,6 +16,22 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Calendar, MoreHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { TaskDetailPanel } from './task-detail-panel';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface Task {
   id: string;
@@ -33,6 +49,8 @@ export function TasksListView() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchTasks();
@@ -155,6 +173,32 @@ export function TasksListView() {
         </div>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
+
+      <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete task?</AlertDialogTitle>
+            <AlertDialogDescription>This cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={async () => {
+              if (!deleteId) return;
+              setDeleting(true);
+              try {
+                const res = await fetch("/api/tasks/" + deleteId, { method: 'DELETE' });
+                if (!res.ok) throw new Error();
+                toast.success("Task deleted");
+                setDeleteId(null);
+                fetchTasks();
+              } catch { toast.error("Unable to delete task"); }
+              finally { setDeleting(false); setDeleteId(null); }
+            }} disabled={deleting}>
+              {deleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {selectedTask && (
         <TaskDetailPanel

@@ -40,6 +40,12 @@ interface Task {
   tags: string[];
 }
 
+interface Domain {
+  id: string;
+  name: string;
+  color: string;
+}
+
 const columns = [
   { id: 'todo', title: 'To Do', color: 'bg-slate-500' },
   { id: 'in_progress', title: 'In Progress', color: 'bg-blue-500' },
@@ -48,10 +54,12 @@ const columns = [
 
 function DraggableTask({
   task,
+  domainName,
   onClick,
   onStatusChange
 }: {
   task: Task;
+  domainName: string;
   onClick: () => void;
   onStatusChange: (task: Task, status: Task['status']) => void;
 }) {
@@ -127,9 +135,11 @@ function DraggableTask({
             >
               {task.priority}
             </Badge>
-            <Badge variant="outline" className="text-xs">
-              {task.domain}
-            </Badge>
+            {domainName && (
+              <Badge variant="outline" className="text-xs">
+                {domainName}
+              </Badge>
+            )}
             {task.due_date && (
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Calendar className="h-3 w-3" />
@@ -148,6 +158,7 @@ function DroppableColumn({
   title,
   color,
   tasks,
+  domainMap,
   onTaskClick,
   onStatusChange
 }: {
@@ -155,6 +166,7 @@ function DroppableColumn({
   title: string;
   color: string;
   tasks: Task[];
+  domainMap: Map<string, string>;
   onTaskClick: (task: Task) => void;
   onStatusChange: (task: Task, status: Task['status']) => void;
 }) {
@@ -179,6 +191,7 @@ function DroppableColumn({
           <DraggableTask
             key={task.id}
             task={task}
+            domainName={domainMap.get(task.domain) || task.domain}
             onClick={() => onTaskClick(task)}
             onStatusChange={onStatusChange}
           />
@@ -190,6 +203,7 @@ function DroppableColumn({
 
 export function TasksKanbanView() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [domainMap, setDomainMap] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -202,6 +216,7 @@ export function TasksKanbanView() {
 
   useEffect(() => {
     fetchTasks();
+    fetchDomains();
   }, []);
 
   async function fetchTasks() {
@@ -217,6 +232,21 @@ export function TasksKanbanView() {
       toast.error('Unable to load tasks');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchDomains() {
+    try {
+      const response = await fetch('/api/domains?sort=sort_order');
+      if (!response.ok) return;
+      const data = await response.json();
+      const map = new Map<string, string>();
+      for (const d of data.items || []) {
+        map.set(d.id, d.name);
+      }
+      setDomainMap(map);
+    } catch {
+      // Non-critical — domains will show as raw IDs
     }
   }
 
@@ -282,6 +312,7 @@ export function TasksKanbanView() {
               title={column.title}
               color={column.color}
               tasks={tasks.filter((t) => t.status === column.id)}
+              domainMap={domainMap}
               onTaskClick={setSelectedTask}
               onStatusChange={updateTaskStatus}
             />

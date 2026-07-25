@@ -1,3 +1,16 @@
+/**
+ * PocketBase Compatibility Layer
+ *
+ * This module was originally written for PocketBase. After the migration to
+ * PostgreSQL + Drizzle ORM (commit 7333548), all functions now delegate to
+ * the new `database.ts` module which uses the Drizzle ORM with postgres-js.
+ *
+ * The naming is preserved for backward compatibility — ALL API route files
+ * import from this module. Do not rename the exports unless you also update
+ * every file that imports them.
+ *
+ * @see ./database.ts for the actual Drizzle ORM implementation.
+ */
 import { createAdminClient as createDatabaseAdminClient, createDatabaseClient } from './database';
 
 /** @deprecated Import from `@/lib/database` in new code. */
