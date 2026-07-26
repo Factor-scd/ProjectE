@@ -26,7 +26,21 @@ export function ProjectProgressWidget() {
       );
       if (response.ok) {
         const data = await response.json();
-        setProjects(data.items || []);
+        const items = data.items || [];
+        // Fetch progress for each project since the list API doesn't include it
+        const withProgress = await Promise.all(
+          items.map(async (p: { id: string; name: string }) => {
+            try {
+              const progRes = await fetch(`/api/projects/${p.id}/progress`);
+              if (progRes.ok) {
+                const progData = await progRes.json();
+                return { ...p, progress: progData.progress ?? 0 };
+              }
+            } catch {}
+            return { ...p, progress: 0 };
+          })
+        );
+        setProjects(withProgress);
       }
     } catch (error) {
       console.error('Failed to fetch projects:', error);

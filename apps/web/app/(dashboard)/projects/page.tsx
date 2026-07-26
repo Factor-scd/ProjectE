@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import Link from "next/link";
+import { CreateItemDialog } from "@/components/create-item-dialog";
+import { useCreateDialogStore } from "@/lib/stores/use-create-dialog-store";
 
 interface Project {
   id: string;
@@ -22,6 +24,8 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { open, openCreate, closeCreate } = useCreateDialogStore();
 
   useEffect(() => { fetchProjects(); fetchDomains(); }, []);
 
@@ -64,9 +68,12 @@ export default function ProjectsPage() {
           <h1 className="text-2xl font-bold">Projects</h1>
           <p className="mt-1 text-muted-foreground">Plan and track your work.</p>
         </div>
+        <Button onClick={() => openCreate("project")}>
+          <Plus className="mr-2 h-4 w-4" aria-hidden="true" /> New project
+        </Button>
       </div>
       {projects.length === 0 ? <p className="text-muted-foreground">No projects yet.</p> : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div key={refreshKey} className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {projects.map((p) => (
             <Card key={p.id} className="hover:shadow-md transition-shadow">
               <CardContent className="p-4">
@@ -97,6 +104,7 @@ export default function ProjectsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <CreateItemDialog type="project" open={open} onOpenChange={(o) => (o ? openCreate("project") : closeCreate())} onCreated={() => setRefreshKey((k) => k + 1)} />
     </div>
   );
 }

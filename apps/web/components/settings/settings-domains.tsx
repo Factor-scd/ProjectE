@@ -67,7 +67,7 @@ export function SettingsDomains() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newDomainName,
-          color: '#3b82f6',
+          color: newDomainColor,
           icon: '📁',
           sort_order: domains.length,
         }),

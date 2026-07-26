@@ -248,15 +248,15 @@ export default function CalendarPage() {
             <div className="space-y-3">
               <h2 className="text-sm font-semibold">Domains</h2>
               <div className="space-y-2">
-                {['personal', 'work', 'ots'].map((domain) => (
-                  <div key={domain} className="flex items-center space-x-2">
+                {(domainOptions.length > 0 ? domainOptions : []).map((domain) => (
+                  <div key={domain.id} className="flex items-center space-x-2">
                     <Checkbox
-                      id={domain}
-                      checked={selectedDomains.includes(domain)}
-                      onCheckedChange={() => toggleDomain(domain)}
+                      id={domain.id}
+                      checked={selectedDomains.includes(domain.id)}
+                      onCheckedChange={() => toggleDomain(domain.id)}
                     />
-                    <Label htmlFor={domain}>
-                      <Badge variant="outline">{domain}</Badge>
+                    <Label htmlFor={domain.id}>
+                      <Badge variant="outline">{domain.name}</Badge>
                     </Label>
                   </div>
                 ))}

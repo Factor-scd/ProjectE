@@ -5,6 +5,7 @@ import { CheckCircle2, Circle, ListTodo } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useRouter } from 'next/navigation';
 
 interface Task {
   id: string;
@@ -20,10 +21,24 @@ export function TodayTasksWidget() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [domainMap, setDomainMap] = useState<Map<string, string>>(new Map());
+  const router = useRouter();
 
   useEffect(() => {
     fetchTasks();
+    fetchDomains();
   }, []);
+
+  async function fetchDomains() {
+    try {
+      const res = await fetch("/api/domains?sort=sort_order");
+      if (res.ok) {
+        const data = await res.json();
+        const map = new Map<string, string>();
+        for (const d of data.items || []) map.set(d.id, d.name);
+        setDomainMap(map);
+      }
+    } catch {}
+  }
 
   async function fetchTasks() {
     try {
@@ -63,7 +78,7 @@ export function TodayTasksWidget() {
             <ListTodo className="h-4 w-4" aria-hidden="true" />
             Today&apos;s Tasks
           </CardTitle>
-          <Button variant="ghost" size="sm" className="h-7 text-xs">
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => router.push('/tasks')}>
             View all
           </Button>
         </div>
