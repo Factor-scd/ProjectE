@@ -51,10 +51,25 @@ export function TasksListView() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [domainMap, setDomainMap] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     fetchTasks();
+    fetchDomains();
   }, []);
+
+  async function fetchDomains() {
+    try {
+      const res = await fetch('/api/domains?sort=sort_order');
+      if (res.ok) {
+        const data = await res.json();
+        const map = new Map<string, string>();
+        for (const d of data.items || []) map.set(d.id, d.name);
+        setDomainMap(map);
+      }
+    } catch {}
+
+  }
 
   async function fetchTasks() {
     try {
@@ -146,7 +161,7 @@ export function TasksListView() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{task.domain}</Badge>
+                    <Badge variant="outline">{domainMap.get(task.domain) || task.domain}</Badge>
                   </TableCell>
                   <TableCell>
                     {task.due_date && (
