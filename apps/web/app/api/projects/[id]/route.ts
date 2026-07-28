@@ -6,14 +6,28 @@ import { z } from 'zod';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-// GET /api/projects/[id] — Get a single project
+// GET /api/projects/[id] — Get a single project with computed stats
 export const GET = withAuth<RouteContext>(async (request: NextRequest, _user, context) => {
   const { id } = await context!.params;
 
   const pb = createPocketBaseClient();
   const project = await pb.collection('projects').getOne(id);
 
-  return NextResponse.json(project);
+  // Compute task stats from related tasks
+  const tasksResult = await pb.collection('tasks').getFullList({
+    filter: 'project_id=' + id,
+  });
+
+  const taskCount = tasksResult.length;
+  const completedCount = tasksResult.filter((t: any) => t.status === 'done').length;
+  const progress = taskCount > 0 ? Math.round((completedCount / taskCount) * 100) : 0;
+
+  return NextResponse.json({
+    ...project,
+    progress,
+    task_count: taskCount,
+    completed_count: completedCount,
+  });
 });
 
 // PATCH /api/projects/[id] — Update a project
