@@ -296,6 +296,14 @@ export function TasksKanbanView() {
     return <p className="text-muted-foreground">Loading tasks...</p>;
   }
 
+  if (tasks.length === 0) {
+    return (
+      <div className="py-12 text-center">
+        <p className="text-muted-foreground">No tasks yet. Create your first task to get started!</p>
+      </div>
+    );
+  }
+
   return (
     <>
       <DndContext

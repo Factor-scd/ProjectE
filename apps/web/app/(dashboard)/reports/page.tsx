@@ -64,6 +64,7 @@ export default function ReportsPage() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'Saved' | 'Saving' | 'Failed'>('Saved');
+  const [domainMap, setDomainMap] = useState<Map<string, string>>(new Map());
   const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
   const [deleting, setDeleting] = useState(false);
   const pendingSave = useRef<{ id: string; updates: Partial<Report> } | null>(null);
@@ -72,10 +73,23 @@ export default function ReportsPage() {
 
   useEffect(() => {
     fetchReports();
+    fetchDomains();
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
   }, []);
+
+  async function fetchDomains() {
+    try {
+      const res = await fetch('/api/domains?sort=sort_order');
+      if (res.ok) {
+        const data = await res.json();
+        const map = new Map<string, string>();
+        for (const d of data.items || []) map.set(d.id, d.name);
+        setDomainMap(map);
+      }
+    } catch {}
+  }
 
   async function fetchReports() {
     setLoading(true);
@@ -284,7 +298,7 @@ export default function ReportsPage() {
                             {report.report_type}
                           </Badge>
                           <Badge variant="outline" className="text-xs">
-                            {report.domain}
+                            {domainMap.get(report.domain) || report.domain}
                           </Badge>
                         </div>
                       </div>
@@ -328,7 +342,7 @@ export default function ReportsPage() {
                 </div>
                 <div className="mt-2 flex gap-2">
                   <Badge variant="outline">{selectedReport.report_type}</Badge>
-                  <Badge variant="outline">{selectedReport.domain}</Badge>
+                  <Badge variant="outline">{domainMap.get(selectedReport.domain) || selectedReport.domain}</Badge>
                   {selectedReport.date_range_start && selectedReport.date_range_end && (
                     <Badge variant="outline" className="gap-1">
                       <Clock className="h-3 w-3" />

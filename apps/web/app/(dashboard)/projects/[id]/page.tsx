@@ -48,15 +48,29 @@ export default function ProjectDetailPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
+  const [domainMap, setDomainMap] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     if (projectId) {
+      fetchDomains();
       fetchProject();
       fetchTasks();
       fetchMilestones();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  async function fetchDomains() {
+    try {
+      const res = await fetch('/api/domains?sort=sort_order');
+      if (res.ok) {
+        const data = await res.json();
+        const map = new Map<string, string>();
+        for (const d of data.items || []) map.set(d.id, d.name);
+        setDomainMap(map);
+      }
+    } catch {}
+  }
 
   async function fetchProject() {
     try {
@@ -138,17 +152,20 @@ export default function ProjectDetailPage() {
               <p className="mt-1 text-muted-foreground">{project.description}</p>
             )}
           </div>
-          <Badge
-            variant={
-              project.status === 'active'
-                ? 'default'
-                : project.status === 'paused'
-                  ? 'secondary'
-                  : 'outline'
-            }
-          >
-            {project.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={
+                project.status === 'active'
+                  ? 'default'
+                  : project.status === 'paused'
+                    ? 'secondary'
+                    : 'outline'
+              }
+            >
+              {project.status}
+            </Badge>
+            <Badge variant="outline">{domainMap.get(project.domain) || project.domain}</Badge>
+          </div>
         </div>
 
         {/* Project stats */}

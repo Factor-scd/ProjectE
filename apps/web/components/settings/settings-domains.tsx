@@ -1,10 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Pencil } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,10 +43,21 @@ export function SettingsDomains() {
   const [domainToDelete, setDomainToDelete] = useState<Domain | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Domain | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editColor, setEditColor] = useState('#3b82f6');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchDomains();
   }, []);
+
+  useEffect(() => {
+    if (editing) {
+      setEditName(editing.name);
+      setEditColor(editing.color || '#3b82f6');
+    }
+  }, [editing]);
 
   async function fetchDomains() {
     setLoading(true);
@@ -91,7 +111,7 @@ export function SettingsDomains() {
     setError(null);
     setStatus(null);
     try {
-      const response = await fetch(`/api/domains/${domainToDelete.id}`, { method: 'DELETE' });
+      const response = await fetch('/api/domains/' + domainToDelete.id, { method: 'DELETE' });
       if (!response.ok) throw new Error('Unable to delete domain.');
       setDomainToDelete(null);
       setStatus('Domain deleted successfully.');
@@ -101,6 +121,32 @@ export function SettingsDomains() {
       setError('Unable to delete domain. Please try again.');
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleEditSave() {
+    if (!editing || !editName.trim()) return;
+    setSaving(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const response = await fetch('/api/domains/' + editing.id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editName.trim(),
+          color: editColor,
+        }),
+      });
+      if (!response.ok) throw new Error('Unable to update domain.');
+      setEditing(null);
+      setStatus('Domain updated successfully.');
+      await fetchDomains();
+    } catch (error) {
+      console.error('Failed to update domain:', error);
+      setError('Unable to update domain. Please try again.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -132,15 +178,25 @@ export function SettingsDomains() {
                   />
                   <span className="font-medium">{domain.name}</span>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setDomainToDelete(domain)}
-                  aria-label={`Delete domain: ${domain.name}`}
-                  disabled={deletingId === domain.id}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setEditing(domain)}
+                    aria-label={'Edit domain: ' + domain.name}
+                  >
+                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setDomainToDelete(domain)}
+                    aria-label={'Delete domain: ' + domain.name}
+                    disabled={deletingId === domain.id}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" />
+                  </Button>
+                </div>
               </div>
             ))
           )}
@@ -175,6 +231,45 @@ export function SettingsDomains() {
             {creating ? 'Adding...' : 'Add'}
           </Button>
         </div>
+
+        {/* Edit Domain Dialog */}
+        <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit domain</DialogTitle>
+              <DialogDescription>Update the domain name and color.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-domain-name">Name</Label>
+                <Input
+                  id="edit-domain-name"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  autoFocus
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-domain-color">Color</Label>
+                <input
+                  id="edit-domain-color"
+                  type="color"
+                  value={editColor}
+                  onChange={(e) => setEditColor(e.target.value)}
+                  className="h-10 w-10 cursor-pointer rounded border"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+              <Button onClick={handleEditSave} disabled={saving || !editName.trim()}>
+                {saving ? 'Saving...' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <AlertDialog open={!!domainToDelete} onOpenChange={(open) => !open && setDomainToDelete(null)}>
           <AlertDialogContent>
             <AlertDialogHeader>
