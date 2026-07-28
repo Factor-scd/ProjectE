@@ -27,7 +27,7 @@ export default function ProjectsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { open, openCreate, closeCreate } = useCreateDialogStore();
 
-  useEffect(() => { fetchProjects(); fetchDomains(); }, []);
+  useEffect(() => { fetchProjects(); fetchDomains(); }, [refreshKey]);
 
   async function fetchProjects() {
     try {
