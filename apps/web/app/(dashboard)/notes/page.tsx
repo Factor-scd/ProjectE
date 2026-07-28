@@ -65,7 +65,7 @@ interface Backlink {
 export default function NotesPage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
-  const [domainForCreate, setDomainForCreate] = useState('personal');
+  const [domainForCreate, setDomainForCreate] = useState('');
   const [domainOptions, setDomainOptions] = useState<{id: string; name: string}[]>([]);
   const [backlinks, setBacklinks] = useState<Backlink[]>([]);
   const [loading, setLoading] = useState(true);
