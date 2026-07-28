@@ -80,14 +80,14 @@ export default function NotesPage() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveVersion = useRef(0);
 
-  useEffect(() => {
+  useEffect(() => { fetchDomains();
     fetchNotes();
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
   }, []);
 
-  useEffect(() => {
+  useEffect(() => { fetchDomains();
     if (new URLSearchParams(window.location.search).get('new') !== 'true' || createdFromQuery.current) return;
     createdFromQuery.current = true;
     createNote().finally(() => window.history.replaceState(null, '', '/notes'));
@@ -95,7 +95,7 @@ export default function NotesPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
+  useEffect(() => { fetchDomains();
     if (selectedNote) {
       fetchBacklinks(selectedNote.id);
     }
