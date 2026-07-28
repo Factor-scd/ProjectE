@@ -35,7 +35,7 @@ export const taskSchema = z.object({
   description: z.string().optional(),
   status: taskStatusEnum.default('todo'),
   priority: taskPriorityEnum.default('medium'),
-  due_date: z.string().datetime().optional(),
+  due_date: z.string().datetime().optional().nullable(),
   project_id: z.string().optional(),
   milestone_id: z.string().optional(),
   tags: z.array(z.string()).default([]),

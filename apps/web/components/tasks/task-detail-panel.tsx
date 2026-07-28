@@ -82,7 +82,7 @@ export function TaskDetailPanel({
           status,
           priority,
           domain,
-          due_date: dueDate || null
+          due_date: dueDate || undefined
         })
       });
       if (!response.ok) throw new Error('Unable to save task');
