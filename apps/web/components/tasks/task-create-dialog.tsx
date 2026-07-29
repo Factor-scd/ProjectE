@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { TaskTemplates } from '@/components/tasks/task-templates';
 
 interface TaskCreateDialogProps {
   open: boolean;
@@ -107,6 +108,13 @@ export function TaskCreateDialog({
           <DialogDescription>Create a new task to track your work.</DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={handleSubmit}>
+          <TaskTemplates onSelect={(t) => {
+            setTitle(t.title);
+            setDescription(t.description);
+            setPriority(t.priority);
+            setStatus(t.status);
+          }} />
+
           <div className="space-y-2">
             <Label htmlFor="task-title">Title *</Label>
             <Input
