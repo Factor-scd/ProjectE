@@ -13,10 +13,17 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, GripVertical, Plus } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Calendar, GripVertical, Link2, Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { TaskDetailPanel } from './task-detail-panel';
 import { useRealtimeContext } from '@/components/realtime-provider';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface Task {
   id: string;
@@ -59,15 +66,15 @@ function TaskCard({
   task,
   domainName,
   domainColor,
+  depCount,
   onClick,
 }: {
   task: Task;
   domainName: string;
   domainColor: string | null;
+  depCount: number;
   onClick: () => void;
 }) {
-  const subtaskCount = 0; // Will be populated from API
-
   return (
     <Card className="mb-2 cursor-pointer hover:shadow-md transition-shadow" onClick={onClick}>
       <CardContent className="p-3">
@@ -75,6 +82,20 @@ function TaskCard({
           <span className="flex-1 text-sm font-medium leading-tight">
             {task.title}
           </span>
+          {depCount > 0 && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center text-xs text-muted-foreground shrink-0">
+                    <Link2 className="h-3 w-3" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p>{depCount} {depCount === 1 ? 'dependency' : 'dependencies'}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Badge
@@ -128,16 +149,24 @@ function DroppableColumn({
   color,
   tasks,
   domainMap,
+  depCounts,
   onTaskClick,
-  onAddTask,
+  inlineInput,
+  onInlineInputChange,
+  onInlineSubmit,
+  inlineLoading,
 }: {
   id: string;
   title: string;
   color: string;
   tasks: Task[];
   domainMap: Map<string, { name: string; color: string | null }>;
+  depCounts: Map<string, number>;
   onTaskClick: (task: Task) => void;
-  onAddTask: () => void;
+  inlineInput: string;
+  onInlineInputChange: (value: string) => void;
+  onInlineSubmit: () => void;
+  inlineLoading: boolean;
 }) {
   return (
     <div className="flex flex-col">
@@ -147,15 +176,6 @@ function DroppableColumn({
           <h3 className="font-semibold text-sm">{title}</h3>
           <span className="text-sm text-muted-foreground">({tasks.length})</span>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          onClick={onAddTask}
-          aria-label={`Add task to ${title}`}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
       </div>
       <div
         role="list"
@@ -173,10 +193,34 @@ function DroppableColumn({
               task={task}
               domainName={domainMap.get(task.domainId)?.name || ''}
               domainColor={domainMap.get(task.domainId)?.color || null}
+              depCount={depCounts.get(task.id) || 0}
               onClick={() => onTaskClick(task)}
             />
           ))
         )}
+      </div>
+      {/* Inline task creation input */}
+      <div className="mt-2 flex items-center gap-2">
+        <Input
+          placeholder="New task title..."
+          value={inlineInput}
+          onChange={(e) => onInlineInputChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !inlineLoading) {
+              onInlineSubmit();
+            }
+          }}
+          className="h-8 text-sm"
+          disabled={inlineLoading}
+        />
+        <Button
+          size="sm"
+          className="h-8 shrink-0"
+          onClick={onInlineSubmit}
+          disabled={!inlineInput.trim() || inlineLoading}
+        >
+          {inlineLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Add'}
+        </Button>
       </div>
     </div>
   );
@@ -193,6 +237,9 @@ export function TasksKanbanView({
   const [domainMap, setDomainMap] = useState<Map<string, { name: string; color: string | null }>>(new Map());
   const [loading, setLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [inlineInputs, setInlineInputs] = useState<Record<string, string>>({});
+  const [inlineLoading, setInlineLoading] = useState<Record<string, boolean>>({});
+  const [depCounts, setDepCounts] = useState<Map<string, number>>(new Map());
   const { subscribe } = useRealtimeContext();
 
   const sensors = useSensors(
@@ -248,6 +295,37 @@ export function TasksKanbanView({
     return unsubscribe;
   }, [domainId, subscribe, fetchTasks, onRefresh]);
 
+  // Fetch dependency counts for visible tasks
+  useEffect(() => {
+    if (tasks.length === 0 || !domainId) return;
+    const controller = new AbortController();
+    let cancelled = false;
+
+    (async () => {
+      const counts = new Map<string, number>();
+      // Fetch task details in parallel to get dependency counts
+      const results = await Promise.allSettled(
+        tasks.map((t) =>
+          fetch(`/api/domains/${domainId}/tasks/${t.id}`, { signal: controller.signal })
+            .then((r) => (r.ok ? r.json() : null))
+        )
+      );
+      if (cancelled) return;
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r.status === 'fulfilled' && r.value?.dependencies?.length > 0) {
+          counts.set(tasks[i].id, r.value.dependencies.length);
+        }
+      }
+      setDepCounts(counts);
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [tasks, domainId]);
+
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over) return;
@@ -279,11 +357,30 @@ export function TasksKanbanView({
     }
   }
 
-  function handleAddTask(status: string) {
-    // Open create dialog with pre-filled status
-    document.dispatchEvent(
-      new CustomEvent('open-create-task', { detail: { status, domainId } })
-    );
+  async function handleInlineCreate(status: string) {
+    const title = inlineInputs[status]?.trim();
+    if (!title) return;
+
+    setInlineLoading((prev) => ({ ...prev, [status]: true }));
+
+    try {
+      const response = await fetch(`/api/domains/${domainId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, status }),
+      });
+      if (!response.ok) throw new Error('Unable to create task');
+      const newTask = await response.json();
+      // Prepend the new task to the list
+      setTasks((prev) => [{ ...newTask, tags: [] }, ...prev]);
+      setInlineInputs((prev) => ({ ...prev, [status]: '' }));
+      toast.success(`Created "${title}"`);
+    } catch (error) {
+      console.error('Failed to create task:', error);
+      toast.error('Unable to create task');
+    } finally {
+      setInlineLoading((prev) => ({ ...prev, [status]: false }));
+    }
   }
 
   if (loading) {
@@ -301,8 +398,14 @@ export function TasksKanbanView({
             color={column.color}
             tasks={tasks.filter((t) => t.status === column.id)}
             domainMap={domainMap}
+            depCounts={depCounts}
             onTaskClick={setSelectedTask}
-            onAddTask={() => handleAddTask(column.id)}
+            inlineInput={inlineInputs[column.id] || ''}
+            onInlineInputChange={(value) =>
+              setInlineInputs((prev) => ({ ...prev, [column.id]: value }))
+            }
+            onInlineSubmit={() => handleInlineCreate(column.id)}
+            inlineLoading={inlineLoading[column.id] || false}
           />
         ))}
       </div>

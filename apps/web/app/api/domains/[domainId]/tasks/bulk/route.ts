@@ -21,6 +21,10 @@ const bulkUpdateSchema = z.object({
   }),
 });
 
+const bulkDeleteSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(200),
+});
+
 type RouteContext = { params: Promise<{ domainId: string }> };
 
 // POST /api/domains/[domainId]/tasks/bulk — Bulk update tasks (order, status)
@@ -75,5 +79,53 @@ export const POST = withAuth<RouteContext>(async (request: NextRequest, user, co
     }
     console.error('[tasks bulk POST] error:', error);
     return createErrorResponse('INTERNAL_ERROR', 'Failed to bulk update tasks', 500);
+  }
+});
+
+// DELETE /api/domains/[domainId]/tasks/bulk — Bulk soft-delete tasks
+export const DELETE = withAuth<RouteContext>(async (request: NextRequest, user, context) => {
+  const { domainId } = await context!.params;
+  await requireWorkspaceAccess(domainId);
+
+  try {
+    const body = await request.json();
+    const data = bulkDeleteSchema.parse(body);
+
+    // Verify all tasks belong to this domain
+    const existingTasks = await db.select({ id: tasks.id, title: tasks.title })
+      .from(tasks)
+      .where(and(inArray(tasks.id, data.ids), eq(tasks.domainId, domainId), isNull(tasks.deletedAt)));
+
+    if (existingTasks.length !== data.ids.length) {
+      return createErrorResponse('NOT_FOUND', 'One or more tasks not found', 404);
+    }
+
+    // Soft delete
+    await db.update(tasks)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(inArray(tasks.id, data.ids));
+
+    // Record activity for each task
+    for (const task of existingTasks) {
+      await recordActivity({
+        actor: user.name,
+        action: 'bulk_deleted',
+        entityType: 'task',
+        entityId: task.id,
+        changes: { title: task.title },
+        workspaceId: domainId,
+      });
+    }
+
+    return NextResponse.json({ deleted: existingTasks.length });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return createErrorResponse('VALIDATION_ERROR', 'Invalid input', 400, error.issues);
+    }
+    if (error instanceof ApiError) {
+      return createErrorResponse(error.code, error.message, error.status);
+    }
+    console.error('[tasks bulk DELETE] error:', error);
+    return createErrorResponse('INTERNAL_ERROR', 'Failed to bulk delete tasks', 500);
   }
 });
