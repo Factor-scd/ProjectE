@@ -2,10 +2,26 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { Plus, ArrowLeft, GripVertical, MoreHorizontal } from "lucide-react";
+import { Plus, ArrowLeft, GripVertical, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { SectionDialog } from "@/components/projects/section-dialog";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -65,6 +81,9 @@ export default function ProjectDetailPage() {
   const [domainId, setDomainId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sectionDialogOpen, setSectionDialogOpen] = useState(false);
+  const [editSection, setEditSection] = useState<Section | null>(null);
+  const [deleteSection, setDeleteSection] = useState<Section | null>(null);
+  const [deletingSection, setDeletingSection] = useState(false);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
 
   // Extract domainId from the project data
@@ -239,9 +258,31 @@ export default function ProjectDetailPage() {
                   <Badge variant="outline" className="text-xs">Milestone</Badge>
                 )}
               </div>
-              <span className="text-xs text-muted-foreground">
-                {(tasksBySection.get(section.id) || []).length}
-              </span>
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-muted-foreground">
+                  {(tasksBySection.get(section.id) || []).length}
+                </span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                      aria-label={`Options for ${section.name}`}
+                    >
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setEditSection(section)}>
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setDeleteSection(section)}>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
             <div
               className="space-y-2 min-h-[100px]"
@@ -297,6 +338,53 @@ export default function ProjectDetailPage() {
         domainId={domainId || ''}
         onCreated={fetchProject}
       />
+
+      {editSection && (
+        <SectionDialog
+          open={!!editSection}
+          onOpenChange={(open) => { if (!open) setEditSection(null); }}
+          projectId={projectId}
+          domainId={domainId || ''}
+          onCreated={fetchProject}
+          existingSection={editSection}
+        />
+      )}
+
+      <AlertDialog open={!!deleteSection} onOpenChange={(open) => { if (!open) setDeleteSection(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Section</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{deleteSection?.name}&quot;? This action cannot be undone. Tasks in this section will become unassigned.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deletingSection}
+              onClick={async () => {
+                if (!deleteSection || !domainId) return;
+                setDeletingSection(true);
+                try {
+                  const res = await fetch(`/api/domains/${domainId}/projects/${projectId}/sections/${deleteSection.id}`, {
+                    method: 'DELETE',
+                  });
+                  if (!res.ok) throw new Error('Failed to delete');
+                  toast.success('Section deleted');
+                  setDeleteSection(null);
+                  fetchProject();
+                } catch {
+                  toast.error('Failed to delete section');
+                } finally {
+                  setDeletingSection(false);
+                }
+              }}
+            >
+              {deletingSection ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -1,10 +1,27 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, CheckCircle2, Circle, MoreHorizontal, Flame, Filter } from "lucide-react";
+import { Plus, CheckCircle2, Circle, MoreHorizontal, Flame, Filter, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { HabitCreateDialog } from "@/components/habits/habit-create-dialog";
+import { HabitEditDialog } from "@/components/habits/habit-edit-dialog";
 import { HabitCompletionDialog } from "@/components/habits/habit-completion-dialog";
 import { HabitCalendarHeatmap } from "@/components/habits/habit-calendar-heatmap";
 import { toast } from "sonner";
@@ -36,7 +53,10 @@ export default function HabitsPage() {
   const [domainId, setDomainId] = useState<string | null>(null);
   const [domains, setDomains] = useState<{ id: string; name: string }[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editHabit, setEditHabit] = useState<Habit | null>(null);
   const [completionHabit, setCompletionHabit] = useState<Habit | null>(null);
+  const [deleteHabit, setDeleteHabit] = useState<Habit | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [expandedHabit, setExpandedHabit] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
@@ -188,13 +208,26 @@ export default function HabitsPage() {
                     <Flame className="h-4 w-4 text-orange-500" aria-hidden="true" />
                     <span className="font-semibold">{habit.streakCount}</span>
                   </div>
-                  <button
-                    onClick={() => setCompletionHabit(habit)}
-                    className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                    aria-label={`Log ${habit.name} with details`}
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                        aria-label={`Options for ${habit.name}`}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => setEditHabit(habit)}>
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setDeleteHabit(habit)}>
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <button
                     onClick={() => setExpandedHabit(expandedHabit === habit.id ? null : habit.id)}
                     className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -221,6 +254,16 @@ export default function HabitsPage() {
         onCreated={fetchHabits}
       />
 
+      {editHabit && (
+        <HabitEditDialog
+          open={!!editHabit}
+          onOpenChange={(open) => { if (!open) setEditHabit(null); }}
+          habit={editHabit}
+          domainId={domainId || ''}
+          onUpdated={fetchHabits}
+        />
+      )}
+
       {completionHabit && (
         <HabitCompletionDialog
           open={!!completionHabit}
@@ -232,6 +275,42 @@ export default function HabitsPage() {
           }}
         />
       )}
+
+      <AlertDialog open={!!deleteHabit} onOpenChange={(open) => { if (!open) setDeleteHabit(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Habit</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{deleteHabit?.name}&quot;? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={async () => {
+                if (!deleteHabit || !domainId) return;
+                setDeleting(true);
+                try {
+                  const res = await fetch(`/api/domains/${domainId}/habits/${deleteHabit.id}`, {
+                    method: 'DELETE',
+                  });
+                  if (!res.ok) throw new Error('Failed to delete');
+                  toast.success('Habit deleted');
+                  setDeleteHabit(null);
+                  fetchHabits();
+                } catch {
+                  toast.error('Failed to delete habit');
+                } finally {
+                  setDeleting(false);
+                }
+              }}
+            >
+              {deleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
