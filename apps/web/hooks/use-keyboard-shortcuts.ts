@@ -73,6 +73,21 @@ export function useKeyboardShortcuts() {
             document.dispatchEvent(new CustomEvent('open-create-task', { detail: { status: 'todo' } }));
             e.preventDefault();
           }
+          // c h — new habit
+          if (window.location.pathname.startsWith('/habits')) {
+            document.dispatchEvent(new CustomEvent('open-create-habit'));
+            e.preventDefault();
+          }
+          // c p — new project
+          if (window.location.pathname.startsWith('/projects')) {
+            document.dispatchEvent(new CustomEvent('open-create-project'));
+            e.preventDefault();
+          }
+          // c s — new section (on project detail page)
+          if (window.location.pathname.match(/^\/projects\/[^/]+$/)) {
+            document.dispatchEvent(new CustomEvent('open-create-section'));
+            e.preventDefault();
+          }
           break;
         }
         case 'e': {
