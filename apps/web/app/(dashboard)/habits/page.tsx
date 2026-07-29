@@ -24,6 +24,7 @@ import { HabitCreateDialog } from "@/components/habits/habit-create-dialog";
 import { HabitEditDialog } from "@/components/habits/habit-edit-dialog";
 import { HabitCompletionDialog } from "@/components/habits/habit-completion-dialog";
 import { HabitCalendarHeatmap } from "@/components/habits/habit-calendar-heatmap";
+import { HabitAnalytics } from "@/components/habits/habit-analytics";
 import { toast } from "sonner";
 
 interface Habit {
@@ -246,6 +247,11 @@ export default function HabitsPage() {
           ))}
         </div>
       )}
+
+      {/* Analytics */}
+      <div className="mt-4">
+        <HabitAnalytics domainId={domainId || ""} habits={habits} />
+      </div>
 
       <HabitCreateDialog
         open={createOpen}

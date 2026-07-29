@@ -5,6 +5,7 @@ import { KeyboardShortcutsProvider } from '@/components/keyboard-shortcuts-provi
 import { WebVitalsTracker } from '@/components/web-vitals-tracker';
 import { MobileBottomNav } from '@/components/mobile-bottom-nav';
 import { DispatchPanel } from '@/components/agents/dispatch-panel';
+import { OnboardingFlow } from '@/components/onboarding/onboarding-flow';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -18,7 +19,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Sidebar />
         <div className="flex flex-1 flex-col pb-16 md:pb-0">
           <TopBar />
-          <main id="main-content" className="flex-1 overflow-auto p-6" tabIndex={-1}>
+          <main id="main-content" className="flex-1 overflow-auto p-4 md:p-6" tabIndex={-1}>
             {children}
           </main>
         </div>
@@ -32,6 +33,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           triggerClassName="h-12 w-12 rounded-full shadow-lg md:h-auto md:w-auto md:rounded-md md:px-4 md:py-2"
         />
       </div>
+      <OnboardingFlow />
       <div className="sr-only" aria-live="polite" aria-atomic="true" id="a11y-announcer" />
     </KeyboardShortcutsProvider>
   );
