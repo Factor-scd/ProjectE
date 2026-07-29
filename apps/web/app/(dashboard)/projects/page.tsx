@@ -188,7 +188,6 @@ export default function ProjectsPage() {
                     </div>
                   )}
                 </CardContent>
-              </Card>
                 </Card>
               </Link>
               <div className="absolute right-2 top-2">
