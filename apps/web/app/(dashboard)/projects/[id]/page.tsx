@@ -1,411 +1,302 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
-import { ArrowLeft, Calendar, CheckCircle2, Circle, Flag } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import Link from 'next/link';
+import { useState, useEffect, useCallback } from "react";
+import { useParams } from "next/navigation";
+import { Plus, ArrowLeft, GripVertical, MoreHorizontal } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { SectionDialog } from "@/components/projects/section-dialog";
+import Link from "next/link";
+import { toast } from "sonner";
 
-interface Project {
+interface Section {
   id: string;
   name: string;
-  description?: string;
-  status: 'active' | 'paused' | 'archived';
-  domain: string;
-  progress: number;
-  task_count: number;
-  completed_count: number;
-  due_date?: string;
+  projectId: string;
+  kind: 'section' | 'milestone';
+  status: 'planned' | 'in_progress' | 'complete';
+  targetDate: string | null;
+  sortOrder: number;
 }
 
 interface Task {
   id: string;
   title: string;
-  status: 'todo' | 'in_progress' | 'done';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  due_date?: string;
+  status: string;
+  priority: string;
+  sectionId: string | null;
+  order: number;
 }
 
-interface Milestone {
+interface ProjectDetail {
   id: string;
   name: string;
-  description?: string;
-  due_date?: string;
-  status: 'planned' | 'in_progress' | 'completed';
-  completed_tasks: number;
-  total_tasks: number;
+  description: string | null;
+  status: string;
+  color: string | null;
+  icon: string | null;
+  targetDate: string | null;
+  sections: Section[];
+  tasks: Task[];
+  taskCount: number;
+  completedCount: number;
+  progress: number;
 }
+
+const statusColors: Record<string, string> = {
+  active: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+  paused: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+  completed: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  archived: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
+};
+
+const taskStatusColors: Record<string, string> = {
+  todo: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+  in_progress: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200",
+  done: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200",
+  cancelled: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200",
+};
 
 export default function ProjectDetailPage() {
   const params = useParams();
   const projectId = params.id as string;
-
-  const [project, setProject] = useState<Project | null>(null);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [project, setProject] = useState<ProjectDetail | null>(null);
+  const [domainId, setDomainId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [domainMap, setDomainMap] = useState<Map<string, string>>(new Map());
+  const [sectionDialogOpen, setSectionDialogOpen] = useState(false);
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (projectId) {
-      fetchDomains();
-      fetchProject();
-      fetchTasks();
-      fetchMilestones();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
-
-  async function fetchDomains() {
+  // Extract domainId from the project data
+  const fetchProject = useCallback(async () => {
+    setLoading(true);
     try {
-      const res = await fetch('/api/domains?sort=sort_order');
-      if (res.ok) {
-        const data = await res.json();
-        const map = new Map<string, string>();
-        for (const d of data.items || []) map.set(d.id, d.name);
-        setDomainMap(map);
+      // We need to find the domain first — use the first domain
+      const domainsRes = await fetch('/api/domains?sort=sort_order');
+      const domainsData = await domainsRes.json();
+      const firstDomain = domainsData.items?.[0];
+      if (!firstDomain) {
+        setLoading(false);
+        return;
       }
-    } catch {}
-  }
+      setDomainId(firstDomain.id);
 
-  async function fetchProject() {
-    try {
-      const response = await fetch(`/api/projects/${projectId}`);
-      if (response.ok) {
-        const data = await response.json();
-        setProject(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch project:', error);
-    }
-  }
-
-  async function fetchTasks() {
-    try {
-      const response = await fetch(
-        `/api/tasks?filter=project_id%3D%22${projectId}%22&sort=-created`
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setTasks(data.items || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch tasks:', error);
+      const res = await fetch(`/api/domains/${firstDomain.id}/projects/${projectId}`);
+      if (!res.ok) throw new Error('Not found');
+      const data = await res.json();
+      setProject(data);
+    } catch {
+      toast.error('Failed to load project');
     } finally {
       setLoading(false);
     }
-  }
+  }, [projectId]);
 
-  async function fetchMilestones() {
-    try {
-      const response = await fetch(
-        `/api/milestones?filter=project_id%3D%22${projectId}%22&sort=due_date`
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setMilestones(data.items || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch milestones:', error);
-    }
-  }
+  useEffect(() => {
+    fetchProject();
+  }, [fetchProject]);
 
-  async function toggleTaskComplete(taskId: string, currentStatus: string) {
-    const newStatus = currentStatus === 'done' ? 'todo' : 'done';
+  const handleMoveTask = async (taskId: string, sectionId: string | null) => {
     try {
-      await fetch(`/api/tasks/${taskId}`, {
+      const res = await fetch(`/api/domains/${domainId}/tasks/${taskId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ sectionId }),
       });
-      fetchTasks();
+      if (!res.ok) throw new Error('Failed to move task');
+      toast.success('Task moved');
       fetchProject();
-    } catch (error) {
-      console.error('Failed to toggle task:', error);
+    } catch {
+      toast.error('Failed to move task');
     }
+  };
+
+  // Listen for custom event to open section dialog
+  useEffect(() => {
+    const handler = () => setSectionDialogOpen(true);
+    document.addEventListener('open-create-section', handler);
+    return () => document.removeEventListener('open-create-section', handler);
+  }, []);
+
+  if (loading) {
+    return <div className="py-12 text-center text-muted-foreground">Loading project...</div>;
   }
 
-  if (loading || !project) {
-    return <p className="text-muted-foreground">Loading project...</p>;
+  if (!project) {
+    return (
+      <div className="py-12 text-center">
+        <p className="text-muted-foreground">Project not found.</p>
+        <Link href="/projects" className="mt-4 inline-block text-primary hover:underline">
+          ← Back to projects
+        </Link>
+      </div>
+    );
+  }
+
+  // Group tasks by section
+  const tasksBySection = new Map<string | 'unsectioned', Task[]>();
+  tasksBySection.set('unsectioned', []);
+  for (const section of project.sections) {
+    tasksBySection.set(section.id, []);
+  }
+  for (const task of project.tasks) {
+    const key = task.sectionId || 'unsectioned';
+    if (!tasksBySection.has(key)) tasksBySection.set(key, []);
+    tasksBySection.get(key)!.push(task);
   }
 
   return (
     <div>
-      {/* Back button */}
-      <Link href="/projects">
-        <Button variant="ghost" size="sm" className="mb-4">
-          <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />
-          Back to projects
-        </Button>
-      </Link>
-
-      {/* Project header */}
+      {/* Header */}
       <div className="mb-6">
+        <Link href="/projects" className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          Back to projects
+        </Link>
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-bold">{project.name}</h1>
+            <div className="flex items-center gap-2">
+              {project.color && (
+                <div className="h-4 w-4 rounded-full shrink-0" style={{ backgroundColor: project.color }} />
+              )}
+              <h1 className="text-2xl font-bold">{project.name}</h1>
+              <Badge variant="secondary" className={`text-xs ${statusColors[project.status] || ''}`}>
+                {project.status}
+              </Badge>
+            </div>
             {project.description && (
               <p className="mt-1 text-muted-foreground">{project.description}</p>
             )}
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge
-              variant={
-                project.status === 'active'
-                  ? 'default'
-                  : project.status === 'paused'
-                    ? 'secondary'
-                    : 'outline'
-              }
-            >
-              {project.status}
-            </Badge>
-            <Badge variant="outline">{domainMap.get(project.domain) || project.domain}</Badge>
+            {project.targetDate && (
+              <p className="mt-1 text-sm text-muted-foreground">
+                Target: {new Date(project.targetDate).toLocaleDateString()}
+              </p>
+            )}
           </div>
         </div>
-
-        {/* Project stats */}
-        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Progress</p>
-                  <p className="text-2xl font-bold">{project.progress}%</p>
-                </div>
-                <CheckCircle2 className="h-8 w-8 text-green-600" aria-hidden="true" />
-              </div>
-              <Progress value={project.progress} className="mt-2 h-2" aria-label={`${project.name} progress: ${project.progress}%`} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Tasks</p>
-                  <p className="text-2xl font-bold">
-                    {project.completed_count} / {project.task_count}
-                  </p>
-                </div>
-                <Circle className="h-8 w-8 text-blue-600" aria-hidden="true" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Due Date</p>
-                  <p className="text-2xl font-bold">
-                    {project.due_date
-                      ? new Date(project.due_date).toLocaleDateString()
-                      : 'No date'}
-                  </p>
-                </div>
-                <Calendar className="h-8 w-8 text-orange-600" aria-hidden="true" />
-              </div>
-            </CardContent>
-          </Card>
+        <div className="mt-4 space-y-1">
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>{project.completedCount}/{project.taskCount} tasks completed</span>
+            <span>{project.progress}%</span>
+          </div>
+          <Progress value={project.progress} className="h-2" />
         </div>
       </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue="tasks">
-        <TabsList>
-          <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
-          <TabsTrigger value="milestones">
-            Milestones ({milestones.length})
-          </TabsTrigger>
-          <TabsTrigger value="habits">Habits</TabsTrigger>
-          <TabsTrigger value="notes">Notes</TabsTrigger>
-        </TabsList>
+      {/* Sections board */}
+      <div className="flex gap-4 overflow-x-auto pb-4">
+        {/* Unsectioned tasks column */}
+        <div className="min-w-[280px] max-w-[320px] flex-shrink-0">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+              Unassigned
+            </h3>
+            <span className="text-xs text-muted-foreground">
+              {(tasksBySection.get('unsectioned') || []).length}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {(tasksBySection.get('unsectioned') || []).map((task) => (
+              <div
+                key={task.id}
+                draggable
+                onDragStart={() => setDraggedTaskId(task.id)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => {
+                  if (draggedTaskId && draggedTaskId !== task.id) {
+                    handleMoveTask(draggedTaskId, null);
+                  }
+                  setDraggedTaskId(null);
+                }}
+                className="rounded-lg border bg-card p-3 cursor-grab active:cursor-grabbing"
+              >
+                <div className="flex items-center gap-2">
+                  <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
+                  <span className="text-sm flex-1">{task.title}</span>
+                  <Badge variant="secondary" className={`text-xs ${taskStatusColors[task.status] || ''}`}>
+                    {task.status}
+                  </Badge>
+                </div>
+              </div>
+            ))}
+            {(tasksBySection.get('unsectioned') || []).length === 0 && (
+              <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+                Drop tasks here
+              </div>
+            )}
+          </div>
+        </div>
 
-        <TabsContent value="tasks" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Project Tasks</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {tasks.length === 0 ? (
-                <p className="py-8 text-center text-muted-foreground">
-                  No tasks yet
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {tasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="flex items-center gap-3 rounded-lg border p-3"
-                    >
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-11 w-11 shrink-0"
-                        onClick={() =>
-                          toggleTaskComplete(task.id, task.status)
-                        }
-                        aria-label={`Mark "${task.title}" as ${task.status === 'done' ? 'incomplete' : 'complete'}`}
-                      >
-                        {task.status === 'done' ? (
-                          <CheckCircle2 className="h-5 w-5 text-green-600" />
-                        ) : (
-                          <Circle className="h-5 w-5" />
-                        )}
-                      </Button>
-                      <div className="flex-1">
-                        <p
-                          className={`text-sm font-medium ${
-                            task.status === 'done'
-                              ? 'text-muted-foreground line-through'
-                              : ''
-                          }`}
-                        >
-                          {task.title}
-                        </p>
-                      </div>
-                      <Badge
-                        variant={
-                          task.priority === 'urgent'
-                            ? 'destructive'
-                            : task.priority === 'high'
-                              ? 'default'
-                              : 'secondary'
-                        }
-                      >
-                        {task.priority}
-                      </Badge>
-                      {task.due_date && (
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(task.due_date).toLocaleDateString()}
-                        </span>
-                      )}
-                    </div>
-                  ))}
+        {/* Section columns */}
+        {project.sections.map((section) => (
+          <div key={section.id} className="min-w-[280px] max-w-[320px] flex-shrink-0">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                  {section.name}
+                </h3>
+                {section.kind === 'milestone' && (
+                  <Badge variant="outline" className="text-xs">Milestone</Badge>
+                )}
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {(tasksBySection.get(section.id) || []).length}
+              </span>
+            </div>
+            <div
+              className="space-y-2 min-h-[100px]"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => {
+                if (draggedTaskId) {
+                  handleMoveTask(draggedTaskId, section.id);
+                }
+                setDraggedTaskId(null);
+              }}
+            >
+              {(tasksBySection.get(section.id) || []).map((task) => (
+                <div
+                  key={task.id}
+                  draggable
+                  onDragStart={() => setDraggedTaskId(task.id)}
+                  className="rounded-lg border bg-card p-3 cursor-grab active:cursor-grabbing"
+                >
+                  <div className="flex items-center gap-2">
+                    <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
+                    <span className="text-sm flex-1">{task.title}</span>
+                    <Badge variant="secondary" className={`text-xs ${taskStatusColors[task.status] || ''}`}>
+                      {task.status}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+              {(tasksBySection.get(section.id) || []).length === 0 && (
+                <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+                  Drop tasks here
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </div>
+          </div>
+        ))}
 
-        <TabsContent value="milestones" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Milestones</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {milestones.length === 0 ? (
-                <p className="py-8 text-center text-muted-foreground">
-                  No milestones yet
-                </p>
-              ) : (
-                <div className="space-y-4">
-                  {milestones.map((milestone, index) => (
-                    <div key={milestone.id} className="relative flex gap-4">
-                      {/* Timeline line */}
-                      {index < milestones.length - 1 && (
-                        <div className="absolute left-5 top-12 h-full w-0.5 bg-border" />
-                      )}
+        {/* Add section button */}
+        <div className="min-w-[280px] max-w-[320px] flex-shrink-0">
+          <button
+            onClick={() => setSectionDialogOpen(true)}
+            className="flex h-full w-full items-center justify-center rounded-lg border-2 border-dashed p-4 text-sm text-muted-foreground hover:text-foreground hover:border-accent-foreground/50 transition-colors"
+          >
+            <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
+            Add section
+          </button>
+        </div>
+      </div>
 
-                      {/* Milestone marker */}
-                      <div className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 bg-background">
-                        <Flag
-                          className={`h-5 w-5 ${
-                            milestone.status === 'completed'
-                              ? 'text-green-600'
-                              : milestone.status === 'in_progress'
-                                ? 'text-blue-600'
-                                : 'text-muted-foreground'
-                          }`}
-                          aria-hidden="true"
-                        />
-                      </div>
-
-                      {/* Milestone content */}
-                      <div className="flex-1 pb-6">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <h2 className="font-semibold">
-                              {milestone.name}
-                            </h2>
-                            {milestone.description && (
-                              <p className="mt-1 text-sm text-muted-foreground">
-                                {milestone.description}
-                              </p>
-                            )}
-                          </div>
-                          <Badge
-                            variant={
-                              milestone.status === 'completed'
-                                ? 'default'
-                                : milestone.status === 'in_progress'
-                                  ? 'secondary'
-                                  : 'outline'
-                            }
-                          >
-                            {milestone.status}
-                          </Badge>
-                        </div>
-                        {milestone.due_date && (
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            Due:{' '}
-                            {new Date(
-                              milestone.due_date
-                            ).toLocaleDateString()}
-                          </p>
-                        )}
-                        <div className="mt-2">
-                          <div className="mb-1 flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground">
-                              Tasks
-                            </span>
-                            <span>
-                              {milestone.completed_tasks} /{' '}
-                              {milestone.total_tasks}
-                            </span>
-                          </div>
-                          <Progress
-                            value={
-                              milestone.total_tasks > 0
-                                ? (milestone.completed_tasks /
-                                    milestone.total_tasks) *
-                                  100
-                                : 0
-                            }
-                            className="h-1.5"
-                            aria-label={`${milestone.name} task progress: ${milestone.completed_tasks} of ${milestone.total_tasks}`}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="habits" className="mt-6">
-          <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              Habits linked to this project will appear here
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="notes" className="mt-6">
-          <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              Notes linked to this project will appear here
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      <SectionDialog
+        open={sectionDialogOpen}
+        onOpenChange={setSectionDialogOpen}
+        projectId={projectId}
+        domainId={domainId || ''}
+        onCreated={fetchProject}
+      />
     </div>
   );
 }
