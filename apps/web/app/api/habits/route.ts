@@ -19,11 +19,8 @@ const createHabitSchema = z.object({
   domain: z.string().min(1, 'Domain is required'),
   frequency: habitFrequencyEnum.optional().default('daily'),
   difficulty: habitDifficultyEnum.optional().default('medium'),
-  completionMode: z.enum(['quick', 'checklist', 'timer']).optional().default('quick'),
   goalPerPeriod: z.number().int().positive().optional().default(1),
   active: z.boolean().optional().default(true),
-  color: z.string().optional().nullable(),
-  icon: z.string().optional().nullable(),
   tagIds: z.array(z.string().uuid()).optional(),
 });
 
@@ -92,11 +89,8 @@ export const POST = withAuth(async (request: NextRequest, user) => {
       domainId: data.domain,
       frequency: data.frequency,
       difficulty: data.difficulty,
-      completionMode: data.completionMode,
       goalPerPeriod: data.goalPerPeriod,
       active: data.active,
-      color: data.color ?? null,
-      icon: data.icon ?? null,
     }).returning();
 
     if (data.tagIds && data.tagIds.length > 0) {
