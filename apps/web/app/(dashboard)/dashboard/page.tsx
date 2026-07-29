@@ -68,7 +68,7 @@ const widgetLabels: Record<string, string> = {
   'quick-capture': 'Quick Capture',
 };
 
-export default function DashboardPage() {
+function DashboardPage() {
   const { widgets, setWidgets, addWidget, removeWidget } = useDashboardStore();
   const [layoutAnnouncement, setLayoutAnnouncement] = React.useState('');
   const [editMode, setEditMode] = React.useState(false);
@@ -201,5 +201,12 @@ export default function DashboardPage() {
         })}
       </ResponsiveGridLayout>
     </div>
+  );
+}
+export default function DashboardPageWrapper() {
+  return (
+    <Suspense fallback={<div className="py-12 text-center text-muted-foreground">Loading dashboard...</div>}>
+      <DashboardPage />
+    </Suspense>
   );
 }
