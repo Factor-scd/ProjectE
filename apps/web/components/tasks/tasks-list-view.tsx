@@ -62,25 +62,39 @@ export function TasksListView({
   onRefresh?: () => void;
 }) {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [domainMap, setDomainMap] = useState<Map<string, string>>(new Map());
+  const LIMIT = 50;
   const { subscribe } = useRealtimeContext();
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (appendOffset) => {
     if (!domainId) return;
+    if (appendOffset === undefined) setLoading(true);
+    else setLoadingMore(true);
     try {
-      const response = await fetch(`/api/domains/${domainId}/tasks?sort=order&limit=200`);
+      const currentOffset = appendOffset ?? 0;
+      const response = await fetch(`/api/domains/${domainId}/tasks?sort=order&limit=${LIMIT}&offset=${currentOffset}`);
       if (!response.ok) throw new Error('Unable to load tasks');
       const data = await response.json();
-      setTasks(data.items || []);
+      if (appendOffset !== undefined) {
+        setTasks(prev => [...prev, ...(data.items || [])]);
+      } else {
+        setTasks(data.items || []);
+        setOffset(0);
+      }
+      setTotalCount(data.totalItems || 0);
     } catch (error) {
       console.error('Failed to fetch tasks:', error);
       toast.error('Unable to load tasks');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }, [domainId]);
 
@@ -115,6 +129,12 @@ export function TasksListView({
     return unsubscribe;
   }, [domainId, subscribe, fetchTasks, onRefresh]);
 
+  function loadMore() {
+    const newOffset = offset + LIMIT;
+    setOffset(newOffset);
+    fetchTasks(newOffset);
+  }
+
   async function toggleTaskComplete(task: Task) {
     const newStatus = task.status === 'done' ? 'todo' : 'done';
     try {
@@ -138,7 +158,7 @@ export function TasksListView({
     return <p className="text-muted-foreground">Loading tasks...</p>;
   }
 
-  if (tasks.length === 0) {
+  if (tasks.length === 0 && !loading) {
     return (
       <div className="py-12 text-center">
         <p className="text-muted-foreground">No tasks yet. Create your first task to get started!</p>
@@ -235,6 +255,19 @@ export function TasksListView({
               ))}
             </TableBody>
           </Table>
+          <div className="flex items-center justify-between px-4 py-3 text-sm text-muted-foreground">
+            <span>Showing {tasks.length} of {totalCount} tasks</span>
+            {tasks.length < totalCount && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadMore}
+                disabled={loadingMore}
+              >
+                {loadingMore ? "Loading..." : "Load more"}
+              </Button>
+            )}
+          </div>
         </div>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
