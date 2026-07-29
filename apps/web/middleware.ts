@@ -68,6 +68,7 @@ function checkRateLimit(request: NextRequest): { allowed: boolean; limit: number
 }
 
 // Periodically clean up stale buckets (every 5 minutes)
+// Edge Runtime cleanup (no .unref support)
 setInterval(() => {
   const now = Date.now();
   for (const [key, bucket] of buckets.entries()) {
@@ -75,7 +76,7 @@ setInterval(() => {
       buckets.delete(key);
     }
   }
-}, 300000).unref();
+}, 300000);
 
 // ── Excluded routes ──────────────────────────────────────────────────────────────
 
