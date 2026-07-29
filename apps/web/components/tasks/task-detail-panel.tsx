@@ -30,7 +30,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, Loader2 } from 'lucide-react';
+import { Calendar, Loader2, Play, Square } from 'lucide-react';
 
 interface TaskDetail {
   id: string;
