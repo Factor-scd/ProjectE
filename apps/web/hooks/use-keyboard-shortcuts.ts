@@ -46,6 +46,7 @@ export function useKeyboardShortcuts() {
         if (key === 'g') { router.push('/graph'); e.preventDefault(); return; }
         if (key === 'r') { router.push('/reports'); e.preventDefault(); return; }
         if (key === 'c') { router.push('/calendar'); e.preventDefault(); return; }
+        if (key === 's') { router.push('/search'); e.preventDefault(); return; }
         if (key === 'a') { router.push('/analytics'); e.preventDefault(); return; }
         return;
       }

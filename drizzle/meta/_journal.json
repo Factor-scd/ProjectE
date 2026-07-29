@@ -8,6 +8,20 @@
       "when": 1785317538917,
       "tag": "0000_outstanding_zuras",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785323079216,
+      "tag": "0001_warm_eternity",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785324000000,
+      "tag": "0002_steep_black_widow",
+      "breakpoints": true
     }
   ]
 }

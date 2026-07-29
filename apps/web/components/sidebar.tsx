@@ -12,6 +12,7 @@ import {
   NotebookPen,
   Share2,
   CalendarDays,
+  Search,
   Bot,
   Settings,
   ChevronLeft,
@@ -42,6 +43,7 @@ const navItems = [
   { href: '/notes', label: 'Notes', icon: NotebookPen },
   { href: '/graph', label: 'Graph', icon: Share2 },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
+  { href: '/search', label: 'Search', icon: Search },
 ];
 
 const workspaceItems = [

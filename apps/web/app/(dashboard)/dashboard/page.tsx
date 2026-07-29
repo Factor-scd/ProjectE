@@ -1,10 +1,12 @@
 'use client';
 
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useDashboardStore } from '@/lib/stores/use-dashboard-store';
 import { WidgetErrorBoundary } from '@/components/widget-error-boundary';
 import { Button } from '@/components/ui/button';
+import { Settings2, LayoutGrid } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 // Lazy load react-grid-layout (client-only, ~45KB)
 const ResponsiveGridLayout = dynamic(
@@ -21,84 +23,15 @@ const ResponsiveGridLayout = dynamic(
   }
 );
 
-// Lazy load individual widgets — each is code-split into its own chunk
-const TodayTasksWidget = dynamic(
-  () =>
-    import('@/components/dashboard/widgets/today-tasks-widget').then((m) => m.TodayTasksWidget),
-  {
-    ssr: false,
-    loading: () => <WidgetSkeleton />,
-  }
-);
-
-const HabitChecklistWidget = dynamic(
-  () =>
-    import('@/components/dashboard/widgets/habit-checklist-widget').then(
-      (m) => m.HabitChecklistWidget
-    ),
-  {
-    ssr: false,
-    loading: () => <WidgetSkeleton />,
-  }
-);
-
-const WeeklyStatsWidget = dynamic(
-  () =>
-    import('@/components/dashboard/widgets/weekly-stats-widget').then((m) => m.WeeklyStatsWidget),
-  {
-    ssr: false,
-    loading: () => <WidgetSkeleton />,
-  }
-);
-
-const ProjectProgressWidget = dynamic(
-  () =>
-    import('@/components/dashboard/widgets/project-progress-widget').then(
-      (m) => m.ProjectProgressWidget
-    ),
-  {
-    ssr: false,
-    loading: () => <WidgetSkeleton />,
-  }
-);
-
-const HabitStreaksWidget = dynamic(
-  () =>
-    import('@/components/dashboard/widgets/habit-streaks-widget').then((m) => m.HabitStreaksWidget),
-  {
-    ssr: false,
-    loading: () => <WidgetSkeleton />,
-  }
-);
-
-const CalendarMiniWidget = dynamic(
-  () =>
-    import('@/components/dashboard/widgets/calendar-mini-widget').then((m) => m.CalendarMiniWidget),
-  {
-    ssr: false,
-    loading: () => <WidgetSkeleton />,
-  }
-);
-
-const QuickAddWidget = dynamic(
-  () =>
-    import('@/components/dashboard/widgets/quick-add-widget').then((m) => m.QuickAddWidget),
-  {
-    ssr: false,
-    loading: () => <WidgetSkeleton />,
-  }
-);
-
-const RecentActivityWidget = dynamic(
-  () =>
-    import('@/components/dashboard/widgets/recent-activity-widget').then(
-      (m) => m.RecentActivityWidget
-    ),
-  {
-    ssr: false,
-    loading: () => <WidgetSkeleton />,
-  }
-);
+// Lazy load individual widgets
+const TodayTasksWidget = dynamic(() => import('@/components/dashboard/widgets/today-tasks-widget').then((m) => m.TodayTasksWidget), { ssr: false, loading: () => <WidgetSkeleton /> });
+const HabitChecklistWidget = dynamic(() => import('@/components/dashboard/widgets/habit-checklist-widget').then((m) => m.HabitChecklistWidget), { ssr: false, loading: () => <WidgetSkeleton /> });
+const WeeklyStatsWidget = dynamic(() => import('@/components/dashboard/widgets/weekly-stats-widget').then((m) => m.WeeklyStatsWidget), { ssr: false, loading: () => <WidgetSkeleton /> });
+const ProjectProgressWidget = dynamic(() => import('@/components/dashboard/widgets/project-progress-widget').then((m) => m.ProjectProgressWidget), { ssr: false, loading: () => <WidgetSkeleton /> });
+const UpcomingCalendarWidget = dynamic(() => import('@/components/dashboard/widgets/upcoming-calendar-widget').then((m) => m.UpcomingCalendarWidget), { ssr: false, loading: () => <WidgetSkeleton /> });
+const RecentNotesWidget = dynamic(() => import('@/components/dashboard/widgets/recent-notes-widget').then((m) => m.RecentNotesWidget), { ssr: false, loading: () => <WidgetSkeleton /> });
+const ActivityFeedWidget = dynamic(() => import('@/components/dashboard/widgets/activity-feed-widget').then((m) => m.ActivityFeedWidget), { ssr: false, loading: () => <WidgetSkeleton /> });
+const QuickCaptureWidget = dynamic(() => import('@/components/dashboard/widgets/quick-capture-widget').then((m) => m.QuickCaptureWidget), { ssr: false, loading: () => <WidgetSkeleton /> });
 
 function WidgetSkeleton() {
   return (
@@ -118,15 +51,29 @@ const widgetComponents: Record<string, React.ComponentType> = {
   'habit-checklist': HabitChecklistWidget,
   'weekly-stats': WeeklyStatsWidget,
   'project-progress': ProjectProgressWidget,
-  'habit-streaks': HabitStreaksWidget,
-  'calendar-mini': CalendarMiniWidget,
-  'quick-add': QuickAddWidget,
-  'recent-activity': RecentActivityWidget,
+  'upcoming-calendar': UpcomingCalendarWidget,
+  'recent-notes': RecentNotesWidget,
+  'activity-feed': ActivityFeedWidget,
+  'quick-capture': QuickCaptureWidget,
+};
+
+const widgetLabels: Record<string, string> = {
+  'today-tasks': "Today's Tasks",
+  'habit-checklist': 'Habit Checklist',
+  'weekly-stats': 'Weekly Stats',
+  'project-progress': 'Project Progress',
+  'upcoming-calendar': 'Upcoming Calendar',
+  'recent-notes': 'Recent Notes',
+  'activity-feed': 'Activity Feed',
+  'quick-capture': 'Quick Capture',
 };
 
 export default function DashboardPage() {
-  const { widgets, setWidgets } = useDashboardStore();
+  const { widgets, setWidgets, addWidget, removeWidget } = useDashboardStore();
   const [layoutAnnouncement, setLayoutAnnouncement] = React.useState('');
+  const [editMode, setEditMode] = React.useState(false);
+  const [showConfig, setShowConfig] = React.useState(false);
+  const router = useRouter();
 
   const layout = widgets.map((w) => ({
     i: w.id,
@@ -140,81 +87,98 @@ export default function DashboardPage() {
     const updated = widgets.map((w) => {
       const layoutItem = newLayout.find((l) => l.i === w.id);
       if (layoutItem) {
-        return {
-          ...w,
-          x: layoutItem.x,
-          y: layoutItem.y,
-          w: layoutItem.w,
-          h: layoutItem.h,
-        };
+        return { ...w, x: layoutItem.x, y: layoutItem.y, w: layoutItem.w, h: layoutItem.h };
       }
       return w;
     });
     setWidgets(updated);
   }
 
-  function moveWidget(id: string, direction: -1 | 1) {
-    const ordered = [...widgets].sort((a, b) => a.y - b.y || a.x - b.x);
-    const index = ordered.findIndex((widget) => widget.id === id);
-    const targetIndex = index + direction;
-    if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
+  const availableWidgets = Object.keys(widgetComponents).filter((id) => !widgets.find((w) => w.id === id));
 
-    const current = ordered[index];
-    const target = ordered[targetIndex];
-    setWidgets(widgets.map((widget) => {
-      if (widget.id === current.id) return { ...widget, x: target.x, y: target.y };
-      if (widget.id === target.id) return { ...widget, x: current.x, y: current.y };
-      return widget;
-    }));
-    setLayoutAnnouncement(`${current.type} moved ${direction < 0 ? 'earlier' : 'later'} on the dashboard.`);
-  }
-
-  function resizeWidget(id: string, direction: -1 | 1) {
-    const widget = widgets.find((item) => item.id === id);
-    if (!widget) return;
-    const width = Math.max(2, Math.min(12, widget.w + direction));
-    if (width === widget.w) return;
-    setWidgets(widgets.map((item) => item.id === id ? { ...item, w: width } : item));
-    setLayoutAnnouncement(`${widget.type} is now ${width} columns wide.`);
+  function addNewWidget(widgetId: string) {
+    addWidget({
+      id: widgetId,
+      type: widgetLabels[widgetId] || widgetId,
+      x: 0,
+      y: widgets.length,
+      w: 4,
+      h: 3,
+      visible: true,
+    });
   }
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="mt-1 text-muted-foreground">Your day, at a glance.</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="mt-1 text-muted-foreground">Your day, at a glance.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={editMode ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setEditMode(!editMode)}
+          >
+            <LayoutGrid className="mr-1 h-4 w-4" />
+            {editMode ? 'Done' : 'Edit'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowConfig(!showConfig)}
+          >
+            <Settings2 className="mr-1 h-4 w-4" />
+            Configure
+          </Button>
+        </div>
       </div>
 
-      <details className="mb-4 rounded-lg border bg-card p-3">
-        <summary className="cursor-pointer text-sm font-medium">Customize dashboard layout</summary>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Use these controls to reorder or resize widgets without dragging.
-        </p>
-        <div className="mt-3 space-y-2">
-          {[...widgets].sort((a, b) => a.y - b.y || a.x - b.x).map((widget, index, ordered) => (
-            <div key={widget.id} className="flex items-center justify-between gap-3 rounded-md bg-muted/50 px-3 py-2">
-              <span className="text-sm">{widget.type}</span>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => moveWidget(widget.id, -1)} disabled={index === 0}>
-                  Move earlier
+      {/* Widget configuration panel */}
+      {showConfig && (
+        <div className="mb-6 rounded-lg border bg-card p-4">
+          <h3 className="mb-3 text-sm font-semibold">Add Widgets</h3>
+          <div className="flex flex-wrap gap-2">
+            {availableWidgets.length === 0 ? (
+              <p className="text-sm text-muted-foreground">All widgets are already on your dashboard.</p>
+            ) : (
+              availableWidgets.map((id) => (
+                <Button
+                  key={id}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => addNewWidget(id)}
+                >
+                  + {widgetLabels[id] || id}
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => moveWidget(widget.id, 1)} disabled={index === ordered.length - 1}>
-                  Move later
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => resizeWidget(widget.id, -1)} disabled={widget.w <= 2}>
-                  Narrower
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => resizeWidget(widget.id, 1)} disabled={widget.w >= 12}>
-                  Wider
-                </Button>
-              </div>
+              ))
+            )}
+          </div>
+          <div className="mt-4">
+            <h3 className="mb-3 text-sm font-semibold">Active Widgets</h3>
+            <div className="space-y-2">
+              {widgets.map((w) => (
+                <div key={w.id} className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
+                  <span className="text-sm">{widgetLabels[w.id] || w.type}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive"
+                    onClick={() => removeWidget(w.id)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
-      </details>
+      )}
+
       <p className="sr-only" aria-live="polite">{layoutAnnouncement}</p>
 
-      <ResponsiveGridLayout layout={layout} onLayoutChange={handleLayoutChange}>
+      <ResponsiveGridLayout layout={layout} onLayoutChange={handleLayoutChange} isDraggable={editMode} isResizable={editMode}>
         {widgets.map((widget) => {
           const WidgetComponent = widgetComponents[widget.id];
           if (!WidgetComponent) return null;
@@ -223,7 +187,7 @@ export default function DashboardPage() {
             <div key={widget.id}>
               <WidgetErrorBoundary widgetName={widget.type}>
                 <div className="h-full rounded-lg border bg-card p-4 shadow-sm">
-                  <div className="widget-drag-handle">
+                  <div className={editMode ? 'widget-drag-handle' : ''}>
                     <Suspense fallback={<WidgetSkeleton />}>
                       <WidgetComponent />
                     </Suspense>
