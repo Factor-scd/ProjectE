@@ -284,12 +284,38 @@ export function TasksListView({
               onClick={async () => {
                 if (!deleteId || !domainId) return;
                 setDeleting(true);
+                const deletedTask = tasks.find(t => t.id === deleteId);
                 try {
                   const res = await fetch(`/api/domains/${domainId}/tasks/${deleteId}`, { method: 'DELETE' });
                   if (!res.ok) throw new Error();
-                  toast.success('Task deleted');
                   setDeleteId(null);
                   fetchTasks();
+                  toast.success('Task deleted', {
+                    action: {
+                      label: 'Undo',
+                      onClick: async () => {
+                        if (!deletedTask) return;
+                        try {
+                          await fetch(`/api/domains/${domainId}/tasks`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              title: deletedTask.title,
+                              description: deletedTask.description,
+                              status: deletedTask.status,
+                              priority: deletedTask.priority,
+                              dueDate: deletedTask.dueDate,
+                              projectId: deletedTask.projectId,
+                            }),
+                          });
+                          fetchTasks();
+                          toast.success('Task restored');
+                        } catch {
+                          toast.error('Unable to restore task');
+                        }
+                      },
+                    },
+                  });
                 } catch {
                   toast.error('Unable to delete task');
                 } finally {

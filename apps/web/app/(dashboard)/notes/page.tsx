@@ -226,6 +226,7 @@ export default function NotesPage() {
     }
     ++saveVersion.current;
     setDeleting(true);
+    const deletedNote = { ...noteToDelete };
     try {
       const response = await fetch(`/api/domains/${domainId}/notes/${noteToDelete.id}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('Unable to delete note.');
@@ -234,7 +235,30 @@ export default function NotesPage() {
         selected?.id === noteToDelete.id ? notes.find((note) => note.id !== noteToDelete.id) || null : selected
       );
       setNoteToDelete(null);
-      toast.success('Note deleted');
+      toast.success('Note deleted', {
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            try {
+              const res = await fetch(`/api/domains/${domainId}/notes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: deletedNote.title,
+                  content: deletedNote.content,
+                }),
+              });
+              if (!res.ok) throw new Error();
+              const restored = await res.json();
+              setNotes((current) => [restored, ...current]);
+              setSelectedNote(restored);
+              toast.success('Note restored');
+            } catch {
+              toast.error('Unable to restore note');
+            }
+          },
+        },
+      });
     } catch (error) {
       console.error('Failed to delete note:', error);
       toast.error('Unable to delete note');
