@@ -25,6 +25,7 @@ const createTaskSchema = z.object({
   estimatedMinutes: z.number().int().positive().optional().nullable(),
   order: z.number().int().optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
+  recurrenceRule: z.string().optional().nullable(),
   tagIds: z.array(z.string().uuid()).optional(),
 });
 
@@ -185,6 +186,7 @@ export const POST = withAuth<RouteContext>(async (request: NextRequest, user, co
       estimatedMinutes: data.estimatedMinutes ?? null,
       order: data.order ?? 0,
       customFields: data.customFields ?? {},
+      recurrenceRule: data.recurrenceRule ?? null,
     }).returning();
 
     // Insert tags if provided

@@ -25,6 +25,7 @@ const updateTaskSchema = z.object({
   estimatedMinutes: z.number().int().positive().optional().nullable(),
   order: z.number().int().optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
+  recurrenceRule: z.string().optional().nullable(),
 });
 
 type RouteContext = { params: Promise<{ domainId: string; id: string }> };
@@ -141,6 +142,7 @@ export const PATCH = withAuth<RouteContext>(async (request: NextRequest, user, c
     if (data.estimatedMinutes !== undefined) updateValues.estimatedMinutes = data.estimatedMinutes;
     if (data.order !== undefined) updateValues.order = data.order;
     if (data.customFields !== undefined) updateValues.customFields = data.customFields;
+    if (data.recurrenceRule !== undefined) updateValues.recurrenceRule = data.recurrenceRule;
     updateValues.updatedAt = new Date();
 
     const [updated] = await db.update(tasks)

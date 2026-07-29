@@ -47,6 +47,7 @@ interface TaskDetail {
   estimatedMinutes?: number | null;
   trackedMinutes?: number | null;
   order: number;
+  recurrenceRule?: string | null;
   customFields?: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
@@ -64,6 +65,14 @@ interface TaskDetailPanelProps {
   onUpdate: () => void;
 }
 
+const RECURRENCE_OPTIONS = [
+  { label: 'None', value: '' },
+  { label: 'Daily', value: 'FREQ=DAILY' },
+  { label: 'Weekly', value: 'FREQ=WEEKLY' },
+  { label: 'Monthly', value: 'FREQ=MONTHLY' },
+  { label: 'Custom (rrule)', value: 'custom' },
+] as const;
+
 export function TaskDetailPanel({
   taskId,
   domainId,
@@ -79,6 +88,8 @@ export function TaskDetailPanel({
   const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
   const [dueDate, setDueDate] = useState('');
   const [estimatedMinutes, setEstimatedMinutes] = useState('');
+  const [recurrenceType, setRecurrenceType] = useState('');
+  const [customRrule, setCustomRrule] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -100,6 +111,23 @@ export function TaskDetailPanel({
         setPriority(data.priority);
         setDueDate(data.dueDate ? data.dueDate.split('T')[0] : '');
         setEstimatedMinutes(data.estimatedMinutes?.toString() || '');
+
+        // Recurrence
+        if (data.recurrenceRule) {
+          const isPreset = RECURRENCE_OPTIONS.some(
+            (o) => o.value !== 'custom' && o.value !== '' && o.value === data.recurrenceRule
+          );
+          if (isPreset) {
+            setRecurrenceType(data.recurrenceRule);
+            setCustomRrule('');
+          } else {
+            setRecurrenceType('custom');
+            setCustomRrule(data.recurrenceRule);
+          }
+        } else {
+          setRecurrenceType('');
+          setCustomRrule('');
+        }
       })
       .catch((err) => {
         console.error('Failed to load task:', err);
@@ -107,6 +135,12 @@ export function TaskDetailPanel({
       })
       .finally(() => setLoading(false));
   }, [open, taskId, domainId]);
+
+  function getRecurrenceRule(): string | null {
+    if (!recurrenceType) return null;
+    if (recurrenceType === 'custom') return customRrule || null;
+    return recurrenceType;
+  }
 
   async function handleSave() {
     if (!task || !domainId) return;
@@ -123,6 +157,10 @@ export function TaskDetailPanel({
       }
       if (estimatedMinutes !== (task.estimatedMinutes?.toString() || '')) {
         body.estimatedMinutes = estimatedMinutes ? parseInt(estimatedMinutes, 10) : null;
+      }
+      const recurrenceRule = getRecurrenceRule();
+      if (recurrenceRule !== (task.recurrenceRule || null)) {
+        body.recurrenceRule = recurrenceRule;
       }
 
       const response = await fetch(`/api/domains/${domainId}/tasks/${task.id}`, {
@@ -260,6 +298,32 @@ export function TaskDetailPanel({
                   placeholder="e.g. 30"
                 />
               </div>
+            </div>
+
+            {/* Recurrence */}
+            <div className="space-y-2">
+              <Label htmlFor="task-recurrence">Recurrence</Label>
+              <Select value={recurrenceType} onValueChange={setRecurrenceType}>
+                <SelectTrigger id="task-recurrence">
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent>
+                  {RECURRENCE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {recurrenceType === 'custom' && (
+                <Input
+                  id="task-custom-rrule"
+                  value={customRrule}
+                  onChange={(e) => setCustomRrule(e.target.value)}
+                  placeholder="e.g. FREQ=WEEKLY;BYDAY=MO,WE,FR"
+                  className="mt-2"
+                />
+              )}
             </div>
 
             {/* Tags */}
