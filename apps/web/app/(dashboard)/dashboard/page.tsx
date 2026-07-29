@@ -6,7 +6,7 @@ import { useDashboardStore } from '@/lib/stores/use-dashboard-store';
 import { WidgetErrorBoundary } from '@/components/widget-error-boundary';
 import { Button } from '@/components/ui/button';
 import { Settings2, LayoutGrid } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 // Lazy load react-grid-layout (client-only, ~45KB)
 const ResponsiveGridLayout = dynamic(
@@ -74,6 +74,8 @@ export default function DashboardPage() {
   const [editMode, setEditMode] = React.useState(false);
   const [showConfig, setShowConfig] = React.useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const domainFilter = searchParams.get('domain');
 
   const layout = widgets.map((w) => ({
     i: w.id,
@@ -113,7 +115,7 @@ export default function DashboardPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="mt-1 text-muted-foreground">Your day, at a glance.</p>
+          <p className="mt-1 text-muted-foreground">Your day, at a glance.{domainFilter ? " (Filtered: " + domainFilter + ")" : ""}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button
