@@ -5,30 +5,66 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, createErrorResponse } from '@/lib/auth';
-import { createPocketBaseClient } from '@/lib/pocketbase';
-import { createDomainSchema } from '@project-e/shared';
+import { db, domains } from '@project-e/db';
+import { and, asc, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
+
+const createDomainSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  slug: z.string().min(1, 'Slug is required'),
+  color: z.string().optional().nullable(),
+  icon: z.string().optional().nullable(),
+  parentId: z.string().uuid().optional().nullable(),
+});
 
 // GET /api/domains — List domains with filtering, sorting, pagination
 export const GET = withAuth(async (request: NextRequest, _user) => {
   const { searchParams } = new URL(request.url);
-  const page = parseInt(searchParams.get('page') || '1');
-  const perPage = parseInt(searchParams.get('perPage') || '50');
+  const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+  const perPage = Math.min(100, Math.max(1, parseInt(searchParams.get('perPage') || '50')));
+  const sortParam = searchParams.get('sort') || 'sort_order';
   const filter = searchParams.get('filter') || undefined;
-  const sort = searchParams.get('sort') || 'sort_order';
 
-  const pb = createPocketBaseClient();
-  const result = await pb.collection('domains').getList(page, perPage, {
-    ...(filter ? { filter } : {}),
-    sort,
-  });
+  // Build order by
+  const sortDir = sortParam.startsWith('-') ? 'desc' : 'asc';
+  const sortField = sortParam.replace(/^-/, '');
+  const orderBy = sortDir === 'asc'
+    ? asc(domains[sortField as keyof typeof domains] || domains.sortOrder)
+    : desc(domains[sortField as keyof typeof domains] || domains.sortOrder);
+
+  // Build where clause
+  const conditions: any[] = [];
+  if (filter) {
+    conditions.push(
+      or(
+        ilike(domains.name, `%${filter}%`),
+        ilike(domains.slug, `%${filter}%`),
+      )!
+    );
+  }
+
+  const offset = (page - 1) * perPage;
+
+  const [items, countResult] = await Promise.all([
+    db.select()
+      .from(domains)
+      .where(and(...conditions))
+      .orderBy(orderBy)
+      .limit(perPage)
+      .offset(offset),
+    db.select({ count: sql<number>`count(*)` })
+      .from(domains)
+      .where(and(...conditions)),
+  ]);
+
+  const totalItems = Number(countResult[0]?.count || 0);
 
   return NextResponse.json({
-    items: result.items,
-    totalItems: result.totalItems,
-    totalPages: result.totalPages,
-    page: result.page,
-    perPage: result.perPage,
+    items,
+    totalItems,
+    totalPages: Math.ceil(totalItems / perPage),
+    page,
+    perPage,
   });
 });
 
@@ -38,8 +74,15 @@ export const POST = withAuth(async (request: NextRequest, _user) => {
     const body = await request.json();
     const data = createDomainSchema.parse(body);
 
-    const pb = createPocketBaseClient();
-    const domain = await pb.collection('domains').create(data);
+    const [domain] = await db.insert(domains)
+      .values({
+        name: data.name,
+        slug: data.slug,
+        color: data.color || null,
+        icon: data.icon || null,
+        parentId: data.parentId || null,
+      })
+      .returning();
 
     return NextResponse.json(domain, { status: 201 });
   } catch (error) {
