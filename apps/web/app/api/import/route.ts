@@ -60,8 +60,7 @@ export const POST = withAuth(async (request: NextRequest, _user) => {
     for (const item of items) {
       try {
         // Strip id, created, updated to let PocketBase generate new ones
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { id, created, updated, ...data } = item;
+        const { id: _id, created: _created, updated: _updated, ...data } = item;
         await pb.collection(collection).create(data);
         result.imported++;
       } catch (error) {

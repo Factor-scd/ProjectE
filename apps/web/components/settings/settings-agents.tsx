@@ -229,7 +229,7 @@ export function SettingsAgents() {
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Delete {agentToDelete?.name}?</AlertDialogTitle>
-              <AlertDialogDescription>This will revoke the agent's access.</AlertDialogDescription>
+              <AlertDialogDescription>This will revoke the agent&apos;s access.</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={!!deletingId}>Cancel</AlertDialogCancel>

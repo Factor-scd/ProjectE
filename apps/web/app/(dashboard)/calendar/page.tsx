@@ -64,6 +64,7 @@ export default function CalendarPage() {
     checkWidth();
     window.addEventListener('resize', checkWidth);
     return () => window.removeEventListener('resize', checkWidth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Get current domain from URL or default
@@ -71,6 +72,7 @@ export default function CalendarPage() {
     const pathParts = window.location.pathname.split('/');
     // Try to find domain from sidebar or use first domain
     fetchDomains();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function fetchDomains() {
@@ -163,6 +165,7 @@ export default function CalendarPage() {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDate, view]);
 
   function getViewRange(date: Date, v: string): { from: Date; to: Date } {
