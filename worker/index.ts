@@ -1,50 +1,43 @@
-import { createDatabaseClient } from './database.js';
+import { db, jobs, webhooks, webhookDeliveries, scheduledJobs, tasks, habits, habitCompletions } from '@project-e/db';
+import { and, eq, lte, isNull, sql } from 'drizzle-orm';
+import { createHmac } from 'node:crypto';
+import { RRule } from 'rrule';
+
 const POLL_INTERVAL_BASE = 5000; // 5 seconds base
 const POLL_INTERVAL_MAX = 60000; // 60 seconds max
-
-interface QueueJob {
-  id: string;
-  queue: string;
-  type: string;
-  payload: Record<string, unknown>;
-  status: string;
-  retry_count: number;
-  max_retries: number;
-  scheduled_at: string;
-  error?: string;
-}
+const MAX_RETRIES = 6;
 
 let currentPollInterval = POLL_INTERVAL_BASE;
 let isProcessing = false;
+let shutdownRequested = false;
 
-function createAdminClient() {
-  return createDatabaseClient();
-}
+// ── Job processing ───────────────────────────────────────────────────────────────
 
-/**
- * Main poll loop with backoff
- */
 async function poll(): Promise<void> {
-  if (isProcessing) return;
+  if (isProcessing || shutdownRequested) return;
   isProcessing = true;
 
   try {
-    const pb = createAdminClient();
-    
-    // Get pending jobs
-    const now = new Date().toISOString();
-    const jobs = await pb.collection('queue_jobs').getList(1, 10, {
-      filter: `status = "pending" && scheduled_at <= "${now}"`,
-      sort: 'created',
-    }) as unknown as { items: QueueJob[] };
+    const now = new Date();
 
-    if (jobs.items.length > 0) {
-      console.log(`[Worker] Processing ${jobs.items.length} job(s)`);
-      
-      for (const job of jobs.items) {
+    // Get pending jobs that are due
+    const pendingJobs = await db.select()
+      .from(jobs)
+      .where(and(
+        eq(jobs.status, 'pending'),
+        lte(jobs.nextRetryAt ?? sql`now()`, now),
+      ))
+      .orderBy(jobs.createdAt)
+      .limit(10);
+
+    if (pendingJobs.length > 0) {
+      console.log(`[Worker] Processing ${pendingJobs.length} job(s)`);
+
+      for (const job of pendingJobs) {
+        if (shutdownRequested) break;
         await processJob(job);
       }
-      
+
       // Reset poll interval on success
       currentPollInterval = POLL_INTERVAL_BASE;
     } else {
@@ -57,282 +50,281 @@ async function poll(): Promise<void> {
     isProcessing = false;
   }
 
-  // Schedule next poll
-  setTimeout(poll, currentPollInterval);
+  if (!shutdownRequested) {
+    setTimeout(poll, currentPollInterval);
+  }
 }
 
-/**
- * Process a single job
- */
-async function processJob(job: QueueJob): Promise<void> {
-  const pb = createAdminClient();
+async function processJob(job: typeof jobs.$inferSelect): Promise<void> {
+  // Mark as processing
+  await db.update(jobs)
+    .set({ status: 'processing', updatedAt: new Date() })
+    .where(eq(jobs.id, job.id));
 
   try {
-    // Mark as in_progress
-    await pb.collection('queue_jobs').update(job.id, {
-      status: 'in_progress',
-    });
-
     switch (job.type) {
       case 'webhook_delivery':
         await handleWebhookDelivery(job);
         break;
-      case 'agent_mention':
-        await handleAgentMention(job);
+      case 'recurring_spawn':
+        await handleRecurringSpawn(job);
         break;
-      case 'report_generation':
-        await handleReportGeneration(job);
-        break;
-      case 'recurring_task':
-        await handleRecurringTask(job);
-        break;
-      case 'cleanup':
-        await handleCleanup(job);
+      case 'ai_dispatch':
+        await handleAiDispatch(job);
         break;
       default:
         console.warn(`[Worker] Unknown job type: ${job.type}`);
-        await pb.collection('queue_jobs').update(job.id, {
-          status: 'failed',
-          error: `Unknown job type: ${job.type}`,
-        });
+        await db.update(jobs)
+          .set({ status: 'failed', lastError: `Unknown job type: ${job.type}`, updatedAt: new Date() })
+          .where(eq(jobs.id, job.id));
         return;
     }
 
     // Mark as completed
-    await pb.collection('queue_jobs').update(job.id, {
-      status: 'completed',
-    });
-    
+    await db.update(jobs)
+      .set({ status: 'completed', updatedAt: new Date() })
+      .where(eq(jobs.id, job.id));
+
     console.log(`[Worker] Job ${job.id} (${job.type}) completed`);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const retryCount = (job.retry_count || 0) + 1;
-    const maxRetries = job.max_retries || 3;
+    const attempts = (job.attempts || 0) + 1;
 
-    if (retryCount >= maxRetries) {
+    if (attempts >= MAX_RETRIES) {
       // Max retries reached — mark as failed
-      await pb.collection('queue_jobs').update(job.id, {
-        status: 'failed',
-        retry_count: retryCount,
-        error: errorMessage,
-      });
-      console.error(`[Worker] Job ${job.id} (${job.type}) failed after ${retryCount} attempts: ${errorMessage}`);
+      await db.update(jobs)
+        .set({
+          status: 'failed',
+          attempts,
+          lastError: errorMessage,
+          updatedAt: new Date(),
+        })
+        .where(eq(jobs.id, job.id));
+      console.error(`[Worker] Job ${job.id} (${job.type}) failed after ${attempts} attempts: ${errorMessage}`);
     } else {
       // Schedule retry with exponential backoff
-      const backoffMs = Math.min(5000 * Math.pow(2, retryCount), 300000); // Max 5 minutes
-      const nextAttempt = new Date(Date.now() + backoffMs).toISOString();
-      
-      await pb.collection('queue_jobs').update(job.id, {
-        status: 'pending',
-        retry_count: retryCount,
-        error: errorMessage,
-        scheduled_at: nextAttempt,
-      });
-      console.log(`[Worker] Job ${job.id} (${job.type}) retry ${retryCount}/${maxRetries} scheduled for ${nextAttempt}`);
+      const backoffMs = Math.min(2000 * Math.pow(2, attempts), 300000); // Max 5 minutes
+      const nextRetry = new Date(Date.now() + backoffMs);
+
+      await db.update(jobs)
+        .set({
+          status: 'pending',
+          attempts,
+          lastError: errorMessage,
+          nextRetryAt: nextRetry,
+          updatedAt: new Date(),
+        })
+        .where(eq(jobs.id, job.id));
+      console.log(`[Worker] Job ${job.id} (${job.type}) retry ${attempts}/${MAX_RETRIES} scheduled for ${nextRetry.toISOString()}`);
     }
   }
 }
 
-/**
- * Handle webhook delivery job
- */
-async function handleWebhookDelivery(job: QueueJob): Promise<void> {
+// ── Webhook delivery ─────────────────────────────────────────────────────────────
+
+async function handleWebhookDelivery(job: typeof jobs.$inferSelect): Promise<void> {
   const payload = job.payload as {
     webhook_id: string;
-    webhook_url: string;
-    webhook_secret: string;
-    event_type: string;
-    event_payload: unknown;
-  };
-
-  const { webhook_url, webhook_secret, event_type, event_payload } = payload;
-
-  // Create HMAC signature if secret provided
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'X-Event-Type': event_type,
-  };
-
-  if (webhook_secret) {
-    const crypto = await import('node:crypto');
-    const body = JSON.stringify(event_payload);
-    const signature = crypto
-      .createHmac('sha256', webhook_secret)
-      .update(body)
-      .digest('hex');
-    headers['X-Webhook-Signature'] = signature;
-  }
-
-  const response = await fetch(webhook_url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(event_payload),
-    signal: AbortSignal.timeout(10000),
-  });
-
-  const responseBody = await response.text();
-
-  // Record delivery
-  const pb = createAdminClient();
-  await pb.collection('webhook_deliveries').create({
-    webhook_id: payload.webhook_id,
-    event: event_type,
-    payload: event_payload as Record<string, unknown>,
-    status: response.ok ? 'success' : 'failed',
-    status_code: response.status,
-    response_body: responseBody,
-    retry_count: job.retry_count || 0,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Webhook delivery failed: ${response.status} ${responseBody}`);
-  }
-}
-
-/**
- * Handle agent @mention dispatch
- */
-async function handleAgentMention(job: QueueJob): Promise<void> {
-  const payload = job.payload as {
-    agent_task_id: string;
-    agent_id: string;
-    agent_webhook_url: string;
-    agent_api_key: string;
+    event: string;
     entity_type: string;
     entity_id: string;
-    instruction: string;
-    user_id: string;
+    data: unknown;
+    timestamp: string;
+    workspace_id: string;
   };
 
-  // Update agent task to in_progress
-  const pb = createAdminClient();
-  await pb.collection('agent_tasks').update(payload.agent_task_id, {
-    status: 'in_progress',
+  const [webhook] = await db.select()
+    .from(webhooks)
+    .where(eq(webhooks.id, payload.webhook_id))
+    .limit(1);
+
+  if (!webhook) {
+    throw new Error(`Webhook ${payload.webhook_id} not found`);
+  }
+
+  if (!webhook.active) {
+    console.log(`[Worker] Webhook ${webhook.id} is inactive, skipping delivery`);
+    return;
+  }
+
+  const deliveryPayload = {
+    event: payload.event,
+    entity_type: payload.entity_type,
+    entity_id: payload.entity_id,
+    data: payload.data,
+    timestamp: payload.timestamp || new Date().toISOString(),
+    workspace_id: payload.workspace_id,
+  };
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Event-Type': payload.event,
+  };
+
+  if (webhook.secret) {
+    const body = JSON.stringify(deliveryPayload);
+    const signature = createHmac('sha256', webhook.secret)
+      .update(body)
+      .digest('hex');
+    headers['X-ProjectE-Signature'] = signature;
+  }
+
+  let responseStatus = 0;
+  let responseBody = '';
+  let success = false;
+
+  try {
+    const response = await fetch(webhook.url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(deliveryPayload),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    responseStatus = response.status;
+    responseBody = await response.text();
+    success = response.ok;
+  } catch (error) {
+    responseBody = error instanceof Error ? error.message : String(error);
+    success = false;
+  }
+
+  // Record delivery
+  await db.insert(webhookDeliveries).values({
+    webhookId: webhook.id,
+    event: payload.event,
+    payload: deliveryPayload as Record<string, unknown>,
+    status: success ? 'success' : 'failed',
+    statusCode: responseStatus,
+    responseBody: responseBody.substring(0, 1000),
+    attempts: job.attempts || 0,
   });
 
-  // Update agent last_activity
-  await pb.collection('agents').update(payload.agent_id, {
-    last_activity_at: new Date().toISOString(),
-  });
-
-  // POST to agent webhook
-  const response = await fetch(payload.agent_webhook_url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${payload.agent_api_key}`,
-      'X-Agent-Task-Id': payload.agent_task_id,
-    },
-    body: JSON.stringify({
-      task_id: payload.agent_task_id,
-      entity_type: payload.entity_type,
-      entity_id: payload.entity_id,
-      instruction: payload.instruction,
-      user_id: payload.user_id,
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Agent mention delivery failed: ${response.status} ${body}`);
+  if (!success) {
+    throw new Error(`Webhook delivery failed: ${responseStatus} ${responseBody}`);
   }
 }
 
-/**
- * Handle report generation (data collection)
- */
-async function handleReportGeneration(job: QueueJob): Promise<void> {
+// ── Recurring spawn ──────────────────────────────────────────────────────────────
+
+async function handleRecurringSpawn(job: typeof jobs.$inferSelect): Promise<void> {
   const payload = job.payload as {
-    report_id: string;
-    report_type: string;
-    date_range_start: string;
-    date_range_end: string;
+    scheduled_job_id: string;
   };
 
-  // This would collect data and populate the report content
-  // For now, just mark as complete — full implementation in Phase 5
-  console.log(`[Worker] Report generation for ${payload.report_id} (${payload.report_type})`);
-}
+  const [scheduled] = await db.select()
+    .from(scheduledJobs)
+    .where(eq(scheduledJobs.id, payload.scheduled_job_id))
+    .limit(1);
 
-/**
- * Handle recurring task spawning
- */
-async function handleRecurringTask(job: QueueJob): Promise<void> {
-  const payload = job.payload as {
-    task_id: string;
-    rule: string;
-  };
+  if (!scheduled) {
+    throw new Error(`Scheduled job ${payload.scheduled_job_id} not found`);
+  }
 
-  // This would use rrule to compute next due date and spawn
-  // For now, just log — full implementation uses task-service
-  console.log(`[Worker] Recurring task spawn for ${payload.task_id}`);
-}
-
-/**
- * Handle data retention cleanup
- */
-async function handleCleanup(job: QueueJob): Promise<void> {
-  const pb = createAdminClient();
   const now = new Date();
 
-  // Purge webhook deliveries older than 90 days
-  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
-  const oldDeliveries = await pb.collection('webhook_deliveries').getList(1, 100, {
-    filter: `created < "${ninetyDaysAgo}"`,
-  });
-  
-  for (const delivery of oldDeliveries.items) {
-    await pb.collection('webhook_deliveries').delete(delivery.id);
+  if (scheduled.entityType === 'task') {
+    // Fetch the original task to clone
+    const [originalTask] = await db.select()
+      .from(tasks)
+      .where(and(eq(tasks.id, scheduled.entityId), isNull(tasks.deletedAt)))
+      .limit(1);
+
+    if (originalTask) {
+      // Create a new task instance
+      await db.insert(tasks).values({
+        title: originalTask.title,
+        description: originalTask.description,
+        status: 'todo',
+        priority: originalTask.priority,
+        domainId: originalTask.domainId,
+        projectId: originalTask.projectId,
+        sectionId: originalTask.sectionId,
+        dueDate: originalTask.dueDate,
+        estimatedMinutes: originalTask.estimatedMinutes,
+        recurrenceRule: originalTask.recurrenceRule,
+        order: originalTask.order,
+        customFields: originalTask.customFields,
+      });
+      console.log(`[Worker] Spawned new task instance for ${scheduled.entityId}`);
+    }
+  } else if (scheduled.entityType === 'habit') {
+    // For habits, we just log — habit completions are user-driven
+    console.log(`[Worker] Habit ${scheduled.entityId} recurrence tick (user-driven)`);
   }
 
-  // Purge error logs older than 30 days
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const oldErrors = await pb.collection('error_logs').getList(1, 100, {
-    filter: `created < "${thirtyDaysAgo}"`,
-  });
-  
-  for (const error of oldErrors.items) {
-    await pb.collection('error_logs').delete(error.id);
-  }
+  // Compute next occurrence using rrule
+  try {
+    const rule = RRule.fromString(scheduled.recurrenceRule);
+    const nextOccurrence = rule.after(now);
 
-  console.log(`[Worker] Cleanup: purged ${oldDeliveries.items.length} webhook deliveries, ${oldErrors.items.length} error logs`);
+    if (nextOccurrence) {
+      await db.update(scheduledJobs)
+        .set({
+          nextOccurrenceAt: nextOccurrence,
+          lastSpawnedAt: now,
+        })
+        .where(eq(scheduledJobs.id, scheduled.id));
+      console.log(`[Worker] Next occurrence for ${scheduled.entityId} at ${nextOccurrence.toISOString()}`);
+    } else {
+      // No more occurrences — delete the scheduled job
+      await db.delete(scheduledJobs).where(eq(scheduledJobs.id, scheduled.id));
+      console.log(`[Worker] No more occurrences for ${scheduled.entityId}, removing scheduled job`);
+    }
+  } catch (error) {
+    console.error(`[Worker] Failed to compute next occurrence for ${scheduled.entityId}:`, error);
+    // If rrule parsing fails, just advance by 1 day as fallback
+    const nextDay = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    await db.update(scheduledJobs)
+      .set({
+        nextOccurrenceAt: nextDay,
+        lastSpawnedAt: now,
+      })
+      .where(eq(scheduledJobs.id, scheduled.id));
+  }
 }
 
-/**
- * Schedule recurring cleanup job (daily)
- */
-async function scheduleCleanup(): Promise<void> {
-  const pb = createAdminClient();
-  
-  // Check if a cleanup job is already scheduled
-  const existing = await pb.collection('queue_jobs').getList(1, 1, {
-    filter: 'type = "cleanup" && status = "pending"',
-  });
-  
-  if (existing.items.length === 0) {
-    // Schedule cleanup for tomorrow
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    await pb.collection('queue_jobs').create({
-      type: 'cleanup',
-      queue: 'default',
-      payload: {},
-      status: 'pending',
-      retry_count: 0,
-      max_retries: 1,
-      scheduled_at: tomorrow,
-    });
-    console.log('[Worker] Scheduled daily cleanup');
-  }
+// ── AI Dispatch (stub) ────────────────────────────────────────────────────────────
+
+async function handleAiDispatch(job: typeof jobs.$inferSelect): Promise<void> {
+  const payload = job.payload as {
+    entity_type?: string;
+    entity_id?: string;
+    instruction?: string;
+    user_id?: string;
+  };
+
+  console.log(`[Worker] AI dispatch received:`, JSON.stringify(payload));
+  console.log(`[Worker] AI dispatch is a stub — future: connect to actual agent`);
+  // Future: connect to actual AI agent
 }
 
-// Start the worker
+// ── Graceful shutdown ────────────────────────────────────────────────────────────
+
+function setupGracefulShutdown(): void {
+  process.on('SIGTERM', () => {
+    console.log('[Worker] SIGTERM received, shutting down gracefully...');
+    shutdownRequested = true;
+    setTimeout(() => {
+      console.log('[Worker] Forced exit after timeout');
+      process.exit(0);
+    }, 10000).unref();
+  });
+
+  process.on('SIGINT', () => {
+    console.log('[Worker] SIGINT received, shutting down...');
+    shutdownRequested = true;
+    process.exit(0);
+  });
+}
+
+// ── Start ────────────────────────────────────────────────────────────────────────
+
 console.log('[Worker] Starting Project E worker...');
-console.log('[Worker] PostgreSQL queue enabled');
+console.log('[Worker] PostgreSQL queue via Drizzle ORM');
 console.log(`[Worker] Poll interval: ${POLL_INTERVAL_BASE}ms (base), ${POLL_INTERVAL_MAX}ms (max)`);
 
-// Initial cleanup schedule
-scheduleCleanup().catch(console.error);
+setupGracefulShutdown();
 
 // Start polling
 setTimeout(poll, POLL_INTERVAL_BASE);

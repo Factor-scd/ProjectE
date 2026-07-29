@@ -479,3 +479,51 @@ export const webhooks = pgTable(
     index('webhooks_active_idx').on(table.active),
   ]
 );
+
+// ── Webhook Deliveries ──────────────────────────────────────────────────────────
+
+export const webhookDeliveries = pgTable(
+  'webhook_deliveries',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    webhookId: uuid('webhook_id')
+      .notNull()
+      .references((): any => webhooks.id, { onDelete: 'cascade' }),
+    event: text('event').notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().default({}),
+    status: text('status').notNull().default('pending'),
+    statusCode: integer('status_code').default(0),
+    responseBody: text('response_body'),
+    attempts: integer('attempts').default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('webhook_deliveries_webhook_id_idx').on(table.webhookId),
+    index('webhook_deliveries_status_idx').on(table.status),
+    index('webhook_deliveries_created_at_idx').on(table.createdAt),
+  ]
+);
+
+// ── API Keys ─────────────────────────────────────────────────────────────────────
+
+export const apiKeys = pgTable(
+  'api_keys',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references((): any => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    keyHash: text('key_hash').notNull(),
+    keyPrefix: text('key_prefix').notNull(),
+    active: boolean('active').default(true),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('api_keys_user_id_idx').on(table.userId),
+    index('api_keys_key_hash_idx').on(table.keyHash),
+    index('api_keys_active_idx').on(table.active),
+  ]
+);
