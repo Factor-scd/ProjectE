@@ -24,7 +24,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </div>
       <MobileBottomNav />
-      <OnboardingFlow onComplete={() => {}} />
+      <OnboardingFlow />
       <div className="sr-only" aria-live="polite" aria-atomic="true" id="a11y-announcer" />
     </KeyboardShortcutsProvider>
   );

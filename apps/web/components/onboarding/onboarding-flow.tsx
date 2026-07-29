@@ -18,7 +18,7 @@ import { Rocket, ListTodo, Flame } from 'lucide-react';
 const ONBOARDED_KEY = 'pe_onboarded';
 
 interface OnboardingFlowProps {
-  onComplete: () => void;
+  onComplete?: () => void;
 }
 
 export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
@@ -37,7 +37,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   function handleDismiss() {
     localStorage.setItem(ONBOARDED_KEY, 'true');
     setOpen(false);
-    onComplete();
+    onComplete?.();
   }
 
   async function handleCreateDomain() {
