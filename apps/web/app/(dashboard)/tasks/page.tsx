@@ -1,18 +1,52 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { LayoutGrid, List, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TasksKanbanView } from "@/components/tasks/tasks-kanban-view";
 import { TasksListView } from "@/components/tasks/tasks-list-view";
-import { CreateItemDialog } from "@/components/create-item-dialog";
+import { TaskCreateDialog } from "@/components/tasks/task-create-dialog";
 import { useCreateDialogStore } from "@/lib/stores/use-create-dialog-store";
 
 export default function TasksPage() {
   const [view, setView] = useState<"kanban" | "list">("kanban");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [domainId, setDomainId] = useState<string | null>(null);
+  const [domains, setDomains] = useState<{ id: string; name: string; color: string | null }[]>([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createStatus, setCreateStatus] = useState<string>('todo');
   const { open, openCreate, closeCreate } = useCreateDialogStore();
+
+  // Fetch domains and select first one
+  useEffect(() => {
+    fetch('/api/domains?sort=sort_order')
+      .then((res) => res.json())
+      .then((data) => {
+        const items = data.items || [];
+        setDomains(items);
+        if (items.length > 0 && !domainId) {
+          setDomainId(items[0].id);
+        }
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen for custom event to open create dialog with pre-filled status
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.status) setCreateStatus(detail.status);
+      if (detail?.domainId) setDomainId(detail.domainId);
+      setCreateOpen(true);
+    };
+    document.addEventListener('open-create-task', handler);
+    return () => document.removeEventListener('open-create-task', handler);
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+  }, []);
 
   return (
     <div>
@@ -22,7 +56,20 @@ export default function TasksPage() {
           <p className="mt-1 text-muted-foreground">Move work forward without losing the thread.</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={() => openCreate("task")}>
+          {/* Domain selector */}
+          {domains.length > 1 && (
+            <select
+              value={domainId || ''}
+              onChange={(e) => setDomainId(e.target.value)}
+              className="rounded-md border bg-background px-3 py-1.5 text-sm"
+              aria-label="Select domain"
+            >
+              {domains.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          )}
+          <Button onClick={() => { setCreateStatus('todo'); setCreateOpen(true); }}>
             <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
             New task
           </Button>
@@ -34,8 +81,31 @@ export default function TasksPage() {
           </Tabs>
         </div>
       </div>
-      {view === "kanban" ? <TasksKanbanView key={refreshKey} /> : <TasksListView key={refreshKey} />}
-      <CreateItemDialog type="task" open={open} onOpenChange={(o) => (o ? openCreate("task") : closeCreate())} onCreated={() => setRefreshKey((k) => k + 1)} />
+      {domainId ? (
+        view === "kanban" ? (
+          <TasksKanbanView key={refreshKey} domainId={domainId} onRefresh={handleRefresh} />
+        ) : (
+          <TasksListView key={refreshKey} domainId={domainId} onRefresh={handleRefresh} />
+        )
+      ) : (
+        <div className="py-12 text-center">
+          <p className="text-muted-foreground">No domains found. Create one in Settings first.</p>
+        </div>
+      )}
+
+      {/* Create dialog */}
+      <TaskCreateDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        domainId={domainId || ''}
+        defaultStatus={createStatus as any}
+        onCreated={handleRefresh}
+      />
+
+      {/* Legacy create dialog for backward compat */}
+      <div style={{ display: 'none' }}>
+        <div onClick={() => openCreate('task')} />
+      </div>
     </div>
   );
 }

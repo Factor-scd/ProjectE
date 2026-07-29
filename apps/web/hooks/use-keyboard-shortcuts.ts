@@ -66,6 +66,63 @@ export function useKeyboardShortcuts() {
           document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }));
           e.preventDefault();
           break;
+        case 'c': {
+          // c t — new task (Cmd palette → "New task")
+          // Check if we're on the tasks page
+          if (window.location.pathname.startsWith('/tasks')) {
+            document.dispatchEvent(new CustomEvent('open-create-task', { detail: { status: 'todo' } }));
+            e.preventDefault();
+          }
+          break;
+        }
+        case 'e': {
+          // e — edit selected task (when task is focused)
+          const focusedTask = document.querySelector('[data-task-id]:focus');
+          if (focusedTask) {
+            (focusedTask as HTMLElement).click();
+            e.preventDefault();
+          }
+          break;
+        }
+        case 'd': {
+          // d — delete selected task
+          const deleteBtn = document.querySelector('[data-delete-task]');
+          if (deleteBtn) {
+            (deleteBtn as HTMLElement).click();
+            e.preventDefault();
+          }
+          break;
+        }
+        case ' ': {
+          // Space — open task detail panel
+          const firstTask = document.querySelector('[data-task-id]');
+          if (firstTask && window.location.pathname.startsWith('/tasks')) {
+            (firstTask as HTMLElement).click();
+            e.preventDefault();
+          }
+          break;
+        }
+        case 'escape': {
+          // Esc — close detail panel
+          const closeBtn = document.querySelector('[data-close-panel]');
+          if (closeBtn) {
+            (closeBtn as HTMLElement).click();
+            e.preventDefault();
+          }
+          break;
+        }
+        case '1':
+        case '2':
+        case '3':
+        case '4': {
+          // 1/2/3/4 — filter kanban column
+          if (window.location.pathname.startsWith('/tasks')) {
+            const statuses: Record<string, string> = { '1': 'todo', '2': 'in_progress', '3': 'done', '4': 'cancelled' };
+            document.dispatchEvent(new CustomEvent('filter-kanban', { detail: { status: statuses[key] } }));
+            e.preventDefault();
+          }
+          break;
+        }
       }
     };
 

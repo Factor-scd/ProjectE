@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
-  KeyboardSensor,
   DndContext,
   DragEndEvent,
   DragOverlay,
@@ -10,146 +9,116 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  useDraggable,
-  useDroppable
 } from '@dnd-kit/core';
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
-import { Calendar, GripVertical } from 'lucide-react';
+import { Calendar, GripVertical, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { TaskDetailPanel } from './task-detail-panel';
+import { useRealtimeContext } from '@/components/realtime-provider';
 
 interface Task {
   id: string;
   title: string;
-  description?: string;
-  status: 'todo' | 'in_progress' | 'done';
+  description?: string | null;
+  status: 'todo' | 'in_progress' | 'done' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  domain: string;
-  due_date?: string;
-  project_id?: string;
-  tags: string[];
+  domainId: string;
+  dueDate?: string | null;
+  projectId?: string | null;
+  sectionId?: string | null;
+  parentId?: string | null;
+  order: number;
+  tags: { id: string; name: string; color: string | null }[];
+  completedAt?: string | null;
+  estimatedMinutes?: number | null;
 }
 
 interface Domain {
   id: string;
   name: string;
-  color: string;
+  color: string | null;
 }
 
 const columns = [
   { id: 'todo', title: 'To Do', color: 'bg-slate-500' },
   { id: 'in_progress', title: 'In Progress', color: 'bg-blue-500' },
-  { id: 'done', title: 'Done', color: 'bg-green-500' }
+  { id: 'done', title: 'Done', color: 'bg-green-500' },
+  { id: 'cancelled', title: 'Cancelled', color: 'bg-red-500' },
 ];
 
-function DraggableTask({
+const priorityColors: Record<string, string> = {
+  urgent: 'destructive',
+  high: 'default',
+  medium: 'secondary',
+  low: 'secondary',
+};
+
+function TaskCard({
   task,
   domainName,
+  domainColor,
   onClick,
-  onStatusChange
 }: {
   task: Task;
   domainName: string;
+  domainColor: string | null;
   onClick: () => void;
-  onStatusChange: (task: Task, status: Task['status']) => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({
-      id: task.id,
-      data: { task }
-    });
-
-  const style = transform
-    ? {
-        transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`
-      }
-    : undefined;
+  const subtaskCount = 0; // Will be populated from API
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={isDragging ? 'opacity-50' : ''}
-    >
-      <Card className="mb-2 hover:shadow-md transition-shadow">
-        <CardContent className="p-4">
-          <div className="mb-2 flex items-start justify-between gap-2">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onClick();
-              }}
-              className="flex-1 text-left text-sm font-medium hover:underline"
-            >
-              {task.title}
-            </button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-11 w-11 shrink-0 cursor-grab active:cursor-grabbing"
-              aria-label={`Drag ${task.title}`}
-              {...listeners}
-              {...attributes}
-            >
-              <GripVertical className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          </div>
-          <Select
-            value={task.status}
-            onValueChange={(status) =>
-              onStatusChange(task, status as Task['status'])
-            }
+    <Card className="mb-2 cursor-pointer hover:shadow-md transition-shadow" onClick={onClick}>
+      <CardContent className="p-3">
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <span className="flex-1 text-sm font-medium leading-tight">
+            {task.title}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge
+            variant={priorityColors[task.priority] as any || 'secondary'}
+            className="text-xs"
           >
-            <SelectTrigger
-              className="mb-2 h-9"
-              aria-label={`Move ${task.title} to a status`}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todo">To Do</SelectItem>
-              <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="done">Done</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge
-              variant={
-                task.priority === 'urgent'
-                  ? 'destructive'
-                  : task.priority === 'high'
-                    ? 'default'
-                    : 'secondary'
-              }
-              className="text-xs"
-            >
-              {task.priority}
-            </Badge>
-            {domainName && (
-              <Badge variant="outline" className="text-xs">
-                {domainName}
-              </Badge>
-            )}
-            {task.due_date && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Calendar className="h-3 w-3" />
-                {new Date(task.due_date).toLocaleDateString()}
-              </span>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+            {task.priority}
+          </Badge>
+          {domainColor && (
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ backgroundColor: domainColor }}
+              aria-hidden="true"
+            />
+          )}
+          {domainName && (
+            <span className="text-xs text-muted-foreground">{domainName}</span>
+          )}
+          {task.dueDate && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Calendar className="h-3 w-3" />
+              {new Date(task.dueDate).toLocaleDateString()}
+            </span>
+          )}
+          {task.tags?.length > 0 && (
+            <div className="flex gap-1 flex-wrap">
+              {task.tags.slice(0, 3).map((tag) => (
+                <Badge
+                  key={tag.id}
+                  variant="outline"
+                  className="text-xs"
+                  style={tag.color ? { borderColor: tag.color, color: tag.color } : {}}
+                >
+                  {tag.name}
+                </Badge>
+              ))}
+              {task.tags.length > 3 && (
+                <span className="text-xs text-muted-foreground">+{task.tags.length - 3}</span>
+              )}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -160,71 +129,81 @@ function DroppableColumn({
   tasks,
   domainMap,
   onTaskClick,
-  onStatusChange
+  onAddTask,
 }: {
   id: string;
   title: string;
   color: string;
   tasks: Task[];
-  domainMap: Map<string, string>;
+  domainMap: Map<string, { name: string; color: string | null }>;
   onTaskClick: (task: Task) => void;
-  onStatusChange: (task: Task, status: Task['status']) => void;
+  onAddTask: () => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id });
-
   return (
     <div className="flex flex-col">
-      <div className="mb-3 flex items-center gap-2">
-        <div className={`h-2 w-2 rounded-full ${color}`} aria-hidden="true" />
-        <h3 className="font-semibold">{title}</h3>
-        <span className="text-sm text-muted-foreground">({tasks.length})</span>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <div className={`h-2 w-2 rounded-full ${color}`} aria-hidden="true" />
+          <h3 className="font-semibold text-sm">{title}</h3>
+          <span className="text-sm text-muted-foreground">({tasks.length})</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          onClick={onAddTask}
+          aria-label={`Add task to ${title}`}
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
       </div>
       <div
-        ref={setNodeRef}
         role="list"
         aria-label={`${title} tasks (${tasks.length} items)`}
-        className={`flex-1 rounded-lg border-2 border-dashed p-3 min-h-[400px] transition-colors ${
-          isOver ? 'border-primary bg-primary/5' : 'border-muted'
-        }`}
+        className="flex-1 rounded-lg border-2 border-dashed p-2 min-h-[200px] transition-colors border-muted"
       >
-        {tasks.map((task) => (
-          <DraggableTask
-            key={task.id}
-            task={task}
-            domainName={domainMap.get(task.domain) || task.domain}
-            onClick={() => onTaskClick(task)}
-            onStatusChange={onStatusChange}
-          />
-        ))}
+        {tasks.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm text-muted-foreground">No tasks</p>
+          </div>
+        ) : (
+          tasks.map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              domainName={domainMap.get(task.domainId)?.name || ''}
+              domainColor={domainMap.get(task.domainId)?.color || null}
+              onClick={() => onTaskClick(task)}
+            />
+          ))
+        )}
       </div>
     </div>
   );
 }
 
-export function TasksKanbanView() {
+export function TasksKanbanView({
+  domainId,
+  onRefresh,
+}: {
+  domainId: string;
+  onRefresh?: () => void;
+}) {
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [domainMap, setDomainMap] = useState<Map<string, string>>(new Map());
+  const [domainMap, setDomainMap] = useState<Map<string, { name: string; color: string | null }>>(new Map());
   const [loading, setLoading] = useState(true);
-  const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const { subscribe } = useRealtimeContext();
+
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates
-    })
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
-  useEffect(() => {
-    fetchTasks();
-    fetchDomains();
-  }, []);
-
-  async function fetchTasks() {
+  const fetchTasks = useCallback(async () => {
+    if (!domainId) return;
     try {
-      const response = await fetch('/api/tasks?sort=-created');
-      if (!response.ok) {
-        throw new Error('Unable to load tasks');
-      }
+      const response = await fetch(`/api/domains/${domainId}/tasks?sort=order&limit=200`);
+      if (!response.ok) throw new Error('Unable to load tasks');
       const data = await response.json();
       setTasks(data.items || []);
     } catch (error) {
@@ -233,113 +212,105 @@ export function TasksKanbanView() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [domainId]);
 
-  async function fetchDomains() {
+  const fetchDomains = useCallback(async () => {
     try {
       const response = await fetch('/api/domains?sort=sort_order');
       if (!response.ok) return;
       const data = await response.json();
-      const map = new Map<string, string>();
+      const map = new Map<string, { name: string; color: string | null }>();
       for (const d of data.items || []) {
-        map.set(d.id, d.name);
+        map.set(d.id, { name: d.name, color: d.color || null });
       }
       setDomainMap(map);
     } catch {
-      // Non-critical — domains will show as raw IDs
+      // Non-critical
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    if (!domainId) return;
+    setLoading(true);
+    fetchTasks();
+    fetchDomains();
+  }, [domainId, fetchTasks, fetchDomains]);
+
+  // Subscribe to realtime updates
+  useEffect(() => {
+    if (!domainId) return;
+    const unsubscribe = subscribe(['task'], (event: any) => {
+      if (event.type === 'task') {
+        fetchTasks();
+        onRefresh?.();
+      }
+    });
+    return unsubscribe;
+  }, [domainId, subscribe, fetchTasks, onRefresh]);
 
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
-    if (!over) {
-      setActiveTask(null);
-      return;
-    }
+    if (!over) return;
 
-    const task = active.data.current?.task as Task;
+    const taskId = active.id as string;
     const newStatus = over.id as Task['status'];
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task || task.status === newStatus) return;
 
-    if (task.status !== newStatus) {
-      await updateTaskStatus(task, newStatus);
-    }
-    setActiveTask(null);
-  }
-
-  function handleDragStart(event: DragStartEvent) {
-    const task = event.active.data.current?.task as Task;
-    setActiveTask(task);
-  }
-
-  async function updateTaskStatus(task: Task, status: Task['status']) {
-    if (task.status === status) return;
+    // Optimistic update
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t))
+    );
 
     try {
-      const response = await fetch(`/api/tasks/${task.id}`, {
+      const response = await fetch(`/api/domains/${domainId}/tasks/${taskId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status })
+        body: JSON.stringify({ status: newStatus }),
       });
       if (!response.ok) throw new Error('Unable to move task');
-
-      await fetchTasks();
       toast.success(
-        `Moved ${task.title} to ${columns.find((column) => column.id === status)?.title}`
+        `Moved "${task.title}" to ${columns.find((c) => c.id === newStatus)?.title}`
       );
     } catch (error) {
       console.error('Failed to update task status:', error);
-      toast.error(`Unable to move ${task.title}`);
+      toast.error(`Unable to move "${task.title}"`);
+      fetchTasks(); // Revert
     }
+  }
+
+  function handleAddTask(status: string) {
+    // Open create dialog with pre-filled status
+    document.dispatchEvent(
+      new CustomEvent('open-create-task', { detail: { status, domainId } })
+    );
   }
 
   if (loading) {
     return <p className="text-muted-foreground">Loading tasks...</p>;
   }
 
-  if (tasks.length === 0) {
-    return (
-      <div className="py-12 text-center">
-        <p className="text-muted-foreground">No tasks yet. Create your first task to get started!</p>
-      </div>
-    );
-  }
-
   return (
     <>
-      <DndContext
-        sensors={sensors}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDragCancel={() => setActiveTask(null)}
-      >
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          {columns.map((column) => (
-            <DroppableColumn
-              key={column.id}
-              id={column.id}
-              title={column.title}
-              color={column.color}
-              tasks={tasks.filter((t) => t.status === column.id)}
-              domainMap={domainMap}
-              onTaskClick={setSelectedTask}
-              onStatusChange={updateTaskStatus}
-            />
-          ))}
-        </div>
-        <DragOverlay>
-          {activeTask ? (
-            <Card className="rotate-3 shadow-xl">
-              <CardContent className="p-4">
-                <p className="text-sm font-medium">{activeTask.title}</p>
-              </CardContent>
-            </Card>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {columns.map((column) => (
+          <DroppableColumn
+            key={column.id}
+            id={column.id}
+            title={column.title}
+            color={column.color}
+            tasks={tasks.filter((t) => t.status === column.id)}
+            domainMap={domainMap}
+            onTaskClick={setSelectedTask}
+            onAddTask={() => handleAddTask(column.id)}
+          />
+        ))}
+      </div>
 
       {selectedTask && (
         <TaskDetailPanel
-          task={selectedTask}
+          taskId={selectedTask.id}
+          domainId={domainId}
           open={!!selectedTask}
           onOpenChange={(open) => !open && setSelectedTask(null)}
           onUpdate={fetchTasks}

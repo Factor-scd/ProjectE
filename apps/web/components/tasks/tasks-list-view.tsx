@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
-  TableRow
+  TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,33 +32,59 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { useRealtimeContext } from '@/components/realtime-provider';
 
 interface Task {
   id: string;
   title: string;
-  description?: string;
-  status: 'todo' | 'in_progress' | 'done';
+  description?: string | null;
+  status: 'todo' | 'in_progress' | 'done' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  domain: string;
-  due_date?: string;
-  project_id?: string;
-  tags: string[];
+  domainId: string;
+  dueDate?: string | null;
+  projectId?: string | null;
+  order: number;
+  tags: { id: string; name: string; color: string | null }[];
 }
 
-export function TasksListView() {
+const priorityColors: Record<string, string> = {
+  urgent: 'destructive',
+  high: 'default',
+  medium: 'secondary',
+  low: 'secondary',
+};
+
+export function TasksListView({
+  domainId,
+  onRefresh,
+}: {
+  domainId: string;
+  onRefresh?: () => void;
+}) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [domainMap, setDomainMap] = useState<Map<string, string>>(new Map());
+  const { subscribe } = useRealtimeContext();
 
-  useEffect(() => {
-    fetchTasks();
-    fetchDomains();
-  }, []);
+  const fetchTasks = useCallback(async () => {
+    if (!domainId) return;
+    try {
+      const response = await fetch(`/api/domains/${domainId}/tasks?sort=order&limit=200`);
+      if (!response.ok) throw new Error('Unable to load tasks');
+      const data = await response.json();
+      setTasks(data.items || []);
+    } catch (error) {
+      console.error('Failed to fetch tasks:', error);
+      toast.error('Unable to load tasks');
+    } finally {
+      setLoading(false);
+    }
+  }, [domainId]);
 
-  async function fetchDomains() {
+  const fetchDomains = useCallback(async () => {
     try {
       const res = await fetch('/api/domains?sort=sort_order');
       if (res.ok) {
@@ -68,41 +94,43 @@ export function TasksListView() {
         setDomainMap(map);
       }
     } catch {}
+  }, []);
 
-  }
+  useEffect(() => {
+    if (!domainId) return;
+    setLoading(true);
+    fetchTasks();
+    fetchDomains();
+  }, [domainId, fetchTasks, fetchDomains]);
 
-  async function fetchTasks() {
-    try {
-      const response = await fetch('/api/tasks?sort=-created');
-      if (!response.ok) {
-        throw new Error('Unable to load tasks');
+  // Subscribe to realtime updates
+  useEffect(() => {
+    if (!domainId) return;
+    const unsubscribe = subscribe(['task'], (event: any) => {
+      if (event.type === 'task') {
+        fetchTasks();
+        onRefresh?.();
       }
-      const data = await response.json();
-      setTasks(data.items || []);
-    } catch (error) {
-      console.error('Failed to fetch tasks:', error);
-      toast.error('Unable to load tasks');
-    } finally {
-      setLoading(false);
-    }
-  }
+    });
+    return unsubscribe;
+  }, [domainId, subscribe, fetchTasks, onRefresh]);
 
   async function toggleTaskComplete(task: Task) {
     const newStatus = task.status === 'done' ? 'todo' : 'done';
     try {
-      const response = await fetch(`/api/tasks/${task.id}`, {
+      const response = await fetch(`/api/domains/${domainId}/tasks/${task.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify({ status: newStatus }),
       });
       if (!response.ok) throw new Error('Unable to update task');
       await fetchTasks();
       toast.success(
-        `Marked ${task.title} as ${newStatus === 'done' ? 'complete' : 'incomplete'}`
+        `Marked "${task.title}" as ${newStatus === 'done' ? 'complete' : 'incomplete'}`
       );
     } catch (error) {
       console.error('Failed to toggle task:', error);
-      toast.error(`Unable to update ${task.title}`);
+      toast.error(`Unable to update "${task.title}"`);
     }
   }
 
@@ -127,6 +155,7 @@ export function TasksListView() {
               <TableRow>
                 <TableHead className="w-[50px]"></TableHead>
                 <TableHead>Task</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead>Priority</TableHead>
                 <TableHead>Domain</TableHead>
                 <TableHead>Due Date</TableHead>
@@ -156,26 +185,25 @@ export function TasksListView() {
                     </button>
                   </TableCell>
                   <TableCell>
+                    <Badge variant="outline" className="text-xs capitalize">
+                      {task.status.replace('_', ' ')}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
                     <Badge
-                      variant={
-                        task.priority === 'urgent'
-                          ? 'destructive'
-                          : task.priority === 'high'
-                            ? 'default'
-                            : 'secondary'
-                      }
+                      variant={(priorityColors[task.priority] as any) || 'secondary'}
                     >
                       {task.priority}
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{domainMap.get(task.domain) || task.domain}</Badge>
+                    <Badge variant="outline">{domainMap.get(task.domainId) || task.domainId.slice(0, 8)}</Badge>
                   </TableCell>
                   <TableCell>
-                    {task.due_date && (
+                    {task.dueDate && (
                       <span className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Calendar className="h-3 w-3" />
-                        {new Date(task.due_date).toLocaleDateString()}
+                        {new Date(task.dueDate).toLocaleDateString()}
                       </span>
                     )}
                   </TableCell>
@@ -219,18 +247,25 @@ export function TasksListView() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={async () => {
-              if (!deleteId) return;
-              setDeleting(true);
-              try {
-                const res = await fetch("/api/tasks/" + deleteId, { method: 'DELETE' });
-                if (!res.ok) throw new Error();
-                toast.success("Task deleted");
-                setDeleteId(null);
-                fetchTasks();
-              } catch { toast.error("Unable to delete task"); }
-              finally { setDeleting(false); setDeleteId(null); }
-            }} disabled={deleting}>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!deleteId || !domainId) return;
+                setDeleting(true);
+                try {
+                  const res = await fetch(`/api/domains/${domainId}/tasks/${deleteId}`, { method: 'DELETE' });
+                  if (!res.ok) throw new Error();
+                  toast.success('Task deleted');
+                  setDeleteId(null);
+                  fetchTasks();
+                } catch {
+                  toast.error('Unable to delete task');
+                } finally {
+                  setDeleting(false);
+                  setDeleteId(null);
+                }
+              }}
+              disabled={deleting}
+            >
               {deleting ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -239,7 +274,8 @@ export function TasksListView() {
 
       {selectedTask && (
         <TaskDetailPanel
-          task={selectedTask}
+          taskId={selectedTask.id}
+          domainId={domainId}
           open={!!selectedTask}
           onOpenChange={(open) => !open && setSelectedTask(null)}
           onUpdate={fetchTasks}
