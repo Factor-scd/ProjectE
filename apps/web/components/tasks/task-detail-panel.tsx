@@ -94,6 +94,9 @@ export function TaskDetailPanel({
   const [saving, setSaving] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [timerStartedAt, setTimerStartedAt] = useState<Date | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   // Fetch task details when panel opens
   useEffect(() => {
@@ -207,6 +210,60 @@ export function TaskDetailPanel({
       toast.error('Unable to delete task');
     } finally {
       setDeleting(false);
+    }
+  }
+
+  // Timer tick effect
+  useEffect(() => {
+    if (!timerRunning || !timerStartedAt) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - timerStartedAt.getTime()) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [timerRunning, timerStartedAt]);
+
+  function formatDuration(seconds: number): string {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
+
+  async function handleStartTimer() {
+    setTimerRunning(true);
+    setTimerStartedAt(new Date());
+  }
+
+  async function handleStopTimer() {
+    if (!timerStartedAt || !task) return;
+    const deltaMinutes = Math.round((Date.now() - timerStartedAt.getTime()) / 60000);
+    if (deltaMinutes < 1) {
+      setTimerRunning(false);
+      setTimerStartedAt(null);
+      return;
+    }
+    const newTracked = (task.trackedMinutes || 0) + deltaMinutes;
+    try {
+      const response = await fetch(`/api/domains/${domainId}/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackedMinutes: newTracked }),
+      });
+      if (!response.ok) throw new Error('Unable to save tracked time');
+      setTask({ ...task, trackedMinutes: newTracked });
+      onUpdate();
+      toast.success(`Tracked ${deltaMinutes}m`);
+    } catch (error) {
+      console.error('Failed to save tracked time:', error);
+      toast.error('Unable to save tracked time');
+    } finally {
+      setTimerRunning(false);
+      setTimerStartedAt(null);
     }
   }
 
