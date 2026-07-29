@@ -8,9 +8,8 @@ import {
   Flame,
   FolderKanban,
   NotebookPen,
-  FileBarChart,
+  Share2,
   CalendarDays,
-  BarChart3,
   Bot,
   Settings,
   Plus,
@@ -39,9 +38,8 @@ const navItems: NavItem[] = [
   { label: 'Habits', href: '/habits', icon: Flame },
   { label: 'Projects', href: '/projects', icon: FolderKanban },
   { label: 'Notes', href: '/notes', icon: NotebookPen },
-  { label: 'Reports', href: '/reports', icon: FileBarChart },
+  { label: 'Graph', href: '/graph', icon: Share2 },
   { label: 'Calendar', href: '/calendar', icon: CalendarDays },
-  { label: 'Analytics', href: '/analytics', icon: BarChart3 },
   { label: 'Agent Activity', href: '/agents', icon: Bot },
   { label: 'Settings', href: '/settings', icon: Settings },
 ];
@@ -86,7 +84,11 @@ export function CommandPalette() {
     { label: 'New habit', action: () => router.push('/habits?new=true') },
     { label: 'New project', action: () => router.push('/projects?new=true') },
     { label: 'New note', action: () => router.push('/notes?new=true') },
-    { label: 'New report', action: () => router.push('/reports?new=true') },
+    { label: 'Ask AI agent...', shortcut: '@', action: () => {
+      setOpen(false);
+      // Dispatch event for AI dispatch flow
+      document.dispatchEvent(new CustomEvent('open-ai-dispatch'));
+    }},
   ];
 
   // Search handler

@@ -1,3 +1,8 @@
+// AGENT INSTRUCTION: After every write (INSERT/UPDATE/DELETE), you MUST:
+// 1. Insert activity feed entry
+// 2. Call pg.notify('project_e_events', JSON.stringify({ type, action, id, workspace_id }))
+// See AGENTS.md for full rules.
+
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, createErrorResponse } from '@/lib/auth';
 import { createPocketBaseClient } from '@/lib/pocketbase';
@@ -55,8 +60,7 @@ export const POST = withAuth(async (request: NextRequest, _user) => {
     for (const item of items) {
       try {
         // Strip id, created, updated to let PocketBase generate new ones
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { id, created, updated, ...data } = item;
+        const { id: _id, created: _created, updated: _updated, ...data } = item;
         await pb.collection(collection).create(data);
         result.imported++;
       } catch (error) {

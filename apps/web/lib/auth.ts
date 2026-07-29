@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './auth-config';
+import { db, domains } from '@project-e/db';
+import { eq } from 'drizzle-orm';
 
 export interface AuthUser {
   id: string;
@@ -37,6 +39,21 @@ export async function requireAuth(request: NextRequest): Promise<AuthUser> {
     throw new AuthError('Not authenticated', 401);
   }
   return user;
+}
+
+/**
+ * Require workspace access — verifies the workspace exists and user has access
+ */
+export async function requireWorkspaceAccess(workspaceId: string): Promise<void> {
+  const [domain] = await db
+    .select({ id: domains.id })
+    .from(domains)
+    .where(eq(domains.id, workspaceId))
+    .limit(1);
+
+  if (!domain) {
+    throw new AuthError('Workspace not found', 404, 'NOT_FOUND');
+  }
 }
 
 /**

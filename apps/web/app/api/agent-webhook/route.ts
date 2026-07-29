@@ -1,3 +1,8 @@
+// AGENT INSTRUCTION: After every write (INSERT/UPDATE/DELETE), you MUST:
+// 1. Insert activity feed entry
+// 2. Call pg.notify('project_e_events', JSON.stringify({ type, action, id, workspace_id }))
+// See AGENTS.md for full rules.
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/pocketbase';
 import { emitEvent, EVENTS } from '@/lib/events/event-bus';

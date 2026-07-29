@@ -70,7 +70,7 @@
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
   body {
     @apply bg-background text-foreground;
@@ -329,4 +329,75 @@
   color: hsl(var(--primary));
   font-size: 12px;
   font-weight: 500;
+}
+
+/* ── Mobile responsive ──────────────────────────────────────────────────────────── */
+
+/* Bottom navigation for mobile */
+@media (max-width: 767px) {
+  .mobile-bottom-nav {
+    display: flex !important;
+  }
+
+  /* Calendar: day view on mobile */
+  .rbc-month-view {
+    display: none;
+  }
+  .rbc-time-view {
+    display: block;
+  }
+
+  /* Dashboard: single column */
+  .dashboard-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Kanban: single column with horizontal scroll */
+  .kanban-board {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+  }
+  .kanban-column {
+    min-width: 85vw;
+    scroll-snap-align: start;
+  }
+
+  /* Touch targets ≥ 44px */
+  button, a, [role="button"], input, select, textarea {
+    min-height: 44px;
+  }
+
+  /* Reduce padding on mobile */
+  main#main-content {
+    padding: 1rem !important;
+  }
+}
+
+/* Desktop: hide bottom nav */
+.mobile-bottom-nav {
+  display: none;
+}
+
+/* ── Focus rings for accessibility ──────────────────────────────────────────────── */
+
+*:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* ── Color contrast improvements ───────────────────────────────────────────────── */
+
+.text-muted-foreground {
+  color: hsl(var(--muted-foreground));
+}
+
+/* Ensure 4.5:1 contrast for small text */
+@media (prefers-contrast: more) {
+  :root {
+    --muted-foreground: 140 5% 30%;
+  }
+  .dark {
+    --muted-foreground: 140 5% 70%;
+  }
 }

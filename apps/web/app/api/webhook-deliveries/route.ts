@@ -1,35 +1,41 @@
+// AGENT INSTRUCTION: After every write (INSERT/UPDATE/DELETE), you MUST:
+// 1. Insert activity feed entry
+// 2. Call pg.notify('project_e_events', JSON.stringify({ type, action, id, workspace_id }))
+// See AGENTS.md for full rules.
+
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth';
-import { createPocketBaseClient } from '@/lib/pocketbase';
+import { db, webhookDeliveries } from '@project-e/db';
+import { and, desc, eq, sql } from 'drizzle-orm';
 
 // GET /api/webhook-deliveries — List webhook deliveries with filtering
 export const GET = withAuth(async (request: NextRequest, _user) => {
   const { searchParams } = new URL(request.url);
-  const page = parseInt(searchParams.get('page') || '1');
-  const perPage = parseInt(searchParams.get('perPage') || '50');
-  const filter = searchParams.get('filter') || undefined;
-  const sort = searchParams.get('sort') || '-created';
+  const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200);
+  const offset = parseInt(searchParams.get('offset') || '0');
   const webhookId = searchParams.get('webhook_id') || '';
 
-  const pb = createPocketBaseClient();
-
-  let combinedFilter = filter;
+  const conditions = [];
   if (webhookId) {
-    combinedFilter = combinedFilter
-      ? `${combinedFilter} && webhook_id = "${webhookId}"`
-      : `webhook_id = "${webhookId}"`;
+    conditions.push(eq(webhookDeliveries.webhookId, webhookId));
   }
 
-  const result = await pb.collection('webhook_deliveries').getList(page, perPage, {
-    filter: combinedFilter,
-    sort,
-  });
+  const [items, countResult] = await Promise.all([
+    db.select()
+      .from(webhookDeliveries)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(webhookDeliveries.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db.select({ count: sql<number>`count(*)` })
+      .from(webhookDeliveries)
+      .where(conditions.length > 0 ? and(...conditions) : undefined),
+  ]);
 
   return NextResponse.json({
-    items: result.items,
-    totalItems: result.totalItems,
-    totalPages: result.totalPages,
-    page: result.page,
-    perPage: result.perPage,
+    items,
+    totalItems: Number(countResult[0]?.count || 0),
+    limit,
+    offset,
   });
 });
