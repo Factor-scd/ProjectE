@@ -1,7 +1,8 @@
 import { db, jobs, webhooks, webhookDeliveries, scheduledJobs, tasks, habits, habitCompletions } from '@project-e/db';
 import { and, eq, lte, isNull, sql } from 'drizzle-orm';
 import { createHmac } from 'node:crypto';
-import { RRule } from 'rrule';
+import rrule from 'rrule';
+const { RRule } = rrule;
 
 const POLL_INTERVAL_BASE = 5000; // 5 seconds base
 const POLL_INTERVAL_MAX = 60000; // 60 seconds max
