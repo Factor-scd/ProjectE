@@ -3,6 +3,7 @@ import { count, eq } from 'drizzle-orm';
 import type { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { db, users } from '@project-e/db';
+import { seedDefaultData } from './seed';
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: 'jwt' },
@@ -30,6 +31,9 @@ export const authOptions: NextAuthOptions = {
               name: process.env.INITIAL_ADMIN_NAME || email,
               passwordHash: await bcrypt.hash(password, 12),
             }).returning();
+
+            // Seed default workspace + welcome note on first user creation
+            await seedDefaultData();
           }
         }
 
