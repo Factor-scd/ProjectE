@@ -5,6 +5,7 @@ import { Plus, FileText, Link2, GitBranch, Trash2, Pin, Archive, Search, PinOff,
 import dynamic from 'next/dynamic';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { NoteTemplates } from '@/components/notes/note-templates';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
@@ -162,6 +163,28 @@ export default function NotesPage() {
     }
   }
 
+  async function createNoteWithContent(content: string) {
+    if (!domainId) return;
+    try {
+      const response = await fetch("/api/domains/" + domainId + "/notes", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: 'Untitled note',
+          content,
+        }),
+      });
+      if (!response.ok) throw new Error('Unable to create note.');
+      const newNote = await response.json();
+      setNotes((current) => [newNote, ...current]);
+      setSelectedNote(newNote);
+      toast.success('Note created from template');
+    } catch (error) {
+      console.error('Failed to create note:', error);
+      toast.error('Unable to create note');
+    }
+  }
+
   async function createNote() {
     if (!domainId) return;
     try {
@@ -315,6 +338,9 @@ export default function NotesPage() {
               ))}
             </select>
           )}
+          <NoteTemplates onCreateFromTemplate={(content) => {
+            createNoteWithContent(content);
+          }} />
           <Button onClick={createNote}>
             <Plus className="mr-2 h-4 w-4" />
             New note
