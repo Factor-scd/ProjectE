@@ -4,6 +4,7 @@ import { NetworkErrorBanner } from '@/components/network-error-banner';
 import { KeyboardShortcutsProvider } from '@/components/keyboard-shortcuts-provider';
 import { WebVitalsTracker } from '@/components/web-vitals-tracker';
 import { MobileBottomNav } from '@/components/mobile-bottom-nav';
+import { DispatchPanel } from '@/components/agents/dispatch-panel';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -23,6 +24,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </div>
       <MobileBottomNav />
+      {/* Floating AI dispatch button */}
+      <div className="fixed bottom-6 right-6 z-50">
+        <DispatchPanel
+          triggerLabel="Ask AI"
+          triggerVariant="default"
+          triggerClassName="h-12 w-12 rounded-full shadow-lg md:h-auto md:w-auto md:rounded-md md:px-4 md:py-2"
+        />
+      </div>
       <div className="sr-only" aria-live="polite" aria-atomic="true" id="a11y-announcer" />
     </KeyboardShortcutsProvider>
   );

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { DispatchPanel } from '@/components/agents/dispatch-panel';
 
 interface Agent {
   id: string;
@@ -164,22 +165,25 @@ export default function AgentsPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Agent Activity</h1>
-        <p className="mt-1 text-muted-foreground">
-          Every agent action, visible and reversible.
-        </p>
-        {feedback && (
-          <p
-            className={`mt-3 text-sm ${
-              feedback.type === 'success' ? 'text-green-600' : 'text-red-600'
-            }`}
-            role={feedback.type === 'error' ? 'alert' : 'status'}
-          >
-            {feedback.message}
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Agent Activity</h1>
+          <p className="mt-1 text-muted-foreground">
+            Every agent action, visible and reversible.
           </p>
-        )}
+        </div>
+        <DispatchPanel triggerLabel="+ New task" triggerVariant="default" />
       </div>
+      {feedback && (
+        <p
+          className={`mt-3 text-sm ${
+            feedback.type === 'success' ? 'text-green-600' : 'text-red-600'
+          }`}
+          role={feedback.type === 'error' ? 'alert' : 'status'}
+        >
+          {feedback.message}
+        </p>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_1fr]">
         {/* Agents list */}
