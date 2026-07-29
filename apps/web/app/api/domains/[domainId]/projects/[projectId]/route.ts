@@ -21,11 +21,11 @@ const updateProjectSchema = z.object({
   targetDate: z.string().datetime().optional().nullable(),
 });
 
-type RouteContext = { params: Promise<{ domainId: string; id: string }> };
+type RouteContext = { params: Promise<{ domainId: string; projectId: string }> };
 
 // GET /api/domains/[domainId]/projects/[id] — Get a single project with sections, task counts, progress
 export const GET = withAuth<RouteContext>(async (request: NextRequest, user, context) => {
-  const { domainId, id } = await context!.params;
+  const { domainId, projectId: id } = await context!.params;
   await requireWorkspaceAccess(domainId);
 
   const [project] = await db.select()
@@ -77,7 +77,7 @@ export const GET = withAuth<RouteContext>(async (request: NextRequest, user, con
 
 // PATCH /api/domains/[domainId]/projects/[id] — Update a project
 export const PATCH = withAuth<RouteContext>(async (request: NextRequest, user, context) => {
-  const { domainId, id } = await context!.params;
+  const { domainId, projectId: id } = await context!.params;
   await requireWorkspaceAccess(domainId);
 
   try {
@@ -131,7 +131,7 @@ export const PATCH = withAuth<RouteContext>(async (request: NextRequest, user, c
 
 // DELETE /api/domains/[domainId]/projects/[id] — Soft delete a project
 export const DELETE = withAuth<RouteContext>(async (request: NextRequest, user, context) => {
-  const { domainId, id } = await context!.params;
+  const { domainId, projectId: id } = await context!.params;
   await requireWorkspaceAccess(domainId);
 
   const [existing] = await db.select()
