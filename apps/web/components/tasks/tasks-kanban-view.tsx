@@ -149,8 +149,8 @@ function DroppableColumn({
   color,
   tasks,
   domainMap,
+  depCounts,
   onTaskClick,
-  onAddTask,
   inlineInput,
   onInlineInputChange,
   onInlineSubmit,
@@ -161,8 +161,8 @@ function DroppableColumn({
   color: string;
   tasks: Task[];
   domainMap: Map<string, { name: string; color: string | null }>;
+  depCounts: Map<string, number>;
   onTaskClick: (task: Task) => void;
-  onAddTask: () => void;
   inlineInput: string;
   onInlineInputChange: (value: string) => void;
   onInlineSubmit: () => void;
@@ -176,15 +176,6 @@ function DroppableColumn({
           <h3 className="font-semibold text-sm">{title}</h3>
           <span className="text-sm text-muted-foreground">({tasks.length})</span>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          onClick={onAddTask}
-          aria-label={`Add task to ${title}`}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
       </div>
       <div
         role="list"
@@ -202,7 +193,7 @@ function DroppableColumn({
               task={task}
               domainName={domainMap.get(task.domainId)?.name || ''}
               domainColor={domainMap.get(task.domainId)?.color || null}
-              depCount={0}
+              depCount={depCounts.get(task.id) || 0}
               onClick={() => onTaskClick(task)}
             />
           ))
@@ -248,6 +239,7 @@ export function TasksKanbanView({
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [inlineInputs, setInlineInputs] = useState<Record<string, string>>({});
   const [inlineLoading, setInlineLoading] = useState<Record<string, boolean>>({});
+  const [depCounts, setDepCounts] = useState<Map<string, number>>(new Map());
   const { subscribe } = useRealtimeContext();
 
   const sensors = useSensors(
@@ -302,6 +294,37 @@ export function TasksKanbanView({
     });
     return unsubscribe;
   }, [domainId, subscribe, fetchTasks, onRefresh]);
+
+  // Fetch dependency counts for visible tasks
+  useEffect(() => {
+    if (tasks.length === 0 || !domainId) return;
+    const controller = new AbortController();
+    let cancelled = false;
+
+    (async () => {
+      const counts = new Map<string, number>();
+      // Fetch task details in parallel to get dependency counts
+      const results = await Promise.allSettled(
+        tasks.map((t) =>
+          fetch(`/api/domains/${domainId}/tasks/${t.id}`, { signal: controller.signal })
+            .then((r) => (r.ok ? r.json() : null))
+        )
+      );
+      if (cancelled) return;
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r.status === 'fulfilled' && r.value?.dependencies?.length > 0) {
+          counts.set(tasks[i].id, r.value.dependencies.length);
+        }
+      }
+      setDepCounts(counts);
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [tasks, domainId]);
 
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -375,8 +398,8 @@ export function TasksKanbanView({
             color={column.color}
             tasks={tasks.filter((t) => t.status === column.id)}
             domainMap={domainMap}
+            depCounts={depCounts}
             onTaskClick={setSelectedTask}
-            onAddTask={() => {}}
             inlineInput={inlineInputs[column.id] || ''}
             onInlineInputChange={(value) =>
               setInlineInputs((prev) => ({ ...prev, [column.id]: value }))
