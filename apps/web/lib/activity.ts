@@ -26,14 +26,6 @@ export async function recordActivity(params: RecordActivityParams): Promise<void
   });
 
   // Notify SSE subscribers
-  await sql.unsafe(
-    `SELECT pg_notify('project_e_events', ${JSON.stringify(
-      JSON.stringify({
-        type: entityType,
-        action,
-        id: entityId,
-        workspace_id: workspaceId,
-      })
-    )})`
-  );
+  const payload = JSON.stringify({ type: entityType, action, id: entityId, workspace_id: workspaceId });
+  await db.execute(sql.unsafe(`SELECT pg_notify('project_e_events', '${payload}')`));
 }

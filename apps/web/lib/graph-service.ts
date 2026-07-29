@@ -60,12 +60,15 @@ export async function getGraphData(domainId: string): Promise<GraphData> {
   }
 
   // Fetch all entities in this domain
+  const projectIds = (await db.select({ id: projects.id }).from(projects).where(eq(projects.domainId, domainId))).map(p => p.id);
   const [noteRows, taskRows, habitRows, projectRows, sectionRows, tagRows, domainRows] = await Promise.all([
     db.select({ id: notes.id, title: notes.title }).from(notes).where(and(eq(notes.domainId, domainId), isNull(notes.deletedAt))),
     db.select({ id: tasks.id, title: tasks.title, projectId: tasks.projectId }).from(tasks).where(and(eq(tasks.domainId, domainId), isNull(tasks.deletedAt))),
     db.select({ id: habits.id, name: habits.name }).from(habits).where(and(eq(habits.domainId, domainId), isNull(habits.deletedAt))),
     db.select({ id: projects.id, name: projects.name }).from(projects).where(and(eq(projects.domainId, domainId), isNull(projects.deletedAt))),
-    db.select({ id: sections.id, name: sections.name, projectId: sections.projectId }).from(sections).where(eq(sections.projectId, inArray(sections.projectId, (await db.select({ id: projects.id }).from(projects).where(eq(projects.domainId, domainId))).map(p => p.id)))),
+    projectIds.length > 0
+      ? db.select({ id: sections.id, name: sections.name, projectId: sections.projectId }).from(sections).where(inArray(sections.projectId, projectIds))
+      : Promise.resolve([]),
     db.select({ id: tagsTable.id, name: tagsTable.name }).from(tagsTable),
     db.select({ id: domains.id, name: domains.name }).from(domains).where(eq(domains.id, domainId)),
   ]);
