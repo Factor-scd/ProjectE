@@ -99,6 +99,15 @@ function TaskCard({
               {new Date(task.dueDate).toLocaleDateString()}
             </span>
           )}
+          {task.estimatedMinutes && (
+            <span
+              className="flex items-center gap-1 text-xs text-muted-foreground"
+              title={}
+            >
+              <Clock className="h-3 w-3" />
+              {task.estimatedMinutes}m
+            </span>
+          )}
           {task.tags?.length > 0 && (
             <div className="flex gap-1 flex-wrap">
               {task.tags.slice(0, 3).map((tag) => (

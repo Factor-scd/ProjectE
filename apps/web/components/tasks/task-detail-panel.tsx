@@ -82,6 +82,9 @@ export function TaskDetailPanel({
   const [saving, setSaving] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [timerStartedAt, setTimerStartedAt] = useState<Date | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   // Fetch task details when panel opens
   useEffect(() => {
@@ -159,6 +162,59 @@ export function TaskDetailPanel({
       toast.error('Unable to delete task');
     } finally {
       setDeleting(false);
+    }
+  }
+
+  // Timer tick effect
+  useEffect(() => {
+    if (!timerRunning || !timerStartedAt) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - timerStartedAt.getTime()) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [timerRunning, timerStartedAt]);
+
+  function formatDuration(seconds: number): string {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) return \`\${h}h \${m}m\`;
+    if (m > 0) return \`\${m}m \${s}s\`;
+    return \`\${s}s\`;
+  }
+
+  async function handleStartTimer() {
+    setTimerRunning(true);
+    setTimerStartedAt(new Date());
+  }
+
+  async function handleStopTimer() {
+    if (!timerStartedAt || !task) return;
+    const deltaMinutes = Math.round((Date.now() - timerStartedAt.getTime()) / 60000);
+    if (deltaMinutes < 1) {
+      setTimerRunning(false);
+      setTimerStartedAt(null);
+      return;
+    }
+    const newTracked = (task.trackedMinutes || 0) + deltaMinutes;
+    try {
+      const response = await fetch(\`/api/domains/\${domainId}/tasks/\${task.id}\`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trackedMinutes: newTracked }),
+      });
+      if (!response.ok) throw new Error("Unable to save tracked time");
+      setTask({ ...task, trackedMinutes: newTracked });
+      onUpdate();
+      toast.success(\`Tracked \${deltaMinutes} minute\${deltaMinutes !== 1 ? "s" : ""}\`);
+    } catch {
+      toast.error("Unable to save tracked time");
+    } finally {
+      setTimerRunning(false);
+      setTimerStartedAt(null);
     }
   }
 
@@ -259,6 +315,61 @@ export function TaskDetailPanel({
                   onChange={(e) => setEstimatedMinutes(e.target.value)}
                   placeholder="e.g. 30"
                 />
+              </div>
+            </div>
+
+            {/* Time Tracking */}
+            <div className="space-y-3">
+              <Label>Time Tracking</Label>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    Tracked: {task.trackedMinutes || 0}m / {task.estimatedMinutes || 0}m
+                  </span>
+                  {task.estimatedMinutes && task.estimatedMinutes > 0 && (
+                    <span className="text-muted-foreground">
+                      {Math.min(100, Math.round(((task.trackedMinutes || 0) / task.estimatedMinutes) * 100))}%
+                    </span>
+                  )}
+                </div>
+                {task.estimatedMinutes && task.estimatedMinutes > 0 && (
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all"
+                      style={{
+                        width: \`\${Math.min(100, Math.round(((task.trackedMinutes || 0) / task.estimatedMinutes) * 100))}%\`,
+                      }}
+                    />
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  {timerRunning ? (
+                    <>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={handleStopTimer}
+                        className="gap-1"
+                      >
+                        <Square className="h-4 w-4" />
+                        Stop timer
+                      </Button>
+                      <span className="text-sm font-mono text-primary">
+                        {formatDuration(elapsedSeconds)}
+                      </span>
+                    </>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleStartTimer}
+                      className="gap-1"
+                    >
+                      <Play className="h-4 w-4" />
+                      Start timer
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
 
