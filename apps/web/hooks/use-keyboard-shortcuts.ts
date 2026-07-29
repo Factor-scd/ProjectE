@@ -43,6 +43,7 @@ export function useKeyboardShortcuts() {
         if (key === 'h') { router.push('/habits'); e.preventDefault(); return; }
         if (key === 'p') { router.push('/projects'); e.preventDefault(); return; }
         if (key === 'n') { router.push('/notes'); e.preventDefault(); return; }
+        if (key === 'g') { router.push('/graph'); e.preventDefault(); return; }
         if (key === 'r') { router.push('/reports'); e.preventDefault(); return; }
         if (key === 'c') { router.push('/calendar'); e.preventDefault(); return; }
         if (key === 'a') { router.push('/analytics'); e.preventDefault(); return; }
@@ -81,6 +82,11 @@ export function useKeyboardShortcuts() {
           // c p — new project
           if (window.location.pathname.startsWith('/projects')) {
             document.dispatchEvent(new CustomEvent('open-create-project'));
+            e.preventDefault();
+          }
+          // c n — new note
+          if (window.location.pathname.startsWith('/notes')) {
+            document.dispatchEvent(new CustomEvent('open-create-note'));
             e.preventDefault();
           }
           // c s — new section (on project detail page)
