@@ -73,7 +73,7 @@ export function TasksListView({
   const LIMIT = 50;
   const { subscribe } = useRealtimeContext();
 
-  const fetchTasks = useCallback(async (appendOffset) => {
+  const fetchTasks = useCallback(async (appendOffset?: number) => {
     if (!domainId) return;
     if (appendOffset === undefined) setLoading(true);
     else setLoadingMore(true);
@@ -337,7 +337,7 @@ export function TasksListView({
           domainId={domainId}
           open={!!selectedTask}
           onOpenChange={(open) => !open && setSelectedTask(null)}
-          onUpdate={fetchTasks}
+          onUpdate={() => fetchTasks()}
         />
       )}
     </>

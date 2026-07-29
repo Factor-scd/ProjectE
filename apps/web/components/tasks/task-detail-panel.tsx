@@ -30,7 +30,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, Loader2 } from 'lucide-react';
+import { Calendar, Clock, Loader2, Play, Square } from 'lucide-react';
 
 interface TaskDetail {
   id: string;
@@ -209,9 +209,9 @@ export function TaskDetailPanel({
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = seconds % 60;
-    if (h > 0) return \`\${h}h \${m}m\`;
-    if (m > 0) return \`\${m}m \${s}s\`;
-    return \`\${s}s\`;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
   }
 
   async function handleStartTimer() {
@@ -229,7 +229,7 @@ export function TaskDetailPanel({
     }
     const newTracked = (task.trackedMinutes || 0) + deltaMinutes;
     try {
-      const response = await fetch(\`/api/domains/\${domainId}/tasks/\${task.id}\`, {
+      const response = await fetch(`/api/domains/${domainId}/tasks/${task.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ trackedMinutes: newTracked }),
@@ -237,7 +237,7 @@ export function TaskDetailPanel({
       if (!response.ok) throw new Error("Unable to save tracked time");
       setTask({ ...task, trackedMinutes: newTracked });
       onUpdate();
-      toast.success(\`Tracked \${deltaMinutes} minute\${deltaMinutes !== 1 ? "s" : ""}\`);
+      toast.success(`Tracked ${deltaMinutes} minute${deltaMinutes !== 1 ? "s" : ""}`);
     } catch {
       toast.error("Unable to save tracked time");
     } finally {
@@ -365,7 +365,7 @@ export function TaskDetailPanel({
                     <div
                       className="h-full rounded-full bg-primary transition-all"
                       style={{
-                        width: \`\${Math.min(100, Math.round(((task.trackedMinutes || 0) / task.estimatedMinutes) * 100))}%\`,
+                        width: `${Math.min(100, Math.round(((task.trackedMinutes || 0) / task.estimatedMinutes) * 100))}%`,
                       }}
                     />
                   </div>

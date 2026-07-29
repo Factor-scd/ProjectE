@@ -13,7 +13,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, GripVertical, Plus } from 'lucide-react';
+import { Calendar, Clock, GripVertical, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { TaskDetailPanel } from './task-detail-panel';
 import { useRealtimeContext } from '@/components/realtime-provider';
@@ -102,7 +102,7 @@ function TaskCard({
           {task.estimatedMinutes && (
             <span
               className="flex items-center gap-1 text-xs text-muted-foreground"
-              title={}
+              title={`Estimated: ${task.estimatedMinutes}m`}
             >
               <Clock className="h-3 w-3" />
               {task.estimatedMinutes}m

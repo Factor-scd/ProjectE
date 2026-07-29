@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { NotificationPrefs } from '@/components/notifications/notification-prefs';
 
 export function SettingsShortcuts() {
   const { enabled, shortcuts, setEnabled, resetShortcuts } = useKeyboardShortcutsStore();

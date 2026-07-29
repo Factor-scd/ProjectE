@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useSidebarStore } from '@/lib/stores/use-sidebar-store';
 import { useCreateDialogStore } from '@/lib/stores/use-create-dialog-store';
 import { CommandPalette } from '@/components/command-palette';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 
 export function TopBar() {
   const pathname = usePathname();
