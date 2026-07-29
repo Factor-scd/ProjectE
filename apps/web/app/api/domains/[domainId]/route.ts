@@ -9,11 +9,11 @@ import { createPocketBaseClient } from '@/lib/pocketbase';
 import { updateDomainSchema } from '@project-e/shared';
 import { z } from 'zod';
 
-type RouteContext = { params: Promise<{ id: string }> };
+type RouteContext = { params: Promise<{ domainId: string }> };
 
 // GET /api/domains/[id] — Get a single domain
 export const GET = withAuth<RouteContext>(async (request: NextRequest, _user, context) => {
-  const { id } = await context!.params;
+  const { domainId: id } = await context!.params;
 
   const pb = createPocketBaseClient();
   const domain = await pb.collection('domains').getOne(id);
@@ -24,7 +24,7 @@ export const GET = withAuth<RouteContext>(async (request: NextRequest, _user, co
 // PATCH /api/domains/[id] — Update a domain
 export const PATCH = withAuth<RouteContext>(async (request: NextRequest, _user, context) => {
   try {
-    const { id } = await context!.params;
+    const { domainId: id } = await context!.params;
     const body = await request.json();
     const data = updateDomainSchema.parse(body);
 
@@ -42,7 +42,7 @@ export const PATCH = withAuth<RouteContext>(async (request: NextRequest, _user, 
 
 // DELETE /api/domains/[id] — Delete a domain
 export const DELETE = withAuth<RouteContext>(async (request: NextRequest, _user, context) => {
-  const { id } = await context!.params;
+  const { domainId: id } = await context!.params;
 
   const pb = createPocketBaseClient();
   await pb.collection('domains').delete(id);
