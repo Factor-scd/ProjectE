@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { SectionDialog } from "@/components/projects/section-dialog";
+import { ProjectTimeline } from "@/components/projects/project-timeline";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -289,6 +290,9 @@ export default function ProjectDetailPage() {
           </button>
         </div>
       </div>
+
+      {/* Timeline */}
+      <ProjectTimeline sections={project.sections} projectTargetDate={project.targetDate} />
 
       <SectionDialog
         open={sectionDialogOpen}
