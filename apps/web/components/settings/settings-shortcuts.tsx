@@ -49,6 +49,15 @@ export function SettingsShortcuts() {
         <Button variant="outline" onClick={resetShortcuts}>
           Reset to defaults
         </Button>
+
+        {/* Notification Preferences */}
+        <div className="pt-4 border-t">
+          <h3 className="font-semibold mb-1">Notification Preferences</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Choose which events trigger in-app notifications.
+          </p>
+          <NotificationPrefs />
+        </div>
       </CardContent>
     </Card>
   );

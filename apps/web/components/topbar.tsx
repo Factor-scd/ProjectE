@@ -42,9 +42,7 @@ export function TopBar() {
             <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
             {label}
           </Button>
-          <Button variant="ghost" size="icon" aria-label="Notifications">
-            <Bell className="h-5 w-5" aria-hidden="true" />
-          </Button>
+          <NotificationBell />
         </div>
       </header>
       <CommandPalette />
