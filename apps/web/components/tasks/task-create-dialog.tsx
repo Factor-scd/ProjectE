@@ -30,6 +30,14 @@ interface TaskCreateDialogProps {
   onCreated: () => void;
 }
 
+const RECURRENCE_OPTIONS = [
+  { label: 'None', value: '' },
+  { label: 'Daily', value: 'FREQ=DAILY' },
+  { label: 'Weekly', value: 'FREQ=WEEKLY' },
+  { label: 'Monthly', value: 'FREQ=MONTHLY' },
+  { label: 'Custom (rrule)', value: 'custom' },
+] as const;
+
 export function TaskCreateDialog({
   open,
   onOpenChange,
@@ -43,6 +51,8 @@ export function TaskCreateDialog({
   const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
   const [dueDate, setDueDate] = useState('');
   const [estimatedMinutes, setEstimatedMinutes] = useState('');
+  const [recurrenceType, setRecurrenceType] = useState('');
+  const [customRrule, setCustomRrule] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -55,9 +65,17 @@ export function TaskCreateDialog({
       setPriority('medium');
       setDueDate('');
       setEstimatedMinutes('');
+      setRecurrenceType('');
+      setCustomRrule('');
       setError('');
     }
   }, [open, defaultStatus]);
+
+  function getRecurrenceRule(): string | null {
+    if (!recurrenceType) return null;
+    if (recurrenceType === 'custom') return customRrule || null;
+    return recurrenceType;
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -76,6 +94,8 @@ export function TaskCreateDialog({
     if (description) body.description = description;
     if (dueDate) body.dueDate = new Date(dueDate).toISOString();
     if (estimatedMinutes) body.estimatedMinutes = parseInt(estimatedMinutes, 10);
+    const recurrenceRule = getRecurrenceRule();
+    if (recurrenceRule) body.recurrenceRule = recurrenceRule;
 
     try {
       const response = await fetch(`/api/domains/${domainId}/tasks`, {
@@ -184,6 +204,32 @@ export function TaskCreateDialog({
                 placeholder="e.g. 30"
               />
             </div>
+          </div>
+
+          {/* Recurrence */}
+          <div className="space-y-2">
+            <Label htmlFor="task-recurrence">Recurrence</Label>
+            <Select value={recurrenceType} onValueChange={setRecurrenceType}>
+              <SelectTrigger id="task-recurrence">
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent>
+                {RECURRENCE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {recurrenceType === 'custom' && (
+              <Input
+                id="task-custom-rrule"
+                value={customRrule}
+                onChange={(e) => setCustomRrule(e.target.value)}
+                placeholder="e.g. FREQ=WEEKLY;BYDAY=MO,WE,FR"
+                className="mt-2"
+              />
+            )}
           </div>
 
           {error && <p className="text-sm text-destructive" role="alert">{error}</p>}

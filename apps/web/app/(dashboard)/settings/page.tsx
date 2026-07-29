@@ -8,6 +8,7 @@ import {
   Webhook,
   Download,
   AlertTriangle,
+  Tag,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -17,6 +18,8 @@ import { SettingsShortcuts } from '@/components/settings/settings-shortcuts';
 import { SettingsAgents } from '@/components/settings/settings-agents';
 import { SettingsWebhooks } from '@/components/settings/settings-webhooks';
 import { SettingsImportExport } from '@/components/settings/settings-import-export';
+import { SettingsTags } from '@/components/settings/settings-tags';
+import { SettingsCustomFields } from '@/components/settings/settings-custom-fields';
 
 export default function SettingsPage() {
   return (
@@ -35,6 +38,14 @@ export default function SettingsPage() {
           <TabsTrigger value="domains" className="shrink-0 justify-start gap-2">
             <Globe className="h-4 w-4" aria-hidden="true" />
             Domains
+          </TabsTrigger>
+          <TabsTrigger value="tags" className="shrink-0 justify-start gap-2">
+            <Tag className="h-4 w-4" aria-hidden="true" />
+            Tags
+          </TabsTrigger>
+          <TabsTrigger value="custom-fields" className="shrink-0 justify-start gap-2">
+            <Tag className="h-4 w-4" aria-hidden="true" />
+            Custom Fields
           </TabsTrigger>
           <TabsTrigger value="shortcuts" className="shrink-0 justify-start gap-2">
             <Keyboard className="h-4 w-4" aria-hidden="true" />
@@ -64,6 +75,12 @@ export default function SettingsPage() {
           </TabsContent>
           <TabsContent value="domains">
             <SettingsDomains />
+          </TabsContent>
+          <TabsContent value="tags">
+            <SettingsTags />
+          </TabsContent>
+          <TabsContent value="custom-fields">
+            <SettingsCustomFields />
           </TabsContent>
           <TabsContent value="shortcuts">
             <SettingsShortcuts />

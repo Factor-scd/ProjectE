@@ -309,10 +309,18 @@ export function SettingsWebhooks() {
       const response = await fetch(`/api/webhooks/${id}/test`, { method: 'POST' });
       const data = await response.json();
 
+      const statusCode = data.status || 0;
+      const responseBody = data.response || '';
+      const preview = responseBody.substring(0, 200);
+
       if (data.success) {
-        toast.success(`Test delivery succeeded (${data.status})`);
+        toast.success(`Test delivery succeeded (${statusCode})`, {
+          description: preview || undefined,
+        });
       } else {
-        toast.error(`Test delivery failed: ${data.response || 'Unknown error'}`);
+        toast.error(`Test delivery failed (${statusCode})`, {
+          description: preview || undefined,
+        });
       }
     } catch (error) {
       toast.error('Failed to send test event');

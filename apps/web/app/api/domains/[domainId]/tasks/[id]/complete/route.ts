@@ -8,6 +8,7 @@ import { withAuth, requireWorkspaceAccess, createErrorResponse } from '@/lib/aut
 import { recordActivity } from '@/lib/activity';
 import { db, tasks } from '@project-e/db';
 import { and, eq, isNull } from 'drizzle-orm';
+import { RRule } from 'rrule';
 
 type RouteContext = { params: Promise<{ domainId: string; id: string }> };
 
@@ -42,6 +43,48 @@ export const POST = withAuth<RouteContext>(async (request: NextRequest, user, co
     changes: { previousStatus: existing.status },
     workspaceId: domainId,
   });
+
+  // Auto-create next recurring instance if recurrenceRule is set
+  if (existing.recurrenceRule) {
+    try {
+      const rule = RRule.fromString(existing.recurrenceRule);
+      const nextOccurrence = rule.after(new Date(), true);
+
+      if (nextOccurrence) {
+        const [spawned] = await db.insert(tasks).values({
+          title: existing.title,
+          description: existing.description,
+          status: 'todo',
+          priority: existing.priority,
+          domainId: existing.domainId,
+          projectId: existing.projectId,
+          sectionId: existing.sectionId,
+          parentId: existing.parentId,
+          dueDate: nextOccurrence,
+          estimatedMinutes: existing.estimatedMinutes,
+          order: existing.order,
+          customFields: existing.customFields ?? {},
+          recurrenceRule: existing.recurrenceRule,
+        }).returning();
+
+        await recordActivity({
+          actor: user.name,
+          action: 'created',
+          entityType: 'task',
+          entityId: spawned.id,
+          changes: {
+            title: spawned.title,
+            note: 'Auto-created from recurring task',
+            sourceTaskId: id,
+          },
+          workspaceId: domainId,
+        });
+      }
+    } catch (err) {
+      console.error('[tasks complete] Failed to spawn recurring instance:', err);
+      // Don't fail the completion — the original task is already marked done
+    }
+  }
 
   return NextResponse.json(updated);
 });

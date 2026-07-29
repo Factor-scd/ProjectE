@@ -47,6 +47,7 @@ interface TaskDetail {
   estimatedMinutes?: number | null;
   trackedMinutes?: number | null;
   order: number;
+  recurrenceRule?: string | null;
   customFields?: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
@@ -64,6 +65,14 @@ interface TaskDetailPanelProps {
   onUpdate: () => void;
 }
 
+const RECURRENCE_OPTIONS = [
+  { label: 'None', value: '' },
+  { label: 'Daily', value: 'FREQ=DAILY' },
+  { label: 'Weekly', value: 'FREQ=WEEKLY' },
+  { label: 'Monthly', value: 'FREQ=MONTHLY' },
+  { label: 'Custom (rrule)', value: 'custom' },
+] as const;
+
 export function TaskDetailPanel({
   taskId,
   domainId,
@@ -79,6 +88,9 @@ export function TaskDetailPanel({
   const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
   const [dueDate, setDueDate] = useState('');
   const [estimatedMinutes, setEstimatedMinutes] = useState('');
+  const [recurrenceType, setRecurrenceType] = useState('');
+  const [customRrule, setCustomRrule] = useState('');
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -100,6 +112,26 @@ export function TaskDetailPanel({
         setPriority(data.priority);
         setDueDate(data.dueDate ? data.dueDate.split('T')[0] : '');
         setEstimatedMinutes(data.estimatedMinutes?.toString() || '');
+
+        // Recurrence
+        if (data.recurrenceRule) {
+          const isPreset = RECURRENCE_OPTIONS.some(
+            (o) => o.value !== 'custom' && o.value !== '' && o.value === data.recurrenceRule
+          );
+          if (isPreset) {
+            setRecurrenceType(data.recurrenceRule);
+            setCustomRrule('');
+          } else {
+            setRecurrenceType('custom');
+            setCustomRrule(data.recurrenceRule);
+          }
+        } else {
+          setRecurrenceType('');
+          setCustomRrule('');
+        }
+
+        // Custom fields
+        setCustomFieldValues(data.customFields || {});
       })
       .catch((err) => {
         console.error('Failed to load task:', err);
@@ -107,6 +139,12 @@ export function TaskDetailPanel({
       })
       .finally(() => setLoading(false));
   }, [open, taskId, domainId]);
+
+  function getRecurrenceRule(): string | null {
+    if (!recurrenceType) return null;
+    if (recurrenceType === 'custom') return customRrule || null;
+    return recurrenceType;
+  }
 
   async function handleSave() {
     if (!task || !domainId) return;
@@ -123,6 +161,16 @@ export function TaskDetailPanel({
       }
       if (estimatedMinutes !== (task.estimatedMinutes?.toString() || '')) {
         body.estimatedMinutes = estimatedMinutes ? parseInt(estimatedMinutes, 10) : null;
+      }
+      const recurrenceRule = getRecurrenceRule();
+      if (recurrenceRule !== (task.recurrenceRule || null)) {
+        body.recurrenceRule = recurrenceRule;
+      }
+
+      // Include custom fields if changed
+      const currentCustomFields = task.customFields || {};
+      if (JSON.stringify(customFieldValues) !== JSON.stringify(currentCustomFields)) {
+        body.customFields = customFieldValues;
       }
 
       const response = await fetch(`/api/domains/${domainId}/tasks/${task.id}`, {
@@ -261,6 +309,109 @@ export function TaskDetailPanel({
                 />
               </div>
             </div>
+
+            {/* Recurrence */}
+            <div className="space-y-2">
+              <Label htmlFor="task-recurrence">Recurrence</Label>
+              <Select value={recurrenceType} onValueChange={setRecurrenceType}>
+                <SelectTrigger id="task-recurrence">
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent>
+                  {RECURRENCE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {recurrenceType === 'custom' && (
+                <Input
+                  id="task-custom-rrule"
+                  value={customRrule}
+                  onChange={(e) => setCustomRrule(e.target.value)}
+                  placeholder="e.g. FREQ=WEEKLY;BYDAY=MO,WE,FR"
+                  className="mt-2"
+                />
+              )}
+            </div>
+
+            {/* Custom fields */}
+            {(() => {
+              const schemas = (() => {
+                try {
+                  if (typeof window === 'undefined') return [];
+                  const raw = localStorage.getItem('pe_custom_field_schemas');
+                  return raw ? JSON.parse(raw) : [];
+                } catch { return []; }
+              })();
+              const taskSchemas = schemas.filter((s: any) => s.scope === 'task');
+              if (taskSchemas.length === 0) return null;
+              return (
+                <div className="space-y-3">
+                  <Label>Custom fields</Label>
+                  {taskSchemas.map((field: any) => (
+                    <div key={field.id} className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">{field.name}</Label>
+                      {field.type === 'checkbox' ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={!!customFieldValues[field.name]}
+                            onChange={(e) =>
+                              setCustomFieldValues((prev) => ({
+                                ...prev,
+                                [field.name]: e.target.checked,
+                              }))
+                            }
+                            className="h-4 w-4 rounded border-gray-300"
+                          />
+                          <span className="text-sm">{field.name}</span>
+                        </div>
+                      ) : field.type === 'select' ? (
+                        <Select
+                          value={(customFieldValues[field.name] as string) || ''}
+                          onValueChange={(v) =>
+                            setCustomFieldValues((prev) => ({ ...prev, [field.name]: v }))
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(field.options || []).map((opt: string) => (
+                              <SelectItem key={opt} value={opt}>
+                                {opt}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : field.type === 'number' ? (
+                        <Input
+                          type="number"
+                          value={(customFieldValues[field.name] as string) || ''}
+                          onChange={(e) =>
+                            setCustomFieldValues((prev) => ({
+                              ...prev,
+                              [field.name]: e.target.value ? Number(e.target.value) : '',
+                            }))
+                          }
+                          placeholder={`Enter ${field.name}...`}
+                        />
+                      ) : (
+                        <Input
+                          value={(customFieldValues[field.name] as string) || ''}
+                          onChange={(e) =>
+                            setCustomFieldValues((prev) => ({ ...prev, [field.name]: e.target.value }))
+                          }
+                          placeholder={`Enter ${field.name}...`}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
 
             {/* Tags */}
             {task.tags && task.tags.length > 0 && (
