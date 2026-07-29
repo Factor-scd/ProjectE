@@ -84,6 +84,11 @@ export function CommandPalette() {
     { label: 'New habit', action: () => router.push('/habits?new=true') },
     { label: 'New project', action: () => router.push('/projects?new=true') },
     { label: 'New note', action: () => router.push('/notes?new=true') },
+    { label: 'Ask AI agent...', shortcut: '@', action: () => {
+      setOpen(false);
+      // Dispatch event for AI dispatch flow
+      document.dispatchEvent(new CustomEvent('open-ai-dispatch'));
+    }},
   ];
 
   // Search handler
