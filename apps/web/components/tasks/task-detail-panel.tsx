@@ -413,6 +413,62 @@ export function TaskDetailPanel({
               );
             })()}
 
+            {/* Time Tracking */}
+            <div className="space-y-3">
+              <Label>Time Tracking</Label>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    Tracked: {task.trackedMinutes || 0}m / {task.estimatedMinutes || 0}m
+                  </span>
+                  {task.estimatedMinutes && task.estimatedMinutes > 0 && (
+                    <span className="text-muted-foreground">
+                      {Math.min(100, Math.round(((task.trackedMinutes || 0) / task.estimatedMinutes) * 100))}%
+                    </span>
+                  )}
+                </div>
+                {task.estimatedMinutes && task.estimatedMinutes > 0 && (
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all"
+                      style={{
+                        width: `${Math.min(100, Math.round(((task.trackedMinutes || 0) / task.estimatedMinutes) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  {timerRunning ? (
+                    <>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={handleStopTimer}
+                        className="gap-1"
+                      >
+                        <Square className="h-4 w-4" />
+                        Stop timer
+                      </Button>
+                      <span className="text-sm font-mono text-primary">
+                        {formatDuration(elapsedSeconds)}
+                      </span>
+                    </>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleStartTimer}
+                      className="gap-1"
+                    >
+                      <Play className="h-4 w-4" />
+                      Start timer
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            
             {/* Tags */}
             {task.tags && task.tags.length > 0 && (
               <div className="space-y-2">

@@ -14,7 +14,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Calendar, GripVertical, Link2, Loader2, Plus } from 'lucide-react';
+import { Calendar, Clock, GripVertical, Link2, Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { TaskDetailPanel } from './task-detail-panel';
 import { useRealtimeContext } from '@/components/realtime-provider';
@@ -118,6 +118,15 @@ function TaskCard({
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <Calendar className="h-3 w-3" />
               {new Date(task.dueDate).toLocaleDateString()}
+            </span>
+          )}
+          {task.estimatedMinutes && (
+            <span
+              className="flex items-center gap-1 text-xs text-muted-foreground"
+              title={`Estimated: ${task.estimatedMinutes}m`}
+            >
+              <Clock className="h-3 w-3" />
+              {task.estimatedMinutes}m
             </span>
           )}
           {task.tags?.length > 0 && (

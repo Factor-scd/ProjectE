@@ -173,11 +173,15 @@ export function TasksListView({
   const searchParams = useSearchParams();
 
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [domainMap, setDomainMap] = useState<Map<string, string>>(new Map());
+  const LIMIT = 50;
   const { subscribe } = useRealtimeContext();
 
   // Filter/sort state from URL params
@@ -224,10 +228,13 @@ export function TasksListView({
     [searchParams, pathname, router]
   );
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (appendOffset?: number) => {
     if (!domainId) return;
+    if (appendOffset === undefined) setLoading(true);
+    else setLoadingMore(true);
     try {
-      const params = new URLSearchParams({ sort, order, limit: '200' });
+      const currentOffset = appendOffset ?? 0;
+      const params = new URLSearchParams({ sort, order, limit: String(LIMIT), offset: String(currentOffset) });
       if (statusFilter.length > 0) params.set('status', statusFilter.join(','));
       if (priorityFilter.length > 0) params.set('priority', priorityFilter.join(','));
       if (searchQuery) params.set('search', searchQuery);
@@ -235,14 +242,27 @@ export function TasksListView({
       const response = await fetch(`/api/domains/${domainId}/tasks?${params.toString()}`);
       if (!response.ok) throw new Error('Unable to load tasks');
       const data = await response.json();
-      setTasks(data.items || []);
+      if (appendOffset !== undefined) {
+        setTasks(prev => [...prev, ...(data.items || [])]);
+      } else {
+        setTasks(data.items || []);
+        setOffset(0);
+      }
+      setTotalCount(data.totalItems || 0);
     } catch (error) {
       console.error('Failed to fetch tasks:', error);
       toast.error('Unable to load tasks');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }, [domainId, sort, order, statusFilter, priorityFilter, searchQuery]);
+
+  function loadMore() {
+    const newOffset = offset + LIMIT;
+    setOffset(newOffset);
+    fetchTasks(newOffset);
+  }
 
   const fetchDomains = useCallback(async () => {
     try {
@@ -618,6 +638,19 @@ export function TasksListView({
                 ))}
               </TableBody>
             </Table>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3 text-sm text-muted-foreground">
+            <span>Showing {tasks.length} of {totalCount} tasks</span>
+            {tasks.length < totalCount && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadMore}
+                disabled={loadingMore}
+              >
+                {loadingMore ? "Loading..." : "Load more"}
+              </Button>
+            )}
           </div>
           <ScrollBar orientation="horizontal" />
         </ScrollArea>
