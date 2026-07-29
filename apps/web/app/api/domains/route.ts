@@ -25,12 +25,19 @@ export const GET = withAuth(async (request: NextRequest, _user) => {
   const sortParam = searchParams.get('sort') || 'sort_order';
   const filter = searchParams.get('filter') || undefined;
 
-  // Build order by
+  // Build order by — whitelist safe column names
   const sortDir = sortParam.startsWith('-') ? 'desc' : 'asc';
   const sortField = sortParam.replace(/^-/, '');
+  const sortColumns: Record<string, any> = {
+    name: domains.name,
+    slug: domains.slug,
+    sort_order: domains.sortOrder,
+    created_at: domains.createdAt,
+    updated_at: domains.updatedAt,
+  };
   const orderBy = sortDir === 'asc'
-    ? asc(domains[sortField as keyof typeof domains] || domains.sortOrder)
-    : desc(domains[sortField as keyof typeof domains] || domains.sortOrder);
+    ? asc(sortColumns[sortField] || domains.sortOrder)
+    : desc(sortColumns[sortField] || domains.sortOrder);
 
   // Build where clause
   const conditions: any[] = [];
