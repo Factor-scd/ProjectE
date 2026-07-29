@@ -12,6 +12,7 @@ import {
   NotebookPen,
   BookOpen,
   Share2,
+  LayoutGrid,
   CalendarDays,
   Search,
   Bot,
@@ -44,6 +45,7 @@ const navItems = [
   { href: '/notes', label: 'Notes', icon: NotebookPen },
   { href: '/daily-notes', label: 'Daily Note', icon: BookOpen },
   { href: '/graph', label: 'Graph', icon: Share2 },
+  { href: '/canvas', label: 'Canvas', icon: LayoutGrid },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
   { href: '/search', label: 'Search', icon: Search },
 ];
