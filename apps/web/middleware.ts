@@ -5,10 +5,11 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get('next-auth.session-token')?.value
     || request.cookies.get('__Secure-next-auth.session-token')?.value;
 
-  // If no token and trying to access protected routes, redirect to login
+  // Protected routes (v1 + v2)
   const protectedRoutes = [
     '/dashboard', '/tasks', '/habits', '/projects', '/notes', '/reports',
     '/calendar', '/analytics', '/agents', '/settings',
+    '/graph', '/domains',
   ];
   if (!token && protectedRoutes.some((route) => request.nextUrl.pathname === route || request.nextUrl.pathname.startsWith(`${route}/`))) {
     const loginUrl = new URL('/login', request.url);

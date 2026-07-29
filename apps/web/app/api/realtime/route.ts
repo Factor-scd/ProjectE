@@ -1,3 +1,8 @@
+// AGENT INSTRUCTION: After every write (INSERT/UPDATE/DELETE), you MUST:
+// 1. Insert activity feed entry
+// 2. Call pg.notify('project_e_events', JSON.stringify({ type, action, id, workspace_id }))
+// See AGENTS.md for full rules.
+
 import { NextRequest } from 'next/server';
 import { getAuthUser } from '@/lib/auth';
 import postgres from 'postgres';
@@ -5,17 +10,8 @@ import postgres from 'postgres';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes
 
-const DEFAULT_COLLECTIONS = [
-  'tasks',
-  'habits',
-  'projects',
-  'notes',
-  'reports',
-  'milestones',
-  'notifications',
-];
-
-// GET /api/realtime — Multiplexed SSE endpoint backed by PostgreSQL LISTEN/NOTIFY.
+// GET /api/realtime — SSE endpoint backed by PostgreSQL LISTEN/NOTIFY.
+// Supports v2 entities: task, habit, project, note, domain, tag, section, habit_completion, activity
 export async function GET(request: NextRequest) {
   const user = await getAuthUser(request);
   if (!user) {
@@ -25,16 +21,8 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Parse subscription preferences from query params
   const { searchParams } = new URL(request.url);
-  const collectionsParam = searchParams.get('collections') || '';
-  const collections = collectionsParam
-    .split(',')
-    .map((c) => c.trim())
-    .filter(Boolean);
-
-  const subscribedCollections =
-    collections.length > 0 ? collections : DEFAULT_COLLECTIONS;
+  const workspaceId = searchParams.get('workspace_id');
 
   const encoder = new TextEncoder();
   const listener = postgres(process.env.DATABASE_URL!, { max: 1 });
@@ -46,16 +34,25 @@ export async function GET(request: NextRequest) {
       // Send connected event
       controller.enqueue(
         encoder.encode(
-          `data: ${JSON.stringify({ type: 'connected', collections: subscribedCollections })}\n\n`
+          `data: ${JSON.stringify({ type: 'connected', workspace_id: workspaceId })}\n\n`
         )
       );
 
       const subscription = await listener.listen('project_e_events', (payload) => {
         try {
-          const event = JSON.parse(payload) as { collection?: string };
-          if (!event.collection || subscribedCollections.includes(event.collection)) {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          const event = JSON.parse(payload) as {
+            type: string;
+            action: string;
+            id: string;
+            workspace_id?: string;
+          };
+
+          // Filter by workspace_id if specified
+          if (workspaceId && event.workspace_id !== workspaceId) {
+            return;
           }
+
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         } catch {
           // Ignore malformed database notifications and closed streams.
         }

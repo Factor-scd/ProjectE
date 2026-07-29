@@ -10,9 +10,8 @@ import {
   Flame,
   FolderKanban,
   NotebookPen,
-  FileBarChart,
+  Share2,
   CalendarDays,
-  BarChart3,
   Bot,
   Settings,
   ChevronLeft,
@@ -41,9 +40,8 @@ const navItems = [
   { href: '/habits', label: 'Habits', icon: Flame },
   { href: '/projects', label: 'Projects', icon: FolderKanban },
   { href: '/notes', label: 'Notes', icon: NotebookPen },
-  { href: '/reports', label: 'Reports', icon: FileBarChart },
+  { href: '/graph', label: 'Graph', icon: Share2 },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
-  { href: '/analytics', label: 'Analytics', icon: BarChart3 },
 ];
 
 const workspaceItems = [
