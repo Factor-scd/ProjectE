@@ -23,14 +23,14 @@ interface DashboardState {
 }
 
 const defaultWidgets: WidgetConfig[] = [
-  { id: 'today-tasks', type: 'TodayTasks', x: 0, y: 0, w: 6, h: 4, visible: true },
-  { id: 'habit-checklist', type: 'HabitChecklist', x: 6, y: 0, w: 3, h: 4, visible: true },
-  { id: 'weekly-stats', type: 'WeeklyStats', x: 9, y: 0, w: 3, h: 4, visible: true },
-  { id: 'project-progress', type: 'ProjectProgress', x: 0, y: 4, w: 4, h: 3, visible: true },
-  { id: 'habit-streaks', type: 'HabitStreaks', x: 4, y: 4, w: 4, h: 3, visible: true },
-  { id: 'calendar-mini', type: 'CalendarMini', x: 8, y: 4, w: 4, h: 3, visible: true },
-  { id: 'quick-add', type: 'QuickAdd', x: 0, y: 7, w: 3, h: 3, visible: true },
-  { id: 'recent-activity', type: 'RecentActivity', x: 3, y: 7, w: 9, h: 3, visible: true },
+  { id: 'today-tasks', type: "Today's Tasks", x: 0, y: 0, w: 6, h: 4, visible: true },
+  { id: 'habit-checklist', type: 'Habit Checklist', x: 6, y: 0, w: 3, h: 4, visible: true },
+  { id: 'weekly-stats', type: 'Weekly Stats', x: 9, y: 0, w: 3, h: 4, visible: true },
+  { id: 'project-progress', type: 'Project Progress', x: 0, y: 4, w: 4, h: 3, visible: true },
+  { id: 'upcoming-calendar', type: 'Upcoming Calendar', x: 4, y: 4, w: 4, h: 3, visible: true },
+  { id: 'recent-notes', type: 'Recent Notes', x: 8, y: 4, w: 4, h: 3, visible: true },
+  { id: 'activity-feed', type: 'Activity Feed', x: 0, y: 7, w: 6, h: 3, visible: true },
+  { id: 'quick-capture', type: 'Quick Capture', x: 6, y: 7, w: 3, h: 3, visible: true },
 ];
 
 export const useDashboardStore = create<DashboardState>()(

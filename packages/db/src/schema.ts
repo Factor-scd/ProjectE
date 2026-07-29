@@ -1,5 +1,6 @@
 import {
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -12,6 +13,13 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+
+// ── Custom tsvector type for full-text search ─────────────────────────────────
+export const tsvector = customType<{ data: string }>({
+  dataType() {
+    return 'tsvector';
+  },
+});
 
 // ── Enums ──────────────────────────────────────────────────────────────────────
 
@@ -51,12 +59,15 @@ export const domains = pgTable(
     icon: text('icon'),
     parentId: uuid('parent_id').references((): any => domains.id, { onDelete: 'set null' }),
     sortOrder: integer('sort_order').default(0),
+    customFields: jsonb('custom_fields').$type<Record<string, unknown>>().default({}),
+    searchVector: tsvector('search_vector'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index('domains_parent_id_idx').on(table.parentId),
     index('domains_slug_idx').on(table.slug),
+    index('domains_search_idx').using('gin', table.searchVector),
   ]
 );
 
@@ -94,6 +105,7 @@ export const projects = pgTable(
     color: text('color'),
     icon: text('icon'),
     targetDate: timestamp('target_date', { withTimezone: true }),
+    searchVector: tsvector('search_vector'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -102,6 +114,7 @@ export const projects = pgTable(
     index('projects_domain_id_idx').on(table.domainId),
     index('projects_status_idx').on(table.status),
     index('projects_deleted_at_idx').on(table.deletedAt),
+    index('projects_search_idx').using('gin', table.searchVector),
   ]
 );
 
@@ -152,6 +165,7 @@ export const tasks = pgTable(
     recurrenceRule: text('recurrence_rule'),
     order: integer('order').default(0),
     customFields: jsonb('custom_fields').$type<Record<string, unknown>>().default({}),
+    searchVector: tsvector('search_vector'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -166,6 +180,7 @@ export const tasks = pgTable(
     index('tasks_due_date_idx').on(table.dueDate),
     index('tasks_order_idx').on(table.order),
     index('tasks_deleted_at_idx').on(table.deletedAt),
+    index('tasks_search_idx').using('gin', table.searchVector),
   ]
 );
 
@@ -226,6 +241,7 @@ export const habits = pgTable(
     bestStreak: integer('best_streak').default(0),
     moodTracking: boolean('mood_tracking').default(false),
     active: boolean('active').default(true),
+    searchVector: tsvector('search_vector'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -234,6 +250,7 @@ export const habits = pgTable(
     index('habits_domain_id_idx').on(table.domainId),
     index('habits_active_idx').on(table.active),
     index('habits_deleted_at_idx').on(table.deletedAt),
+    index('habits_search_idx').using('gin', table.searchVector),
   ]
 );
 
@@ -289,6 +306,7 @@ export const notes = pgTable(
       .references((): any => domains.id, { onDelete: 'cascade' }),
     isPinned: boolean('is_pinned').default(false),
     isArchived: boolean('is_archived').default(false),
+    searchVector: tsvector('search_vector'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -298,6 +316,7 @@ export const notes = pgTable(
     index('notes_is_pinned_idx').on(table.isPinned),
     index('notes_is_archived_idx').on(table.isArchived),
     index('notes_deleted_at_idx').on(table.deletedAt),
+    index('notes_search_idx').using('gin', table.searchVector),
   ]
 );
 
