@@ -4,8 +4,10 @@
 // See AGENTS.md for full rules.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/auth';
+import { withAuth, createErrorResponse } from '@/lib/auth';
 import { createPocketBaseClient } from '@/lib/pocketbase';
+import { createAgentTaskSchema } from '@project-e/shared';
+import { z } from 'zod';
 
 // GET /api/agent-tasks — List agent tasks
 export const GET = withAuth(async (request: NextRequest) => {
@@ -26,4 +28,25 @@ export const GET = withAuth(async (request: NextRequest) => {
     page: result.page,
     perPage: result.perPage,
   });
+});
+
+// POST /api/agent-tasks — Create a new agent task
+export const POST = withAuth(async (request: NextRequest) => {
+  try {
+    const body = await request.json();
+    const data = createAgentTaskSchema.parse(body);
+
+    const pb = createPocketBaseClient();
+    const task = await pb.collection('agent_tasks').create({
+      ...data,
+      status: 'pending',
+    });
+
+    return NextResponse.json(task, { status: 201 });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return createErrorResponse('VALIDATION_ERROR', 'Invalid input', 400, error.issues);
+    }
+    throw error;
+  }
 });
