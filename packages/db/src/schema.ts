@@ -57,6 +57,7 @@ export const domains = pgTable(
     slug: text('slug').notNull().unique(),
     color: text('color'),
     icon: text('icon'),
+    ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'cascade' }),
     parentId: uuid('parent_id').references((): any => domains.id, { onDelete: 'set null' }),
     sortOrder: integer('sort_order').default(0),
     customFields: jsonb('custom_fields').$type<Record<string, unknown>>().default({}),

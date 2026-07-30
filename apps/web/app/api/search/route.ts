@@ -4,7 +4,7 @@
 // See AGENTS.md for full rules.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth, createErrorResponse } from '@/lib/auth';
+import { withAuth, createErrorResponse, resolveActiveDomain } from '@/lib/auth';
 import { searchEntities } from '@/lib/search-service';
 
 // GET /api/search?q=&type=&domain=&limit=&offset=
@@ -13,7 +13,11 @@ export const GET = withAuth(async (request: NextRequest, user) => {
   const { searchParams } = new URL(request.url);
   const q = (searchParams.get('q') || '').trim();
   const types = searchParams.get('types')?.split(',').filter(Boolean) || ['task', 'note', 'project', 'habit', 'domain'];
-  const domain = searchParams.get('domain') || undefined;
+  let domain = searchParams.get('domain') || undefined;
+  if (!domain) {
+    const active = await resolveActiveDomain(user);
+    domain = active.id;
+  }
   const limit = Math.max(1, Math.min(50, parseInt(searchParams.get('limit') || '20')));
   const offset = Math.max(0, parseInt(searchParams.get('offset') || '0'));
 

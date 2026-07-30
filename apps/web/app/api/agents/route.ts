@@ -4,7 +4,7 @@
 // See AGENTS.md for full rules.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth, createErrorResponse } from '@/lib/auth';
+import { withAuth, createErrorResponse, resolveActiveDomain } from '@/lib/auth';
 import { createPocketBaseClient } from '@/lib/pocketbase';
 import { createAgentSchema } from '@project-e/shared';
 import { z } from 'zod';
@@ -33,10 +33,13 @@ export const GET = withAuth(async (request: NextRequest, _user) => {
 });
 
 // POST /api/agents — Create an agent with auto-generated API key
-export const POST = withAuth(async (request: NextRequest, _user) => {
+export const POST = withAuth(async (request: NextRequest, user) => {
   try {
     const body = await request.json();
-    const data = createAgentSchema.parse(body);
+    const data = createAgentSchema.parse({
+      ...body,
+      domain: body.domain || (await resolveActiveDomain(user)).id,
+    });
 
     const pb = createPocketBaseClient();
     const agent = await pb.collection('agents').create({

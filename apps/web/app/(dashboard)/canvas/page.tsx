@@ -399,7 +399,6 @@ export default function CanvasPage() {
         body: JSON.stringify({
           name: 'New canvas',
           mode: 'freeform',
-          domain: 'personal',
         }),
       });
       if (!res.ok) throw new Error('Unable to create canvas.');

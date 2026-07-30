@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './auth-config';
 import { db, domains } from '@project-e/db';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 
 export interface AuthUser {
   id: string;
@@ -54,6 +54,34 @@ export async function requireWorkspaceAccess(workspaceId: string): Promise<void>
   if (!domain) {
     throw new AuthError('Workspace not found', 404, 'NOT_FOUND');
   }
+}
+
+/**
+ * Resolve the user's active workspace/domain. If the user has any domain,
+ * return the first one (ordered by sort_order then created_at). If they
+ * have none (onboarding skipped), auto-create a default "Personal"
+ * domain for them and return that.
+ *
+ * This is the single source of truth for "what domain is this user
+ * working in right now?" -- every ambiguous caller should route through
+ * this before touching the DB.
+ */
+export async function resolveActiveDomain(user: { id: string; email: string; name?: string | null }): Promise<{ id: string; name: string; created: boolean }> {
+  const [existing] = await db
+    .select({ id: domains.id, name: domains.name })
+    .from(domains)
+    .where(eq(domains.ownerId, user.id))
+    .orderBy(asc(domains.sortOrder), asc(domains.createdAt))
+    .limit(1);
+  if (existing) return { ...existing, created: false };
+  const slug = 'personal-' + user.id.slice(0, 8);
+  const [created] = await db.insert(domains).values({
+    ownerId: user.id,
+    name: 'Personal',
+    slug: slug,
+    sortOrder: 0,
+  }).returning({ id: domains.id, name: domains.name });
+  return { ...created, created: true };
 }
 
 /**
