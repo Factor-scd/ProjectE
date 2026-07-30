@@ -14,7 +14,7 @@ export const projectSettingsSchema = z.object({
   pomodoro_focus_minutes: z.number().int().positive().default(25),
   pomodoro_break_minutes: z.number().int().positive().default(5),
   notifications_enabled: z.boolean().default(true),
-  custom_fields: z.record(z.unknown()).optional(),
+  custom_fields: z.record(z.string(), z.unknown()).optional(),
 });
 
 // ── Project Schema ───────────────────────────────────────────────────────────
@@ -33,7 +33,7 @@ export const projectSchema = z.object({
   target_date: z.string().datetime().optional(),
   completed_at: z.string().datetime().optional(),
   settings: projectSettingsSchema.optional(),
-  custom_fields: z.record(z.unknown()).optional(),
+  custom_fields: z.record(z.string(), z.unknown()).optional(),
   created: z.string().datetime(),
   updated: z.string().datetime(),
 });

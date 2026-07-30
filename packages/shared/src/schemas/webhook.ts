@@ -6,7 +6,7 @@ export const webhookDeliverySchema = z.object({
   id: z.string(),
   webhook_id: z.string(),
   event: z.string(),
-  payload: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
   status: z.enum(['success', 'failed', 'pending']).default('pending'),
   status_code: z.number().int().optional(),
   response_body: z.string().optional(),
@@ -30,7 +30,7 @@ export const webhookSchema = z.object({
   headers: z.record(z.string()).optional(),
   retry_count: z.number().int().nonnegative().default(3),
   last_triggered_at: z.string().datetime().optional(),
-  custom_fields: z.record(z.unknown()).optional(),
+  custom_fields: z.record(z.string(), z.unknown()).optional(),
   created: z.string().datetime(),
   updated: z.string().datetime(),
 });

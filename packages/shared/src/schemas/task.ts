@@ -47,7 +47,7 @@ export const taskSchema = z.object({
   attachments: z.array(attachmentSchema).default([]),
   dependencies: z.array(z.string()).default([]),
   subtasks: z.array(subtaskSchema).default([]),
-  custom_fields: z.record(z.unknown()).optional(),
+  custom_fields: z.record(z.string(), z.unknown()).optional(),
   completed_at: z.string().datetime().optional(),
   created: z.string().datetime(),
   updated: z.string().datetime(),
