@@ -25,6 +25,8 @@ import { HabitEditDialog } from "@/components/habits/habit-edit-dialog";
 import { HabitCompletionDialog } from "@/components/habits/habit-completion-dialog";
 import { HabitCalendarHeatmap } from "@/components/habits/habit-calendar-heatmap";
 import { HabitAnalytics } from "@/components/habits/habit-analytics";
+import { CreateItemDialog } from "@/components/create-item-dialog";
+import { useCreateDialogStore } from "@/lib/stores/use-create-dialog-store";
 import { toast } from "sonner";
 
 interface Habit {
@@ -54,6 +56,7 @@ export default function HabitsPage() {
   const [domainId, setDomainId] = useState<string | null>(null);
   const [domains, setDomains] = useState<{ id: string; name: string }[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+  const { open: storeOpen, openCreate, closeCreate } = useCreateDialogStore();
   const [editHabit, setEditHabit] = useState<Habit | null>(null);
   const [completionHabit, setCompletionHabit] = useState<Habit | null>(null);
   const [deleteHabit, setDeleteHabit] = useState<Habit | null>(null);
@@ -154,7 +157,7 @@ export default function HabitsPage() {
               Active
             </button>
           </div>
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={() => { setCreateOpen(true); openCreate('habit'); }}>
             <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
             New habit
           </Button>
@@ -255,8 +258,16 @@ export default function HabitsPage() {
 
       <HabitCreateDialog
         open={createOpen}
-        onOpenChange={setCreateOpen}
+        onOpenChange={(o) => { setCreateOpen(o); if (!o) closeCreate(); }}
         domainId={domainId || ''}
+        onCreated={fetchHabits}
+      />
+
+      {/* Global CreateItemDialog from useCreateDialogStore — opened by topbar 'New habit' button */}
+      <CreateItemDialog
+        type="habit"
+        open={storeOpen}
+        onOpenChange={(o) => { if (!o) closeCreate(); else openCreate('habit'); }}
         onCreated={fetchHabits}
       />
 
