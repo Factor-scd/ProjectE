@@ -15,6 +15,7 @@ export function QuickCaptureWidget() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    e.stopPropagation();
     if (!title.trim()) return;
 
     setSubmitting(true);
@@ -67,7 +68,7 @@ export function QuickCaptureWidget() {
             placeholder="Quick add..."
             className="flex-1"
           />
-          <Button type="button" size="icon" disabled={submitting || !title.trim()} onClick={handleSubmit}>
+          <Button type="button" size="icon" disabled={submitting || !title.trim()} onClick={(e) => { e.stopPropagation(); handleSubmit(e); }}>
             <Send className="h-4 w-4" />
           </Button>
         </form>
