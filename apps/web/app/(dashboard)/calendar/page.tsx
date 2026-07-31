@@ -401,7 +401,7 @@ export default function CalendarPage() {
                   </div>
                 }
               >
-                <BigCalendar
+                <BigCalendar key={view}
                   events={filteredEvents}
                   onEventDrop={handleEventDrop}
                   defaultView={view}

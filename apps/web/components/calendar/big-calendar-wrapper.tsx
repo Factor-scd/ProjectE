@@ -121,6 +121,7 @@ export function BigCalendarWrapper({
 
   return (
     <DragAndDropCalendar
+      key={defaultView}
       localizer={localizer}
       events={events}
       startAccessor="start"
@@ -129,7 +130,7 @@ export function BigCalendarWrapper({
       eventPropGetter={eventStyleGetter}
       onSelectEvent={handleSelectEvent}
       views={['month', 'week', 'day']}
-      view={defaultView}
+      defaultView={defaultView}
       date={date}
       onNavigate={handleNavigate}
       onView={handleViewChange}
