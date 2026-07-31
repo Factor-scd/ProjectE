@@ -40,12 +40,12 @@ interface CalendarEvent {
 }
 
 interface BigCalendarWrapperProps {
-  onViewChange?: (view: string) => void;
   events: CalendarEvent[];
   onEventDrop?: (event: CalendarEvent, newStart: Date) => void;
   defaultView?: string;
   date?: Date;
   onNavigate?: (date: Date) => void;
+  onViewChange?: (view: string) => void;
 }
 
 function eventStyleGetter(event: CalendarEvent) {
@@ -77,9 +77,6 @@ export function BigCalendarWrapper({
 }: BigCalendarWrapperProps) {
   const router = useRouter();
 
-
-
-
   const handleSelectEvent = useCallback(
     (event: CalendarEvent) => {
       router.push(event.href);
@@ -105,7 +102,6 @@ export function BigCalendarWrapper({
 
   const handleViewChange = useCallback(
     (newView: string) => {
-
       if (onViewChange) onViewChange(newView);
     },
     [onViewChange]
@@ -123,21 +119,13 @@ export function BigCalendarWrapper({
     return d;
   }, []);
 
-  const handleViewChange = useCallback(
-    (newView: string) => {
-      if (onViewChange) onViewChange(newView);
-    },
-    [onViewChange]
-  );
-
   return (
-
     <DragAndDropCalendar
       key={defaultView}
       localizer={localizer}
       events={events}
-      startAccessor="start"
-      endAccessor="end"
+      startAccessor=start
+      endAccessor=end
       style={{ height: 600 }}
       eventPropGetter={eventStyleGetter}
       onSelectEvent={handleSelectEvent}
