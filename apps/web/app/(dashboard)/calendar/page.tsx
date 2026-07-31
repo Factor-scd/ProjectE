@@ -394,7 +394,7 @@ export default function CalendarPage() {
                 </Button>
               </div>
             ) : (
-              <Suspense key={view}
+              <Suspense
                 fallback={
                   <div className="flex h-[600px] items-center justify-center rounded-lg border bg-muted/30">
                     <div className="animate-pulse text-sm text-muted-foreground">Loading calendar...</div>

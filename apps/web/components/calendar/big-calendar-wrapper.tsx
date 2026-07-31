@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState, useEffect } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Calendar, dateFnsLocalizer, Views } from 'react-big-calendar';
 import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
@@ -76,11 +76,9 @@ export function BigCalendarWrapper({
   onViewChange,
 }: BigCalendarWrapperProps) {
   const router = useRouter();
-  const [currentView, setCurrentView] = useState(defaultView);
 
-  useEffect(() => {
-    setCurrentView(defaultView);
-  }, [defaultView]);
+
+
 
   const handleSelectEvent = useCallback(
     (event: CalendarEvent) => {
@@ -107,7 +105,7 @@ export function BigCalendarWrapper({
 
   const handleViewChange = useCallback(
     (newView: string) => {
-      setCurrentView(newView);
+
       if (onViewChange) onViewChange(newView);
     },
     [onViewChange]
@@ -127,6 +125,7 @@ export function BigCalendarWrapper({
 
   return (
     <DragAndDropCalendar
+      key={defaultView}
       localizer={localizer}
       events={events}
       startAccessor="start"
@@ -135,7 +134,7 @@ export function BigCalendarWrapper({
       eventPropGetter={eventStyleGetter}
       onSelectEvent={handleSelectEvent}
       views={['month', 'week', 'day']}
-      view={currentView}
+      view={defaultView}
       date={date}
       onNavigate={handleNavigate}
       onView={handleViewChange}
