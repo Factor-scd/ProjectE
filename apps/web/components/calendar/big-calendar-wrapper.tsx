@@ -40,12 +40,12 @@ interface CalendarEvent {
 }
 
 interface BigCalendarWrapperProps {
+  onViewChange?: (view: string) => void;
   events: CalendarEvent[];
   onEventDrop?: (event: CalendarEvent, newStart: Date) => void;
   defaultView?: string;
   date?: Date;
   onNavigate?: (date: Date) => void;
-  onViewChange?: (view: string) => void;
 }
 
 function eventStyleGetter(event: CalendarEvent) {
@@ -123,7 +123,15 @@ export function BigCalendarWrapper({
     return d;
   }, []);
 
+  const handleViewChange = useCallback(
+    (newView: string) => {
+      if (onViewChange) onViewChange(newView);
+    },
+    [onViewChange]
+  );
+
   return (
+
     <DragAndDropCalendar
       key={defaultView}
       localizer={localizer}
@@ -135,9 +143,9 @@ export function BigCalendarWrapper({
       onSelectEvent={handleSelectEvent}
       views={['month', 'week', 'day']}
       view={defaultView}
+      onView={handleViewChange}
       date={date}
       onNavigate={handleNavigate}
-      onView={handleViewChange}
       popup
       onEventDrop={handleEventDrop}
       resizable
