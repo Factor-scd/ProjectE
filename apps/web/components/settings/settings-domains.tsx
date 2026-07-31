@@ -203,7 +203,7 @@ export function SettingsDomains() {
         </div>
 
         {/* Add new domain */}
-        <div className="flex gap-2">
+        <div className="relative z-50 flex gap-2">
           <label htmlFor="new-domain-name" className="sr-only">
             New domain name
           </label>
@@ -226,7 +226,7 @@ export function SettingsDomains() {
               disabled={creating}
             />
           </div>
-          <Button onClick={addDomain} disabled={creating || !newDomainName.trim()}>
+          <Button type="button" onClick={(e) => { e.stopPropagation(); addDomain(); }} disabled={creating || !newDomainName.trim()}>
             <Plus className="mr-1 h-4 w-4" />
             {creating ? 'Adding...' : 'Add'}
           </Button>

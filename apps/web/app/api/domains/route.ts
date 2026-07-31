@@ -11,7 +11,7 @@ import { z } from 'zod';
 
 const createDomainSchema = z.object({
   name: z.string().min(1, 'Name is required'),
-  slug: z.string().min(1, 'Slug is required'),
+  slug: z.string().min(1).optional(),
   color: z.string().optional().nullable(),
   icon: z.string().optional().nullable(),
   parentId: z.string().uuid().optional().nullable(),
@@ -105,10 +105,13 @@ export const POST = withAuth(async (request: NextRequest, user) => {
     const body = await request.json();
     const data = createDomainSchema.parse(body);
 
+    // Auto-generate slug from name if not provided
+    const slug = data.slug || data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'domain';
+
     const [domain] = await db.insert(domains)
       .values({
         name: data.name,
-        slug: data.slug,
+        slug,
         color: data.color || null,
         icon: data.icon || null,
         parentId: data.parentId || null,
