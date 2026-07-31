@@ -27,7 +27,7 @@ export const webhookSchema = z.object({
   secret: z.string().optional(),
   active: z.boolean().default(true),
   domain: z.string(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   retry_count: z.number().int().nonnegative().default(3),
   last_triggered_at: z.string().datetime().optional(),
   custom_fields: z.record(z.string(), z.unknown()).optional(),
