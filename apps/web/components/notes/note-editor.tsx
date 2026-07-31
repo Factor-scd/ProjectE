@@ -128,7 +128,7 @@ export function NoteEditor({ content, onChange, onBlur }: NoteEditorProps) {
 
       {/* Editor content */}
       <div className="flex-1 overflow-auto">
-        <EditorContent editor={editor} className="tiptap-editor min-h-[400px]" />
+        <EditorContent editor={editor} className="tiptap-editor min-h-[400px]" tabIndex={0} />
       </div>
     </div>
   );

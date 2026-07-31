@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import {
   Table,
@@ -177,6 +177,7 @@ export function TasksListView({
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const lastErrorRef = useRef<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -249,9 +250,22 @@ export function TasksListView({
         setOffset(0);
       }
       setTotalCount(data.totalItems || 0);
+      // Successful fetch — reset the dedup tracker so the next error
+      // class toasts fresh instead of being suppressed.
+      lastErrorRef.current = null;
     } catch (error) {
       console.error('Failed to fetch tasks:', error);
-      toast.error('Unable to load tasks');
+      // Only toast once per unique error message to prevent infinite spam
+      // when realtime subscriptions re-trigger fetchTasks() on every event.
+      const message = error instanceof Error ? error.message : 'Unable to load tasks';
+      if (message !== lastErrorRef.current) {
+        lastErrorRef.current = message;
+        if (message.includes('429') || message.toLowerCase().includes('rate')) {
+          toast.error('Rate limited — slowing down');
+        } else {
+          toast.error('Unable to load tasks');
+        }
+      }
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -286,13 +300,26 @@ export function TasksListView({
   // Subscribe to realtime updates
   useEffect(() => {
     if (!domainId) return;
-    const unsubscribe = subscribe(['task'], (event: any) => {
-      if (event.type === 'task') {
+    // Debounce realtime-triggered refetches so a burst of events does
+    // not cause a flood of fetchTasks() calls + toasts.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedRefetch = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
         fetchTasks();
         onRefresh?.();
+      }, 750);
+    };
+    debouncedRefetch.cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    const unsubscribe = subscribe(['task'], (event: any) => {
+      if (event.type === 'task') {
+        debouncedRefetch();
       }
     });
-    return unsubscribe;
+    return () => {
+      debouncedRefetch.cancel();
+      unsubscribe;
+    };
   }, [domainId, subscribe, fetchTasks, onRefresh]);
 
   // Clear selection when tasks change
