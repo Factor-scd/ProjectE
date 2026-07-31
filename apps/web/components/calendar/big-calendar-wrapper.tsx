@@ -124,8 +124,8 @@ export function BigCalendarWrapper({
       key={defaultView}
       localizer={localizer}
       events={events}
-      startAccessor=start
-      endAccessor=end
+      startAccessor="start"
+      endAccessor="end"
       style={{ height: 600 }}
       eventPropGetter={eventStyleGetter}
       onSelectEvent={handleSelectEvent}
