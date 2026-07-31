@@ -129,7 +129,7 @@ export function BigCalendarWrapper({
       eventPropGetter={eventStyleGetter}
       onSelectEvent={handleSelectEvent}
       views={['month', 'week', 'day']}
-      defaultView={defaultView}
+      view={defaultView}
       date={date}
       onNavigate={handleNavigate}
       onView={handleViewChange}

@@ -6,13 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 
 export function QuickCaptureWidget() {
   const [type, setType] = useState('task');
   const [title, setTitle] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -20,34 +19,22 @@ export function QuickCaptureWidget() {
 
     setSubmitting(true);
     try {
-      const endpoint = type === 'task' ? '/api/tasks'
-        : type === 'habit' ? '/api/habits'
-        : '/api/notes';
-
-      const body: Record<string, unknown> = { title: title.trim() };
-      if (type === 'task') {
-        body.status = 'todo';
-        body.priority = 'medium';
-      }
-      if (type === 'habit') {
-        body.name = title.trim();
-        delete body.title;
-        body.frequency = 'daily';
-        body.difficulty = 'medium';
-      }
-
-      const res = await fetch(endpoint, {
+      const res = await fetch('/api/quick-capture', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ type, text: title.trim() }),
       });
 
       if (res.ok) {
         setTitle('');
-        router.refresh();
+        toast.success(type.charAt(0).toUpperCase() + type.slice(1) + ' created');
+      } else {
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+        toast.error(err.error || 'Failed to create');
       }
     } catch (err) {
       console.error('Quick capture failed:', err);
+      toast.error('Failed to create');
     } finally {
       setSubmitting(false);
     }
@@ -71,6 +58,7 @@ export function QuickCaptureWidget() {
               <SelectItem value="task">Task</SelectItem>
               <SelectItem value="habit">Habit</SelectItem>
               <SelectItem value="note">Note</SelectItem>
+              <SelectItem value="project">Project</SelectItem>
             </SelectContent>
           </Select>
           <Input
@@ -79,7 +67,7 @@ export function QuickCaptureWidget() {
             placeholder="Quick add..."
             className="flex-1"
           />
-          <Button type="submit" size="icon" disabled={submitting || !title.trim()}>
+          <Button type="button" size="icon" disabled={submitting || !title.trim()} onClick={handleSubmit}>
             <Send className="h-4 w-4" />
           </Button>
         </form>

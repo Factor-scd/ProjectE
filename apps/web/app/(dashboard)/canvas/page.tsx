@@ -58,6 +58,7 @@ interface Canvas {
 
 function CanvasBoard({ canvas, onBack }: { canvas: Canvas; onBack: () => void }) {
   const [cards, setCards] = useState<CanvasCard[]>(canvas.cards || []);
+  const [connections] = useState<CanvasConnection[]>(canvas.connections || []);
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [viewport, setViewport] = useState(canvas.viewport || { x: 0, y: 0, zoom: 1 });
@@ -252,7 +253,7 @@ function CanvasBoard({ canvas, onBack }: { canvas: Canvas; onBack: () => void })
         >
           {/* Connections */}
           <svg className="pointer-events-none absolute inset-0" style={{ width: 4000, height: 4000 }}>
-            {canvas.connections.map((conn) => {
+            {connections.map((conn) => {
               const source = cards.find((c) => c.id === conn.source_card_id);
               const target = cards.find((c) => c.id === conn.target_card_id);
               if (!source || !target) return null;
