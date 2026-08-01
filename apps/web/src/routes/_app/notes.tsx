@@ -80,7 +80,7 @@ const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { 
 function NotesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const selectedNoteIdRef = useRef<string | null>(null);
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [showBacklinks, setShowBacklinks] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const selectedNoteRef = useRef<Note | null>(null);
@@ -99,7 +99,7 @@ function NotesPage() {
     onSuccess: (note) => {
       queryClient.invalidateQueries({ queryKey: ["notes"] });
       selectedNoteRef.current = note;
-      selectedNoteIdRef.current = note.id;
+      setSelectedNoteId(note.id);
     },
   });
 
@@ -113,7 +113,7 @@ function NotesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notes"] });
       selectedNoteRef.current = null;
-      selectedNoteIdRef.current = null;
+      setSelectedNoteId(null);
     },
   });
 
@@ -124,7 +124,7 @@ function NotesPage() {
     } catch {
       selectedNoteRef.current = note;
     }
-    selectedNoteIdRef.current = note.id;
+    setSelectedNoteId(note.id);
     setShowBacklinks(false);
     setShowVersions(false);
   };
@@ -159,7 +159,7 @@ function NotesPage() {
                   onClick={() => selectNote(note)}
                   className={cn(
                     "w-full text-left px-3 py-2 rounded-md text-sm transition-colors",
-                    selectedNoteIdRef.current === note.id ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                    selectedNoteId === note.id ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
                   )}
                 >
                   <div className="flex items-center gap-2">
