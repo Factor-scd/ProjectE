@@ -17,20 +17,20 @@ import { cn } from "@/lib/utils";
 import type { Note, PaginatedResponse } from "@/lib/types";
 
 // Simple TipTap-like editor using contentEditable
-const NoteEditor = memo(function NoteEditor({ content, onChange, placeholder = "Start writing..." }: { content: string; onChange: (html: string) => void; placeholder?: string }) {
+const NoteEditor = memo(function NoteEditor({ initialContent, onSave, placeholder = "Start writing..." }: { initialContent: string; onSave: (html: string) => void; placeholder?: string }) {
   const editorRef = useRef<HTMLDivElement>(null);
-  const [isPlaceholder, setIsPlaceholder] = useState(!content);
+  const [isPlaceholder, setIsPlaceholder] = useState(!initialContent);
 
   useEffect(() => {
-    if (editorRef.current && !editorRef.current.innerHTML) {
-      editorRef.current.innerHTML = content || "";
+    if (editorRef.current) {
+      editorRef.current.innerHTML = initialContent || "";
     }
-  }, [content]);
+    setIsPlaceholder(!initialContent);
+  }, [initialContent]);
 
-  const handleInput = () => {
+  const handleBlur = () => {
     const html = editorRef.current?.innerHTML || "";
-    setIsPlaceholder(!html || html === "<br>");
-    onChange(html);
+    onSave(html);
   };
 
   return (
@@ -41,9 +41,9 @@ const NoteEditor = memo(function NoteEditor({ content, onChange, placeholder = "
       <div
         ref={editorRef}
         contentEditable
-        className="prose prose-sm dark:prose-invert max-w-none p-3 focus:outline-none min-h-[300px]"
-        onInput={handleInput}
         suppressContentEditableWarning
+        className="prose prose-sm dark:prose-invert max-w-none p-3 focus:outline-none min-h-[300px]"
+        onBlur={handleBlur}
       />
     </div>
   );
@@ -235,7 +235,7 @@ function NotesPage() {
               </div>
             </div>
             <div className="flex-1 overflow-auto">
-              <NoteEditor content={editorContent} onChange={handleContentChange} />
+              <NoteEditor initialContent={editorContent} onSave={handleContentChange} />
             </div>
             {/* Backlinks section */}
             {showBacklinks && selectedNote.backlinks && selectedNote.backlinks.length > 0 && (
