@@ -35,3 +35,28 @@
 5. Reference `.migration-baseline-schema.sql` for the DB schema the new API must preserve
 6. Use `bun` (v1.3.14) for all package management and runtime
 7. Keep `db` and `worker` containers running
+
+## T1 — Phase 1 Scaffold (completed)
+
+### Legacy code moved
+- Old Next.js `apps/web/` → `apps/web-legacy/` (preserved for T2-T8 reference)
+
+### New apps created
+| App | Path | Tech | Port |
+|-----|------|------|------|
+| SPA | `apps/web/` | Vite 5 + React 19 + TanStack Router/Query + shadcn/ui | :3000 (dev) |
+| API | `apps/api/` | Hono 4 + Bun | :3001 |
+| Worker | `apps/worker/` | Bun + Drizzle | — |
+
+### Shared infrastructure
+- `db/client.ts` — shared Drizzle client (postgres-js driver)
+- `db/` — root-level directory (shared by api + worker)
+- `bunfig.toml` — Bun package manager config
+- Root `package.json` — Bun workspaces monorepo (`apps/*`, `packages/*`)
+
+### Docker
+- `Dockerfile.api` — Bun base, copies apps/api + db + packages
+- `Dockerfile.worker` — Bun base, copies apps/worker + db + packages
+- `Dockerfile.spa` — Multi-stage: Bun build → Caddy serve
+- `Caddyfile` — Serves dist on :80, reverse-proxies /api/* and /mcp to api:3000
+- `docker-compose.yml` — 4 services: db, api, spa, worker (old web service removed)

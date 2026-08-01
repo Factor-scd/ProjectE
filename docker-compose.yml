@@ -1,39 +1,4 @@
 services:
-  web:
-    build:
-      context: .
-      dockerfile: Dockerfile.web
-    container_name: project-e-web
-    # For Nginx Proxy Manager: Don't expose ports directly
-    # NPM will connect via Docker network using container name
-    # Only uncomment ports if you need direct access for debugging
-    ports:
-        - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgresql://project_e:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/project_e
-      - NEXTAUTH_URL=${PUBLIC_URL:-http://localhost:3000}
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?Set NEXTAUTH_SECRET}
-      - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL:?Set INITIAL_ADMIN_EMAIL}
-      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:?Set INITIAL_ADMIN_PASSWORD}
-      - PUBLIC_URL=${PUBLIC_URL:-http://localhost:3000}
-      - COOKIE_SECURE=${COOKIE_SECURE:-false}
-      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost}
-    volumes:
-      - project-e-web-uploads:/tmp/uploads
-    networks:
-      - project-e-network
-    depends_on:
-      db:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    restart: unless-stopped
-
   db:
     image: postgres:16-alpine
     container_name: project-e-db
@@ -53,6 +18,38 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: project-e-api
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://project_e:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/project_e
+      - AUTH_SECRET=${AUTH_SECRET:-stub-secret}
+    networks:
+      - project-e-network
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  spa:
+    build:
+      context: .
+      dockerfile: Dockerfile.spa
+    container_name: project-e-spa
+    ports:
+      - "3000:80"
+    networks:
+      - project-e-network
+    depends_on:
+      - api
     restart: unless-stopped
 
   worker:
@@ -76,4 +73,3 @@ networks:
 
 volumes:
   project-e-pg-data:
-  project-e-web-uploads:

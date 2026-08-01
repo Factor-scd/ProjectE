@@ -1,0 +1,15 @@
+# Build stage
+FROM oven/bun:1.3 AS builder
+WORKDIR /app
+
+COPY package.json bunfig.toml ./
+COPY apps/web/package.json apps/web/
+RUN bun install --frozen-lockfile 2>/dev/null || bun install
+
+COPY apps/web ./apps/web
+RUN cd apps/web && bun run build
+
+# Serve stage
+FROM caddy:alpine
+COPY --from=builder /app/apps/web/dist /usr/share/caddy
+COPY Caddyfile /etc/caddy/Caddyfile

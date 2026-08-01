@@ -1,0 +1,21 @@
+{
+  "name": "@project-e/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@project-e/db": "^0.1.0",
+    "hono": "^4.6.0",
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "typescript": "^5.9.3"
+  }
+}
