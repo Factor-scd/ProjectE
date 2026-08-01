@@ -49,7 +49,7 @@ calendarRoutes.get("/events", async (c) => {
 
     const conditions: any[] = [eq(calendarEvents.domainId, domainId)];
     if (from) conditions.push(gte(calendarEvents.startTime, new Date(from)));
-    if (to) conditions.push(lte(calendarEvents.endTime, new Date(to)));
+    if (to) conditions.push(lte(calendarEvents.startTime, new Date(to)));
 
     const items = await db.select()
       .from(calendarEvents)
