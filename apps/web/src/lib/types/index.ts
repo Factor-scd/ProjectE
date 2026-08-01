@@ -173,3 +173,180 @@ export interface RealtimeEvent {
   id: string;
   workspace_id?: string;
 }
+
+// Dashboard
+export interface DashboardWidget {
+  id: string;
+  userId: string;
+  type: string;
+  title: string | null;
+  config: Record<string, unknown>;
+  layout: { x: number; y: number; w: number; h: number };
+  domainId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Settings entities
+export interface Domain {
+  id: string;
+  name: string;
+  slug: string;
+  color: string | null;
+  icon: string | null;
+  parentId: string | null;
+  ownerId: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CustomField {
+  id: string;
+  name: string;
+  type: string;
+  entityType: string;
+  domainId: string;
+  required: boolean;
+  options: string[];
+  defaultValue: unknown;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Webhook {
+  id: string;
+  name: string;
+  url: string;
+  events: string[];
+  secret: string | null;
+  active: boolean;
+  workspaceId: string;
+  headers: Record<string, string> | null;
+  retryCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  webhookId: string;
+  event: string;
+  payload: unknown;
+  status: string;
+  responseCode: number | null;
+  responseBody: string | null;
+  createdAt: string;
+}
+
+export interface ErrorLog {
+  id: string;
+  level: string;
+  message: string;
+  stack: string | null;
+  context: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  description: string | null;
+  status: "active" | "disabled";
+  permissionTier: "full_access" | "read_only" | "content_creator" | "task_manager" | "custom";
+  customPermissions: string[];
+  domainId: string;
+  tags: string[];
+  config: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentActivity {
+  id: string;
+  agentId: string;
+  action: string;
+  description: string;
+  entityType: string;
+  entityId: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+// Canvas
+export interface Canvas {
+  id: string;
+  name: string;
+  description: string | null;
+  mode: "freeform" | "graph";
+  domainId: string;
+  tags: string[];
+  viewport: { x: number; y: number; zoom: number };
+  background: string | null;
+  customFields: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  cards?: CanvasCard[];
+  connections?: CanvasConnection[];
+}
+
+export interface CanvasCard {
+  id: string;
+  canvasId: string;
+  type: string;
+  content: string;
+  position: { x: number; y: number };
+  size: { w: number; h: number };
+  zIndex: number;
+  color: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CanvasConnection {
+  id: string;
+  canvasId: string;
+  sourceCardId: string;
+  targetCardId: string;
+  label: string | null;
+  color: string | null;
+}
+
+// Daily Notes
+export interface DailyNote {
+  id: string;
+  date: string;
+  content: string | null;
+  domainId: string;
+  mood: number | null;
+  energy: number | null;
+  customFields: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Analytics
+export interface ProductivityData {
+  taskCompletionRate: number;
+  totalTasks: number;
+  completedTasks: number;
+  period: number;
+}
+
+export interface HabitAnalytics {
+  habitConsistency: number;
+  totalHabits: number;
+  totalLogs: number;
+  activeStreaks: number;
+  bestStreak: number;
+  period: number;
+}
+
+export interface ProjectAnalytics {
+  taskCompletionRate: number;
+  totalTasks: number;
+  completedTasks: number;
+  period: number;
+}
+
