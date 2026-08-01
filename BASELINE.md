@@ -60,3 +60,41 @@
 - `Dockerfile.spa` — Multi-stage: Bun build → Caddy serve
 - `Caddyfile` — Serves dist on :80, reverse-proxies /api/* and /mcp to api:3000
 - `docker-compose.yml` — 4 services: db, api, spa, worker (old web service removed)
+
+## Phase 7 — Deploy (completed)
+
+**Deploy time:** 2026-08-01T02:40Z  
+**Commit:** `fc59431140329bd93223dfae3c72406d9e02646e`  
+**Branch:** `redesign/ui-v2`
+
+### Image SHAs
+| Image | SHA256 |
+|-------|--------|
+| `projecte-api` | `fc46878d1618bb3a0d6a43d645a21cad14caa1bb6eaf773e4e32579a268adc10` |
+| `projecte-spa` | `1cced4e61fb35d31df53225b3c8f5863a3d581b82ed961c13286bd5e3f940f48` |
+| `projecte-worker` | `7fc57170100f6cf6b12439835f5700383c7c4570eecf3c4ab3f06fa739d10d07` |
+
+### Compose file SHA
+`bb21417829c866048509f81881304e81b5e29430270a278e0b3a77caa68f8b1b`
+
+### Verification results
+| Check | Result |
+|-------|--------|
+| `docker compose ps` — all 4 services running, db healthy | ✅ |
+| `curl :3000/api/health` — 200 + `{"status":"ok"}` | ✅ |
+| `curl :3000/` — 200 + HTML | ✅ |
+| Login (user@example.com) — token received | ✅ |
+| `/api/domains` — 2 domains returned | ✅ |
+| `/mcp` — endpoint reachable (requires API key) | ✅ |
+| All 13 page routes return 200 | ✅ (13/13) |
+
+### Container state
+| Container | Status | Ports |
+|-----------|--------|-------|
+| `project-e-db` | Running (healthy) | :5432 |
+| `project-e-api` | Running | :3001 |
+| `project-e-spa` | Running | :3000 |
+| `project-e-worker` | Running | — |
+
+### URL
+- http://10.0.0.204:3000 — **LIVE** (SPA served by Caddy, API reverse-proxied)

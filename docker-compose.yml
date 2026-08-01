@@ -10,7 +10,6 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
     volumes:
       - project-e-pg-data:/var/lib/postgresql/data
-      - ./drizzle/0000_first_mauler.sql:/docker-entrypoint-initdb.d/0000_first_mauler.sql:ro
     networks:
       - project-e-network
     healthcheck:

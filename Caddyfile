@@ -1,11 +1,17 @@
 :80 {
     root * /usr/share/caddy
-    file_server
+    encode gzip
 
-    @api path /api/* /mcp*
-    reverse_proxy @api api:3000
+    route /api/* {
+        reverse_proxy api:3000
+    }
 
-    handle_errors {
-        respond 404 "Not Found"
+    route /mcp* {
+        reverse_proxy api:3000
+    }
+
+    route {
+        try_files {path} /index.html
+        file_server
     }
 }
