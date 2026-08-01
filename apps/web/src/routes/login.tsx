@@ -19,7 +19,7 @@ function LoginPage() {
       });
       if (!res.ok) {
         const data = await res.json();
-        setError(data.message || "Login failed");
+        setError(data.error?.message || data.message || "Login failed");
         return;
       }
       navigate({ to: "/" });
