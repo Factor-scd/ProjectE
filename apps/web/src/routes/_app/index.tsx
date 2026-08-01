@@ -205,6 +205,7 @@ function QuickCaptureWidget() {
   });
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     if (!text.trim()) return;
     if (type === "task") createTask.mutate(text.trim());
     else createNote.mutate(text.trim());
@@ -221,7 +222,7 @@ function QuickCaptureWidget() {
         </Select>
         <Input placeholder="Quick capture..." value={text} onChange={(e) => setText(e.target.value)} className="h-9" />
       </div>
-      <Button type="submit" size="sm" className="h-9" disabled={!text.trim() || createTask.isPending || createNote.isPending}>Add</Button>
+      <Button type="button" size="sm" className="h-9" disabled={!text.trim() || createTask.isPending || createNote.isPending} onClick={handleSubmit}>Add</Button>
     </form>
   );
 }

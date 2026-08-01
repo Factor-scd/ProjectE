@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, memo } from "react";
 import { createRoute } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import type { Note, PaginatedResponse } from "@/lib/types";
 
 // Simple TipTap-like editor using contentEditable
-function NoteEditor({ content, onChange, placeholder = "Start writing..." }: { content: string; onChange: (html: string) => void; placeholder?: string }) {
+const NoteEditor = memo(function NoteEditor({ content, onChange, placeholder = "Start writing..." }: { content: string; onChange: (html: string) => void; placeholder?: string }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const [isPlaceholder, setIsPlaceholder] = useState(!content);
 
@@ -47,14 +47,14 @@ function NoteEditor({ content, onChange, placeholder = "Start writing..." }: { c
       />
     </div>
   );
-}
+});
 
 function NotesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [editorContent, setEditorContent] = useState("");
-  const [saveTimer, setSaveTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showBacklinks, setShowBacklinks] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
 
@@ -104,14 +104,13 @@ function NotesPage() {
 
   const handleContentChange = useCallback((html: string) => {
     setEditorContent(html);
-    if (saveTimer) clearTimeout(saveTimer);
-    const timer = setTimeout(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
       if (selectedNote) {
         updateMutation.mutate({ id: selectedNote.id, data: { content: html } });
       }
     }, 500);
-    setSaveTimer(timer);
-  }, [selectedNote, updateMutation, saveTimer]);
+  }, [selectedNote, updateMutation]);
 
   const handleTitleChange = (title: string) => {
     if (selectedNote) {
