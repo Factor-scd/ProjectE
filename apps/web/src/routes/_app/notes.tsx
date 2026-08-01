@@ -77,6 +77,36 @@ const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { 
   );
 });
 
+// Isolated title input component - memo prevents re-render when parent re-renders
+const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { noteId: string; initialTitle: string }) {
+  const [title, setTitle] = useState(initialTitle);
+  const queryClient = useQueryClient();
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setTitle(initialTitle);
+    inputRef.current?.focus();
+  }, [noteId]);
+
+  const handleBlur = () => {
+    if (title !== initialTitle) {
+      api.patch<Note>("/notes/" + noteId, { title: title }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ["notes"] });
+      });
+    }
+  };
+
+  return (
+    <input
+      ref={inputRef}
+      value={title}
+      onChange={(e) => setTitle(e.target.value)}
+      onBlur={handleBlur}
+      className="flex h-9 w-full rounded-md border-0 bg-transparent px-0 py-1 text-lg font-semibold text-base shadow-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50"
+    />
+  );
+});
+
 function NotesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -150,7 +180,7 @@ function NotesPage() {
         <div className="p-3 border-b">
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+            <Input placeholder="Search notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" tabIndex={-1} />
           </div>
         </div>
         <div className="p-2">
