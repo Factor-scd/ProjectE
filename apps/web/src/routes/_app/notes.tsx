@@ -77,12 +77,78 @@ const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { 
   );
 });
 
+// Memoized right pane - only re-renders when note changes, not on parent re-renders
+const NoteEditorPane = memo(function NoteEditorPane({ note, onDelete }: { note: Note; onDelete: (id: string) => void }) {
+  const [showBacklinks, setShowBacklinks] = useState(false);
+  const [showVersions, setShowVersions] = useState(false);
+  const queryClient = useQueryClient();
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.patch<Note>("/notes/" + id, data),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["notes"] }); },
+  });
+
+  return (
+    <>
+      <div className="flex items-center gap-2 p-3 border-b">
+        <NoteTitleInput key={note.id} noteId={note.id} initialTitle={note.title} />
+        <div className="flex items-center gap-1 shrink-0">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowBacklinks(!showBacklinks)} aria-label="Backlinks">
+            <LinkIcon className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowVersions(!showVersions)} aria-label="Version history">
+            <History className="h-4 w-4" />
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" aria-label="Delete note">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete Note</AlertDialogTitle>
+                <AlertDialogDescription>Are you sure you want to delete "{note.title}"?</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => onDelete(note.id)} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </div>
+      <div className="flex-1 overflow-auto">
+        <NoteEditor key={note.id} initialContent={note.content || ''} onSave={(html) => { updateMutation.mutate({ id: note.id, data: { content: html } }); }} />
+      </div>
+      {/* Backlinks section */}
+      {showBacklinks && note.backlinks && note.backlinks.length > 0 && (
+        <div className="border-t p-3">
+          <h4 className="text-sm font-semibold mb-2">Linked from</h4>
+          <div className="space-y-1">
+            {note.backlinks.map((bl) => (
+              <div key={bl.noteId} className="text-sm text-muted-foreground hover:text-foreground cursor-pointer">
+                {bl.noteTitle}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {/* Version history */}
+      {showVersions && (
+        <div className="border-t p-3">
+          <h4 className="text-sm font-semibold mb-2">Version History</h4>
+          <p className="text-xs text-muted-foreground">Version history available via API.</p>
+        </div>
+      )}
+    </>
+  );
+});
+
 function NotesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
-  const [showBacklinks, setShowBacklinks] = useState(false);
-  const [showVersions, setShowVersions] = useState(false);
   const selectedNoteRef = useRef<Note | null>(null);
 
   useRealtime({ enabled: true });
@@ -103,11 +169,6 @@ function NotesPage() {
     },
   });
 
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: any }) => api.patch<Note>("/notes/" + id, data),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["notes"] }); },
-  });
-
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete("/notes/" + id),
     onSuccess: () => {
@@ -125,8 +186,6 @@ function NotesPage() {
       selectedNoteRef.current = note;
     }
     setSelectedNoteId(note.id);
-    setShowBacklinks(false);
-    setShowVersions(false);
   };
 
   const selectedNote = selectedNoteRef.current;
@@ -176,62 +235,10 @@ function NotesPage() {
         </ScrollArea>
       </div>
 
-      {/* Right pane - editor */}
+      {/* Right pane - editor (memoized, won't re-render on parent state changes) */}
       <div className="flex-1 flex flex-col">
         {selectedNote ? (
-          <>
-            <div className="flex items-center gap-2 p-3 border-b">
-              <NoteTitleInput key={selectedNote.id} noteId={selectedNote.id} initialTitle={selectedNote.title} />
-              <div className="flex items-center gap-1 shrink-0">
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowBacklinks(!showBacklinks)} aria-label="Backlinks">
-                  <LinkIcon className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowVersions(!showVersions)} aria-label="Version history">
-                  <History className="h-4 w-4" />
-                </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" aria-label="Delete note">
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Note</AlertDialogTitle>
-                      <AlertDialogDescription>Are you sure you want to delete "{selectedNote.title}"?</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => deleteMutation.mutate(selectedNote.id)} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            </div>
-            <div className="flex-1 overflow-auto">
-              <NoteEditor key={selectedNote.id} initialContent={selectedNote.content || ''} onSave={(html) => { if (selectedNoteRef.current) { updateMutation.mutate({ id: selectedNoteRef.current.id, data: { content: html } }); } }} />
-            </div>
-            {/* Backlinks section */}
-            {showBacklinks && selectedNote.backlinks && selectedNote.backlinks.length > 0 && (
-              <div className="border-t p-3">
-                <h4 className="text-sm font-semibold mb-2">Linked from</h4>
-                <div className="space-y-1">
-                  {selectedNote.backlinks.map((bl) => (
-                    <div key={bl.noteId} className="text-sm text-muted-foreground hover:text-foreground cursor-pointer">
-                      {bl.noteTitle}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {/* Version history */}
-            {showVersions && (
-              <div className="border-t p-3">
-                <h4 className="text-sm font-semibold mb-2">Version History</h4>
-                <p className="text-xs text-muted-foreground">Version history available via API.</p>
-              </div>
-            )}
-          </>
+          <NoteEditorPane key={selectedNote.id} note={selectedNote} onDelete={(id) => deleteMutation.mutate(id)} />
         ) : (
           <div className="flex items-center justify-center flex-1 text-muted-foreground">
             <div className="text-center">
