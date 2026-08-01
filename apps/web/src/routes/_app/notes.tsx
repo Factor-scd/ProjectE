@@ -50,6 +50,33 @@ const NoteEditor = memo(function NoteEditor({ initialContent, onSave, placeholde
   );
 });
 
+// Isolated title input component - memo prevents re-render when parent re-renders
+const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { noteId: string; initialTitle: string }) {
+  const [title, setTitle] = useState(initialTitle);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    setTitle(initialTitle);
+  }, [noteId]);
+
+  const handleBlur = () => {
+    if (title !== initialTitle) {
+      api.patch<Note>("/notes/" + noteId, { title: title }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ["notes"] });
+      });
+    }
+  };
+
+  return (
+    <input
+      value={title}
+      onChange={(e) => setTitle(e.target.value)}
+      onBlur={handleBlur}
+      className="flex h-9 w-full rounded-md border-0 bg-transparent px-0 py-1 text-lg font-semibold text-base shadow-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50"
+    />
+  );
+});
+
 function NotesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -166,17 +193,13 @@ function NotesPage() {
         {selectedNote ? (
           <>
             <div className="flex items-center gap-2 p-3 border-b">
-              <input
-                key={selectedNote?.id || 'none'}
-                defaultValue={selectedNote?.title || ''}
-                onBlur={(e) => {
-                  if (selectedNote && e.target.value !== selectedNote.title) {
-                    updateMutation.mutate({ id: selectedNote.id, data: { title: e.target.value } });
-                    setSelectedNote({ ...selectedNote, title: e.target.value });
-                  }
-                }}
-                className="flex h-9 w-full rounded-md border-0 bg-transparent px-0 py-1 text-lg font-semibold text-base shadow-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50"
-              />
+              {selectedNote && (
+                <NoteTitleInput
+                  key={selectedNote.id}
+                  noteId={selectedNote.id}
+                  initialTitle={selectedNote.title}
+                />
+              )}
               <div className="flex items-center gap-1 shrink-0">
                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowBacklinks(!showBacklinks)} aria-label="Backlinks">
                   <LinkIcon className="h-4 w-4" />
