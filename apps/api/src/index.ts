@@ -59,7 +59,7 @@ app.route("/api/error-log", errorLogRoutes);
 app.route("/api/analytics", analyticsRoutes);
 app.route("/api", importExportRoutes);
 app.route("/api", realtimeRoutes);
-app.route("/mcp", mcpRoutes);
+app.route("/api/mcp", mcpRoutes);
 
 const port = parseInt(process.env.PORT || "3001", 10);
 

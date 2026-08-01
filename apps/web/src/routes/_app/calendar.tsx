@@ -266,6 +266,7 @@ function CalendarPage() {
           events={calendarEvents}
           startAccessor="start"
           endAccessor="end"
+          date={date}
           view={view}
           defaultView={Views.MONTH}
           onNavigate={handleNavigate}

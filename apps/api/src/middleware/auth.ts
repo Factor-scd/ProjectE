@@ -1,8 +1,9 @@
 import { createMiddleware } from "hono/factory";
 import type { Context, Next } from "hono";
 import { jwtVerify, SignJWT } from "jose";
-import { db, users } from "@project-e/db";
-import { eq } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { db, users, apiKeys } from "@project-e/db";
+import { and, eq } from "drizzle-orm";
 
 const AUTH_SECRET = new TextEncoder().encode(process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "fallback-secret-change-me");
 const COOKIE_NAME = "session";
@@ -41,6 +42,33 @@ export async function verifyToken(token: string): Promise<{ id: string; email: s
   }
 }
 
+async function authenticateApiKey(apiKey: string): Promise<{ id: string; email: string; name: string } | null> {
+  const keyHash = createHash("sha256").update(apiKey).digest("hex");
+
+  const [keyRecord] = await db
+    .select({
+      userId: apiKeys.userId,
+      userName: users.name,
+      userEmail: users.email,
+    })
+    .from(apiKeys)
+    .innerJoin(users, eq(apiKeys.userId, users.id))
+    .where(and(eq(apiKeys.keyHash, keyHash), eq(apiKeys.active, true)))
+    .limit(1);
+
+  if (!keyRecord) return null;
+
+  await db.update(apiKeys)
+    .set({ lastUsedAt: new Date() })
+    .where(eq(apiKeys.keyHash, keyHash));
+
+  return {
+    id: keyRecord.userId,
+    email: keyRecord.userEmail,
+    name: keyRecord.userName || keyRecord.userEmail,
+  };
+}
+
 export const authMiddleware = createMiddleware(async (c: Context, next: Next) => {
   const cookieHeader = c.req.header("Cookie") || "";
   const cookies = Object.fromEntries(
@@ -48,9 +76,16 @@ export const authMiddleware = createMiddleware(async (c: Context, next: Next) =>
   );
   const token = cookies[COOKIE_NAME] || c.req.header("Authorization")?.replace("Bearer ", "");
   if (token) {
+    // Try JWT first
     const user = await verifyToken(token);
     if (user) {
       c.set("user", user);
+      return next();
+    }
+    // Fall back to API key auth
+    const apiUser = await authenticateApiKey(token);
+    if (apiUser) {
+      c.set("user", apiUser);
       return next();
     }
   }
