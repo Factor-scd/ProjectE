@@ -53,9 +53,9 @@ function NotesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
   const [editorContent, setEditorContent] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showBacklinks, setShowBacklinks] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
@@ -95,9 +95,11 @@ function NotesPage() {
     try {
       const detail = await api.get<Note>("/notes/" + note.id);
       setSelectedNote(detail);
+      setTitleDraft(detail.title);
       setEditorContent(detail.content || "");
     } catch {
       setSelectedNote(note);
+      setTitleDraft(note.title);
       setEditorContent(note.content || "");
     }
     setShowBacklinks(false);
@@ -115,12 +117,13 @@ function NotesPage() {
   }, [selectedNote, updateMutation]);
 
   const handleTitleChange = (title: string) => {
-    if (selectedNote) {
-      setSelectedNote({ ...selectedNote, title });
-      if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
-      titleTimerRef.current = setTimeout(() => {
-        updateMutation.mutate({ id: selectedNote.id, data: { title } });
-      }, 500);
+    setTitleDraft(title);
+  };
+
+  const handleTitleBlur = () => {
+    if (selectedNote && titleDraft !== selectedNote.title) {
+      updateMutation.mutate({ id: selectedNote.id, data: { title: titleDraft } });
+      setSelectedNote({ ...selectedNote, title: titleDraft });
     }
   };
 
@@ -175,8 +178,9 @@ function NotesPage() {
           <>
             <div className="flex items-center gap-2 p-3 border-b">
               <Input
-                value={selectedNote.title}
+                value={titleDraft}
                 onChange={(e) => handleTitleChange(e.target.value)}
+                onBlur={handleTitleBlur}
                 className="text-lg font-semibold border-0 focus-visible:ring-0 px-0"
               />
               <div className="flex items-center gap-1 shrink-0">
