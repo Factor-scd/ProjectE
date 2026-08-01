@@ -13,8 +13,8 @@ COPY packages/shared/package.json packages/shared/package.json
 # Install dependencies (workspace-aware)
 RUN bun install --frozen-lockfile 2>/dev/null || bun install
 
-# Copy full web app source
-COPY apps/web ./apps/web
+# Copy full web app source (exclude node_modules to avoid BuildKit cache mount conflict)
+COPY --exclude=node_modules apps/web ./apps/web
 
 # Build the SPA
 RUN cd apps/web && bun run build
