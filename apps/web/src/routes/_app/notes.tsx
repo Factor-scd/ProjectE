@@ -55,6 +55,8 @@ function NotesPage() {
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [editorContent, setEditorContent] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showBacklinks, setShowBacklinks] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
 
@@ -114,8 +116,11 @@ function NotesPage() {
 
   const handleTitleChange = (title: string) => {
     if (selectedNote) {
-      updateMutation.mutate({ id: selectedNote.id, data: { title } });
       setSelectedNote({ ...selectedNote, title });
+      if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
+      titleTimerRef.current = setTimeout(() => {
+        updateMutation.mutate({ id: selectedNote.id, data: { title } });
+      }, 500);
     }
   };
 
