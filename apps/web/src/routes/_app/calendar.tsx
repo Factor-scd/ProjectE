@@ -63,12 +63,10 @@ function EventComponent({ event }: { event: CalendarEvent }) {
 }
 
 // Custom toolbar
-function CustomToolbar({ date, onNavigate, onView, currentView, label }: any) {
+function CustomToolbar({ date, onNavigate, label }: any) {
   const goToBack = () => onNavigate(Navigate.PREVIOUS);
   const goToNext = () => onNavigate(Navigate.NEXT);
   const goToToday = () => onNavigate(Navigate.TODAY);
-
-  const viewNames = ["month", "week", "day", "agenda"];
 
   return (
     <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -83,19 +81,6 @@ function CustomToolbar({ date, onNavigate, onView, currentView, label }: any) {
           <ChevronRight className="h-4 w-4" />
         </Button>
         <span className="ml-2 text-lg font-semibold">{label}</span>
-      </div>
-      <div className="flex items-center gap-1">
-        {viewNames.map((name) => (
-          <Button
-            key={name}
-            variant={currentView === name ? "default" : "outline"}
-            size="sm"
-            onClick={() => onView(name)}
-            className="capitalize"
-          >
-            {name}
-          </Button>
-        ))}
       </div>
     </div>
   );
@@ -254,127 +239,43 @@ function CalendarPage() {
         </Dialog>
       </div>
 
+            <div className="flex items-center justify-end gap-1 mb-2">
+        {["month", "week", "day", "agenda"].map((name) => (
+          <Button
+            key={name}
+            variant={view === name ? "default" : "outline"}
+            size="sm"
+            onClick={() => setView(name)}
+            className="capitalize"
+          >
+            {name}
+          </Button>
+        ))}
+      </div>
       <div className="rbc-calendar-container" style={{ minHeight: isMobile ? 400 : 600 }}>
-        {view === "month" && (
-          <Calendar
-            localizer={localizer}
-            events={calendarEvents}
-            startAccessor="start"
-            endAccessor="end"
-            date={date}
-            view={view}
-            onNavigate={handleNavigate}
-            onSelectEvent={handleSelectEvent}
-            onSelectSlot={handleSelectSlot}
-            selectable
-            popup
-            showMultiDayTimes
-            components={{
-              event: EventComponent,
-              toolbar: (props: any) => (
-                <CustomToolbar
-                  {...props}
-                  currentView={view}
-                  onView={(newView: string) => setView(newView)}
-                />
-              ),
-            }}
-            views={["month", "week", "work_week", "day", "agenda"]}
-            step={30}
-            timeslots={2}
-            style={{ height: isMobile ? 400 : 600 }}
-          />
-        )}
-        {view === "week" && (
-          <Calendar
-            localizer={localizer}
-            events={calendarEvents}
-            startAccessor="start"
-            endAccessor="end"
-            date={date}
-            view={view}
-            onNavigate={handleNavigate}
-            onSelectEvent={handleSelectEvent}
-            onSelectSlot={handleSelectSlot}
-            selectable
-            popup
-            showMultiDayTimes
-            components={{
-              event: EventComponent,
-              toolbar: (props: any) => (
-                <CustomToolbar
-                  {...props}
-                  currentView={view}
-                  onView={(newView: string) => setView(newView)}
-                />
-              ),
-            }}
-            views={["month", "week", "work_week", "day", "agenda"]}
-            step={30}
-            timeslots={2}
-            style={{ height: isMobile ? 400 : 600 }}
-          />
-        )}
-        {view === "day" && (
-          <Calendar
-            localizer={localizer}
-            events={calendarEvents}
-            startAccessor="start"
-            endAccessor="end"
-            date={date}
-            view={view}
-            onNavigate={handleNavigate}
-            onSelectEvent={handleSelectEvent}
-            onSelectSlot={handleSelectSlot}
-            selectable
-            popup
-            showMultiDayTimes
-            components={{
-              event: EventComponent,
-              toolbar: (props: any) => (
-                <CustomToolbar
-                  {...props}
-                  currentView={view}
-                  onView={(newView: string) => setView(newView)}
-                />
-              ),
-            }}
-            views={["month", "week", "work_week", "day", "agenda"]}
-            step={30}
-            timeslots={2}
-            style={{ height: isMobile ? 400 : 600 }}
-          />
-        )}
-        {view === "agenda" && (
-          <Calendar
-            localizer={localizer}
-            events={calendarEvents}
-            startAccessor="start"
-            endAccessor="end"
-            date={date}
-            view={view}
-            onNavigate={handleNavigate}
-            onSelectEvent={handleSelectEvent}
-            onSelectSlot={handleSelectSlot}
-            selectable
-            popup
-            showMultiDayTimes
-            components={{
-              event: EventComponent,
-              toolbar: (props: any) => (
-                <CustomToolbar
-                  {...props}
-                  currentView={view}
-                  onView={(newView: string) => setView(newView)}
-                />
-              ),
-            }}
-            views={["month", "week", "work_week", "day", "agenda"]}
-            step={30}
-            timeslots={2}
-            style={{ height: isMobile ? 400 : 600 }}
-          />
-        )}
+        <Calendar
+          key={view}
+          localizer={localizer}
+          events={calendarEvents}
+          startAccessor="start"
+          endAccessor="end"
+          date={date}
+          view={view}
+          onNavigate={handleNavigate}
+          onSelectEvent={handleSelectEvent}
+          onSelectSlot={handleSelectSlot}
+          selectable
+          popup
+          showMultiDayTimes
+          components={{
+            event: EventComponent,
+            toolbar: (props: any) => <CustomToolbar {...props} />,
+          }}
+          views={["month", "week", "work_week", "day", "agenda"]}
+          step={30}
+          timeslots={2}
+          style={{ height: isMobile ? 400 : 600 }}
+        />
       </div>
 
       {/* Event detail dialog */}
