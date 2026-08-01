@@ -53,6 +53,7 @@ function NotesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
   const [editorContent, setEditorContent] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showBacklinks, setShowBacklinks] = useState(false);
@@ -93,24 +94,30 @@ function NotesPage() {
     try {
       const detail = await api.get<Note>("/notes/" + note.id);
       setSelectedNote(detail);
+      setTitleDraft(detail.title);
       setEditorContent(detail.content || "");
     } catch {
       setSelectedNote(note);
+      setTitleDraft(note.title);
       setEditorContent(note.content || "");
     }
     setShowBacklinks(false);
     setShowVersions(false);
   };
 
+  const selectedNoteRef = useRef(selectedNote);
+  selectedNoteRef.current = selectedNote;
+
   const handleContentChange = useCallback((html: string) => {
     setEditorContent(html);
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      if (selectedNote) {
-        updateMutation.mutate({ id: selectedNote.id, data: { content: html } });
+      const note = selectedNoteRef.current;
+      if (note) {
+        updateMutation.mutate({ id: note.id, data: { content: html } });
       }
     }, 500);
-  }, [selectedNote, updateMutation]);
+  }, [updateMutation]);
 
 
   return (
@@ -166,6 +173,7 @@ function NotesPage() {
               <input
                 key={selectedNote?.id || 'none'}
                 defaultValue={selectedNote?.title || ''}
+                onMouseDown={(e) => e.stopPropagation()}
                 onBlur={(e) => {
                   if (selectedNote && e.target.value !== selectedNote.title) {
                     updateMutation.mutate({ id: selectedNote.id, data: { title: e.target.value } });
