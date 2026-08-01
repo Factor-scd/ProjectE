@@ -17,7 +17,6 @@ import { cn } from "@/lib/utils";
 import type { Note, PaginatedResponse } from "@/lib/types";
 
 // Simple TipTap-like editor using contentEditable
-// Uses a key to force remount on note change instead of setting innerHTML
 const NoteEditor = memo(function NoteEditor({ initialContent, onSave, placeholder = "Start writing..." }: { initialContent: string; onSave: (html: string) => void; placeholder?: string }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const [isPlaceholder, setIsPlaceholder] = useState(!initialContent);
@@ -27,7 +26,7 @@ const NoteEditor = memo(function NoteEditor({ initialContent, onSave, placeholde
       editorRef.current.innerHTML = initialContent || "";
     }
     setIsPlaceholder(!initialContent);
-  }, []); // Only set initial content once on mount
+  }, []);
 
   const handleBlur = () => {
     const html = editorRef.current?.innerHTML || "";
@@ -50,57 +49,32 @@ const NoteEditor = memo(function NoteEditor({ initialContent, onSave, placeholde
   );
 });
 
-// Isolated title input component - memo prevents re-render when parent re-renders
+// Separate component for title input - completely uncontrolled to prevent focus stealing
 const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { noteId: string; initialTitle: string }) {
-  const [title, setTitle] = useState(initialTitle);
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    setTitle(initialTitle);
-  }, [noteId]);
-
-  const handleBlur = () => {
-    if (title !== initialTitle) {
-      api.patch<Note>("/notes/" + noteId, { title: title }).then(() => {
-        queryClient.invalidateQueries({ queryKey: ["notes"] });
-      });
-    }
-  };
-
-  return (
-    <input
-      value={title}
-      onChange={(e) => setTitle(e.target.value)}
-      onBlur={handleBlur}
-      className="flex h-9 w-full rounded-md border-0 bg-transparent px-0 py-1 text-lg font-semibold text-base shadow-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50"
-    />
-  );
-});
-
-// Isolated title input component - memo prevents re-render when parent re-renders
-const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { noteId: string; initialTitle: string }) {
-  const [title, setTitle] = useState(initialTitle);
-  const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
-    setTitle(initialTitle);
-    inputRef.current?.focus();
+    if (inputRef.current) {
+      inputRef.current.value = initialTitle;
+    }
   }, [noteId]);
 
   const handleBlur = () => {
-    if (title !== initialTitle) {
-      api.patch<Note>("/notes/" + noteId, { title: title }).then(() => {
-        queryClient.invalidateQueries({ queryKey: ["notes"] });
-      });
+    if (inputRef.current && noteId) {
+      const newTitle = inputRef.current.value;
+      if (newTitle !== initialTitle) {
+        api.patch<Note>("/notes/" + noteId, { title: newTitle }).then(() => {
+          queryClient.invalidateQueries({ queryKey: ["notes"] });
+        });
+      }
     }
   };
 
   return (
     <input
       ref={inputRef}
-      value={title}
-      onChange={(e) => setTitle(e.target.value)}
+      defaultValue={initialTitle}
       onBlur={handleBlur}
       className="flex h-9 w-full rounded-md border-0 bg-transparent px-0 py-1 text-lg font-semibold text-base shadow-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50"
     />
@@ -111,9 +85,6 @@ function NotesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
-  const [editorContent, setEditorContent] = useState("");
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const selectedNoteRef = useRef<Note | null>(null);
   const [showBacklinks, setShowBacklinks] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
 
@@ -131,7 +102,6 @@ function NotesPage() {
     onSuccess: (note) => {
       queryClient.invalidateQueries({ queryKey: ["notes"] });
       setSelectedNote(note);
-      setEditorContent("");
     },
   });
 
@@ -152,26 +122,12 @@ function NotesPage() {
     try {
       const detail = await api.get<Note>("/notes/" + note.id);
       setSelectedNote(detail);
-      selectedNoteRef.current = detail;
-      setEditorContent(detail.content || "");
     } catch {
       setSelectedNote(note);
-      selectedNoteRef.current = note;
-      setEditorContent(note.content || "");
     }
     setShowBacklinks(false);
     setShowVersions(false);
   };
-
-  const handleContentChange = useCallback((html: string) => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      const note = selectedNoteRef.current;
-      if (note) {
-        updateMutation.mutate({ id: note.id, data: { content: html } });
-      }
-    }, 500);
-  }, [updateMutation]);
 
   return (
     <div className="flex h-[calc(100vh-8rem)] -m-4 md:-m-6">
@@ -180,7 +136,7 @@ function NotesPage() {
         <div className="p-3 border-b">
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" tabIndex={-1} />
+            <Input placeholder="Search notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
           </div>
         </div>
         <div className="p-2">
@@ -223,13 +179,7 @@ function NotesPage() {
         {selectedNote ? (
           <>
             <div className="flex items-center gap-2 p-3 border-b">
-              {selectedNote && (
-                <NoteTitleInput
-                  key={selectedNote.id}
-                  noteId={selectedNote.id}
-                  initialTitle={selectedNote.title}
-                />
-              )}
+              <NoteTitleInput key={selectedNote.id} noteId={selectedNote.id} initialTitle={selectedNote.title} />
               <div className="flex items-center gap-1 shrink-0">
                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowBacklinks(!showBacklinks)} aria-label="Backlinks">
                   <LinkIcon className="h-4 w-4" />
@@ -257,7 +207,7 @@ function NotesPage() {
               </div>
             </div>
             <div className="flex-1 overflow-auto">
-              <NoteEditor key={selectedNote?.id || 'none'} initialContent={editorContent} onSave={handleContentChange} />
+              <NoteEditor key={selectedNote?.id || 'none'} initialContent={selectedNote?.content || ''} onSave={(html) => { if (selectedNote) { updateMutation.mutate({ id: selectedNote.id, data: { content: html } }); } }} />
             </div>
             {/* Backlinks section */}
             {showBacklinks && selectedNote.backlinks && selectedNote.backlinks.length > 0 && (
