@@ -198,7 +198,7 @@ function NotesPage() {
         <div className="p-3 border-b">
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" tabIndex={-1} />
+            <Input placeholder="Search notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" tabIndex={-1} onMouseDown={(e) => e.preventDefault()} />
           </div>
         </div>
         <div className="p-2">
