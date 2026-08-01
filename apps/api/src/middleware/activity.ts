@@ -22,5 +22,5 @@ export async function recordActivity(params: RecordActivityParams): Promise<void
   });
 
   const payload = JSON.stringify({ type: entityType, action, id: entityId, workspace_id: workspaceId });
-  await sql`SELECT pg_notify(project_e_events, ${payload}::text)`;
+  await sql`SELECT pg_notify('project_e_events', ${payload}::text)`;
 }

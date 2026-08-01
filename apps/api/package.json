@@ -10,11 +10,12 @@
   },
   "dependencies": {
     "@project-e/db": "^0.1.0",
-    "hono": "^4.6.0",
-    "drizzle-orm": "^0.45.2",
-    "postgres": "^3.4.9",
     "bcryptjs": "^2.4.3",
-    "jose": "^5.9.6"
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.6.0",
+    "jose": "^5.9.6",
+    "postgres": "^3.4.9",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.19.0",

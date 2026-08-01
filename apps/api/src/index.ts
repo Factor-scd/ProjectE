@@ -6,6 +6,10 @@ import { authRoutes } from "./routes/auth";
 import { mcpRoutes } from "./routes/mcp";
 import { realtimeRoutes } from "./routes/realtime";
 import { domainRoutes } from "./routes/domains";
+import { taskRoutes } from "./routes/tasks";
+import { habitRoutes } from "./routes/habits";
+import { projectRoutes } from "./routes/projects";
+import { noteRoutes } from "./routes/notes";
 import { healthHandler } from "./routes/health";
 
 const app = new Hono();
@@ -24,6 +28,10 @@ app.get("/api/health", async (c) => {
 // Routes
 app.route("/api/auth", authRoutes);
 app.route("/api/domains", domainRoutes);
+app.route("/api/tasks", taskRoutes);
+app.route("/api/habits", habitRoutes);
+app.route("/api/projects", projectRoutes);
+app.route("/api/notes", noteRoutes);
 app.route("/api", realtimeRoutes);
 app.route("/mcp", mcpRoutes);
 
