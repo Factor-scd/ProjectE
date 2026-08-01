@@ -49,7 +49,7 @@ const NoteEditor = memo(function NoteEditor({ initialContent, onSave, placeholde
   );
 });
 
-// Separate component for title input - completely uncontrolled to prevent focus stealing
+// Completely uncontrolled title input - uses ref to avoid any re-render
 const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { noteId: string; initialTitle: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
@@ -58,16 +58,14 @@ const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { 
     if (inputRef.current) {
       inputRef.current.value = initialTitle;
     }
-  }, [noteId]);
+  }, [initialTitle, noteId]);
 
   const handleBlur = () => {
-    if (inputRef.current && noteId) {
-      const newTitle = inputRef.current.value;
-      if (newTitle !== initialTitle) {
-        api.patch<Note>("/notes/" + noteId, { title: newTitle }).then(() => {
-          queryClient.invalidateQueries({ queryKey: ["notes"] });
-        });
-      }
+    const newTitle = inputRef.current?.value || "";
+    if (newTitle !== initialTitle) {
+      api.patch<Note>("/notes/" + noteId, { title: newTitle }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ["notes"] });
+      });
     }
   };
 
@@ -85,6 +83,9 @@ function NotesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [editorContent, setEditorContent] = useState("");
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedNoteRef = useRef<Note | null>(null);
   const [showBacklinks, setShowBacklinks] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
 
@@ -102,6 +103,8 @@ function NotesPage() {
     onSuccess: (note) => {
       queryClient.invalidateQueries({ queryKey: ["notes"] });
       setSelectedNote(note);
+      selectedNoteRef.current = note;
+      setEditorContent("");
     },
   });
 
@@ -122,12 +125,26 @@ function NotesPage() {
     try {
       const detail = await api.get<Note>("/notes/" + note.id);
       setSelectedNote(detail);
+      selectedNoteRef.current = detail;
+      setEditorContent(detail.content || "");
     } catch {
       setSelectedNote(note);
+      selectedNoteRef.current = note;
+      setEditorContent(note.content || "");
     }
     setShowBacklinks(false);
     setShowVersions(false);
   };
+
+  const handleContentChange = useCallback((html: string) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const note = selectedNoteRef.current;
+      if (note) {
+        updateMutation.mutate({ id: note.id, data: { content: html } });
+      }
+    }, 500);
+  }, [updateMutation]);
 
   return (
     <div className="flex h-[calc(100vh-8rem)] -m-4 md:-m-6">
@@ -179,7 +196,7 @@ function NotesPage() {
         {selectedNote ? (
           <>
             <div className="flex items-center gap-2 p-3 border-b">
-              <NoteTitleInput key={selectedNote.id} noteId={selectedNote.id} initialTitle={selectedNote.title} />
+              <NoteTitleInput noteId={selectedNote.id} initialTitle={selectedNote.title} />
               <div className="flex items-center gap-1 shrink-0">
                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowBacklinks(!showBacklinks)} aria-label="Backlinks">
                   <LinkIcon className="h-4 w-4" />
@@ -207,7 +224,7 @@ function NotesPage() {
               </div>
             </div>
             <div className="flex-1 overflow-auto">
-              <NoteEditor key={selectedNote?.id || 'none'} initialContent={selectedNote?.content || ''} onSave={(html) => { if (selectedNote) { updateMutation.mutate({ id: selectedNote.id, data: { content: html } }); } }} />
+              <NoteEditor key={selectedNote?.id || 'none'} initialContent={editorContent} onSave={handleContentChange} />
             </div>
             {/* Backlinks section */}
             {showBacklinks && selectedNote.backlinks && selectedNote.backlinks.length > 0 && (
