@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, memo } from "react";
+import { useState, useRef, useEffect, memo, useCallback } from "react";
 import { createRoute } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -90,6 +90,10 @@ const NoteEditorPane = memo(function NoteEditorPane({ note, onDelete }: { note: 
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["notes"] }); },
   });
 
+  const handleSave = useCallback((html: string) => {
+    updateMutation.mutate({ id: note.id, data: { content: html } });
+  }, [note.id, updateMutation]);
+
   return (
     <>
       <div className="flex items-center gap-2 p-3 border-b">
@@ -121,7 +125,7 @@ const NoteEditorPane = memo(function NoteEditorPane({ note, onDelete }: { note: 
         </div>
       </div>
       <div className="flex-1 overflow-auto">
-        <NoteEditor key={note.id} initialContent={note.content || ''} onSave={(html) => { updateMutation.mutate({ id: note.id, data: { content: html } }); }} />
+        <NoteEditor key={note.id} initialContent={note.content || ''} onSave={handleSave} />
       </div>
       {/* Backlinks section */}
       {showBacklinks && note.backlinks && note.backlinks.length > 0 && (
@@ -192,6 +196,10 @@ function NotesPage() {
 
   const selectedNote = selectedNoteRef.current;
 
+  const handleDeleteNote = useCallback((id: string) => {
+    deleteMutation.mutate(id);
+  }, [deleteMutation]);
+
   return (
     <div className="flex h-[calc(100vh-8rem)] -m-4 md:-m-6">
       {/* Left pane - note list */}
@@ -240,7 +248,7 @@ function NotesPage() {
       {/* Right pane - editor (memoized, won't re-render on parent state changes) */}
       <div className="flex-1 flex flex-col">
         {selectedNote ? (
-          <NoteEditorPane key={selectedNote.id} note={selectedNote} onDelete={(id) => deleteMutation.mutate(id)} />
+          <NoteEditorPane key={selectedNote.id} note={selectedNote} onDelete={handleDeleteNote} />
         ) : (
           <div className="flex items-center justify-center flex-1 text-muted-foreground">
             <div className="text-center">
