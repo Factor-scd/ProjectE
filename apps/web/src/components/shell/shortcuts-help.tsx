@@ -22,6 +22,16 @@ const shortcutGroups = [
     ],
   },
   {
+    heading: "Create",
+    shortcuts: [
+      { keys: "n then t", description: "New task" },
+      { keys: "n then h", description: "New habit" },
+      { keys: "n then p", description: "New project" },
+      { keys: "n then n", description: "New note" },
+      { keys: "c", description: "Focus create in palette" },
+    ],
+  },
+  {
     heading: "General",
     shortcuts: [
       { keys: "⌘K / Ctrl+K", description: "Open command palette" },
@@ -55,7 +65,7 @@ export function ShortcutsHelp() {
         <DialogHeader>
           <DialogTitle>Keyboard Shortcuts</DialogTitle>
           <DialogDescription>
-            Use these shortcuts to navigate quickly.
+            Use these shortcuts to navigate quickly. Press two-key combos like "g then t" in sequence within 1.5 seconds.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">

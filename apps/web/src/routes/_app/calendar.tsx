@@ -1,21 +1,105 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { createRoute } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
 import { useRealtime } from "@/hooks/use-realtime";
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { cn } from "@/lib/utils";
-import type { CalendarEvent, PaginatedResponse } from "@/lib/types";
-import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, isToday, parseISO } from "date-fns";
+import type { CalendarEvent } from "@/lib/types";
+import { format, parseISO, addDays, startOfWeek, getDay } from "date-fns";
+
+// react-big-calendar
+import { Calendar, dateFnsLocalizer, Views, Navigate } from "react-big-calendar";
+import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
+import "react-big-calendar/lib/css/react-big-calendar.css";
+
+const localizer = dateFnsLocalizer({
+  startOfWeek,
+  getDay,
+  format,
+  locales: {},
+});
+
+const DragAndDropCalendar = withDragAndDrop(Calendar);
+
+// Color palette: tasks=accent, events by domain
+const EVENT_COLORS: Record<string, string> = {
+  task: "var(--accent-hsl, 217 91% 60%)",
+  habit: "142 71% 45%",
+  project: "271 81% 56%",
+  note: "24 95% 53%",
+  default: "215 16% 47%",
+};
+
+function eventColor(event: CalendarEvent): string {
+  const hue = event.entityType ? EVENT_COLORS[event.entityType] || EVENT_COLORS.default : EVENT_COLORS.default;
+  return `hsl(${hue})`;
+}
+
+function eventBg(event: CalendarEvent): string {
+  const hue = event.entityType ? EVENT_COLORS[event.entityType] || EVENT_COLORS.default : EVENT_COLORS.default;
+  return `hsla(${hue}, 0.15)`;
+}
+
+// Custom event component
+function EventComponent({ event }: { event: CalendarEvent }) {
+  return (
+    <div
+      className="rbc-event-content truncate px-1 py-0.5 text-xs"
+      style={{
+        borderLeft: `3px solid ${eventColor(event)}`,
+        backgroundColor: eventBg(event),
+        color: eventColor(event),
+      }}
+    >
+      {event.title}
+    </div>
+  );
+}
+
+// Custom toolbar
+function CustomToolbar({ date, onNavigate, onView, view, label }: any) {
+  const goToBack = () => onNavigate(Navigate.PREVIOUS);
+  const goToNext = () => onNavigate(Navigate.NEXT);
+  const goToToday = () => onNavigate(Navigate.TODAY);
+
+  const viewNames = ["month", "week", "day", "agenda"];
+
+  return (
+    <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+      <div className="flex items-center gap-1">
+        <Button variant="outline" size="icon" onClick={goToBack} aria-label="Previous">
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <Button variant="outline" size="sm" onClick={goToToday}>
+          Today
+        </Button>
+        <Button variant="outline" size="icon" onClick={goToNext} aria-label="Next">
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+        <span className="ml-2 text-lg font-semibold">{label}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        {viewNames.map((name) => (
+          <Button
+            key={name}
+            variant={view === name ? "default" : "outline"}
+            size="sm"
+            onClick={() => onView(name)}
+            className="capitalize"
+          >
+            {name}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function EventForm({ event, onClose }: { event?: CalendarEvent; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -25,13 +109,11 @@ function EventForm({ event, onClose }: { event?: CalendarEvent; onClose: () => v
   const [allDay, setAllDay] = useState(event?.allDay || false);
   const [color, setColor] = useState(event?.color || "#3b82f6");
 
-  const createMutation = useMutation({
-    mutationFn: (data: any) => api.post<CalendarEvent>("/calendar/events", data),
+  const createMutation = useApiMutation<CalendarEvent, any>("post", "/calendar/events", {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["calendar-events"] }); onClose(); },
   });
 
-  const updateMutation = useMutation({
-    mutationFn: (data: any) => api.patch<CalendarEvent>("/calendar/events/" + event!.id, data),
+  const updateMutation = useApiMutation<CalendarEvent, any>("patch", event ? `/calendar/events/${event.id}` : "", {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["calendar-events"] }); onClose(); },
   });
 
@@ -79,41 +161,89 @@ function EventForm({ event, onClose }: { event?: CalendarEvent; onClose: () => v
 
 function CalendarPage() {
   const queryClient = useQueryClient();
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [date, setDate] = useState(new Date());
+  const [view, setView] = useState<string>("month");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [eventDetailOpen, setEventDetailOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   useRealtime({ enabled: true });
 
-  const monthStart = startOfMonth(currentMonth);
-  const monthEnd = endOfMonth(currentMonth);
-  const calStart = startOfWeek(monthStart);
-  const calEnd = endOfWeek(monthEnd);
-  const days = eachDayOfInterval({ start: calStart, end: calEnd });
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  // Auto-switch to agenda on mobile
+  useEffect(() => {
+    if (isMobile && view === "month") {
+      setView("agenda");
+    }
+  }, [isMobile]);
 
   const { data: eventsData } = useApiQuery<{ items: CalendarEvent[]; totalItems: number }>(
-    ["calendar-events", currentMonth.toISOString()],
-    "/calendar/events?from=" + calStart.toISOString() + "&to=" + calEnd.toISOString()
+    ["calendar-events", date.toISOString()],
+    `/calendar/events?from=${new Date(0).toISOString()}&to=${new Date("2100-01-01").toISOString()}`
   );
 
   const events = eventsData?.items || [];
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete("/calendar/events/" + id),
+  const deleteMutation = useApiMutation<any, string>("delete", "", {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["calendar-events"] }); setEventDetailOpen(false); },
   });
 
-  const dayEvents = useMemo(() => {
-    const map = new Map<string, CalendarEvent[]>();
-    for (const event of events) {
-      const key = new Date(event.startTime).toISOString().slice(0, 10);
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(event);
-    }
-    return map;
+  // Map API events to react-big-calendar format
+  const calendarEvents = useMemo(() => {
+    return events.map((evt) => ({
+      ...evt,
+      start: parseISO(evt.startTime),
+      end: evt.endTime ? parseISO(evt.endTime) : addDays(parseISO(evt.startTime), 1),
+    }));
   }, [events]);
+
+  const handleSelectEvent = useCallback((event: any) => {
+    setSelectedEvent(event as CalendarEvent);
+    setEventDetailOpen(true);
+  }, []);
+
+  const handleSelectSlot = useCallback(() => {
+    setCreateOpen(true);
+  }, []);
+
+  const handleEventDrop = useCallback(
+    ({ event, start, end }: { event: any; start: Date; end: Date }) => {
+      api.patch(`/calendar/events/${event.id}`, {
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+      }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+      });
+    },
+    [queryClient]
+  );
+
+  const handleEventResize = useCallback(
+    ({ event, start, end }: { event: any; start: Date; end: Date }) => {
+      api.patch(`/calendar/events/${event.id}`, {
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+      }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+      });
+    },
+    [queryClient]
+  );
+
+  const handleNavigate = useCallback((newDate: Date) => {
+    setDate(newDate);
+  }, []);
+
+  const handleViewChange = useCallback((newView: string) => {
+    setView(newView);
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -130,70 +260,34 @@ function CalendarPage() {
         </Dialog>
       </div>
 
-      {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} aria-label="Previous month">
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="icon" onClick={() => setCurrentMonth(new Date())} aria-label="Today">
-            Today
-          </Button>
-          <Button variant="outline" size="icon" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} aria-label="Next month">
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-        <h2 className="text-lg font-semibold">{format(currentMonth, "MMMM yyyy")}</h2>
-      </div>
-
-      {/* Calendar grid */}
-      <div className="border rounded-lg">
-        <div className="grid grid-cols-7 border-b">
-          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-            <div key={day} className="p-2 text-center text-sm font-medium text-muted-foreground border-r last:border-r-0">
-              {day}
-            </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7">
-          {days.map((day) => {
-            const key = format(day, "yyyy-MM-dd");
-            const dayEvts = dayEvents.get(key) || [];
-            return (
-              <div
-                key={key}
-                className={cn(
-                  "min-h-[100px] p-1 border-b border-r last:border-r-0 cursor-pointer hover:bg-accent/50 transition-colors",
-                  !isSameMonth(day, currentMonth) && "text-muted-foreground/50",
-                  isToday(day) && "bg-accent/30"
-                )}
-                onClick={() => setSelectedDate(day)}
-              >
-                <div className={cn(
-                  "text-sm font-medium mb-1 w-7 h-7 flex items-center justify-center rounded-full",
-                  isToday(day) && "bg-primary text-primary-foreground"
-                )}>
-                  {format(day, "d")}
-                </div>
-                <div className="space-y-0.5">
-                  {dayEvts.slice(0, 3).map((evt) => (
-                    <div
-                      key={evt.id}
-                      className="text-[10px] truncate rounded px-1 py-0.5 cursor-pointer hover:opacity-80"
-                      style={{ backgroundColor: evt.color || "#3b82f6" + "20", color: evt.color || "#3b82f6", borderLeft: "2px solid " + (evt.color || "#3b82f6") }}
-                      onClick={(e) => { e.stopPropagation(); setSelectedEvent(evt); setEventDetailOpen(true); }}
-                    >
-                      {evt.title}
-                    </div>
-                  ))}
-                  {dayEvts.length > 3 && (
-                    <div className="text-[10px] text-muted-foreground pl-1">+{dayEvts.length - 3} more</div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      <div className="rbc-calendar-container" style={{ minHeight: isMobile ? 400 : 600 }}>
+        <DragAndDropCalendar
+          localizer={localizer}
+          events={calendarEvents}
+          startAccessor="start"
+          endAccessor="end"
+          date={date}
+          view={view}
+          onNavigate={handleNavigate}
+          onView={handleViewChange}
+          onSelectEvent={handleSelectEvent}
+          onSelectSlot={handleSelectSlot}
+          onEventDrop={handleEventDrop}
+          onEventResize={handleEventResize}
+          selectable
+          resizable
+          popup
+          showMultiDayTimes
+          components={{
+            event: EventComponent,
+            toolbar: CustomToolbar,
+          }}
+          defaultView={Views.MONTH}
+          views={["month", "week", "work_week", "day", "agenda"]}
+          step={30}
+          timeslots={2}
+          style={{ height: isMobile ? 400 : 600 }}
+        />
       </div>
 
       {/* Event detail dialog */}

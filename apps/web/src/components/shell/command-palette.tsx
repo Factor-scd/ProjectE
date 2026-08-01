@@ -15,6 +15,7 @@ import {
   Sun,
   Moon,
   Palette,
+  LogOut,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -52,6 +53,21 @@ interface QuickAction {
   action: () => void;
 }
 
+// Recent items store (last 5 visited pages)
+const RECENT_KEY = "project-e-recent-pages";
+function getRecentPages(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+function addRecentPage(href: string) {
+  const recent = getRecentPages().filter((p) => p !== href);
+  recent.unshift(href);
+  localStorage.setItem(RECENT_KEY, JSON.stringify(recent.slice(0, 5)));
+}
+
 export function CommandPalette() {
   const navigate = useNavigate();
   const { mode, setMode, accent, setAccent } = useThemeStore();
@@ -60,12 +76,26 @@ export function CommandPalette() {
     Array<{ type: string; items: Array<{ id: string; title: string }> }>
   >([]);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   // Listen for open-command-palette event
   useEffect(() => {
     const handler = () => setOpen(true);
     document.addEventListener("open-command-palette", handler);
     return () => document.removeEventListener("open-command-palette", handler);
+  }, []);
+
+  // Track page navigation for recent items
+  useEffect(() => {
+    const path = window.location.pathname;
+    if (path !== "/login") addRecentPage(path);
   }, []);
 
   // Quick actions
@@ -111,6 +141,19 @@ export function CommandPalette() {
         action: () => setAccent(key),
       })
     ),
+  ];
+
+  // Settings actions
+  const settingsActions: QuickAction[] = [
+    {
+      label: "Log out",
+      icon: LogOut,
+      action: () => {
+        fetch("/api/auth/logout", { method: "POST" }).then(() => {
+          window.location.href = "/login";
+        });
+      },
+    },
   ];
 
   // Search handler
@@ -171,12 +214,18 @@ export function CommandPalette() {
     []
   );
 
+  // Recent pages
+  const recentPages = getRecentPages();
+  const recentNavItems = recentPages
+    .map((href) => navItems.find((item) => item.href === href))
+    .filter(Boolean) as NavItem[];
+
   return (
     <CommandDialog
       open={open}
       onOpenChange={setOpen}
       label="Command palette"
-      className="max-w-lg"
+      className={isMobile ? "max-w-full h-full rounded-none border-0" : "max-w-lg"}
     >
       <CommandInput
         placeholder="Type a command or search..."
@@ -184,6 +233,21 @@ export function CommandPalette() {
       />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
+
+        {/* Recent items */}
+        {recentNavItems.length > 0 && (
+          <CommandGroup heading="Recent">
+            {recentNavItems.map((item) => (
+              <CommandItem
+                key={item.href}
+                onSelect={() => runCommand(() => navigate({ to: item.href }))}
+              >
+                <item.icon className="mr-2 h-4 w-4" />
+                {item.label}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
 
         {/* Navigation */}
         <CommandGroup heading="Jump to">
@@ -214,6 +278,19 @@ export function CommandPalette() {
         {/* Theme */}
         <CommandGroup heading="Theme">
           {themeActions.map((action) => (
+            <CommandItem
+              key={action.label}
+              onSelect={() => runCommand(action.action)}
+            >
+              <action.icon className="mr-2 h-4 w-4" />
+              {action.label}
+            </CommandItem>
+          ))}
+        </CommandGroup>
+
+        {/* Settings */}
+        <CommandGroup heading="Settings">
+          {settingsActions.map((action) => (
             <CommandItem
               key={action.label}
               onSelect={() => runCommand(action.action)}
