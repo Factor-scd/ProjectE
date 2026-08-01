@@ -162,6 +162,7 @@ function EventForm({ event, onClose }: { event?: CalendarEvent; onClose: () => v
 function CalendarPage() {
   const queryClient = useQueryClient();
   const [date, setDate] = useState(new Date());
+  const [view, setView] = useState<string>("month");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [eventDetailOpen, setEventDetailOpen] = useState(false);
@@ -176,7 +177,6 @@ function CalendarPage() {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // Mobile: defaultView is set to agenda via isMobile check
 
   const { data: eventsData } = useApiQuery<{ items: CalendarEvent[]; totalItems: number }>(
     ["calendar-events", date.toISOString()],
@@ -235,9 +235,8 @@ function CalendarPage() {
     setDate(newDate);
   }, []);
 
-  const viewRef = useRef<string>("month");
   const handleViewChange = useCallback((newView: string) => {
-    viewRef.current = newView;
+    setView(newView);
   }, []);
 
   return (
@@ -262,6 +261,7 @@ function CalendarPage() {
           startAccessor="start"
           endAccessor="end"
           date={date}
+          view={view}
           defaultView={isMobile ? Views.AGENDA : Views.MONTH}
           onNavigate={handleNavigate}
           onView={handleViewChange}
@@ -275,7 +275,16 @@ function CalendarPage() {
           showMultiDayTimes
           components={{
             event: EventComponent,
-            toolbar: (props: any) => <CustomToolbar {...props} />,
+            toolbar: (props: any) => (
+              <CustomToolbar
+                {...props}
+                currentView={view}
+                onView={(newView: string) => {
+                  props.onView(newView);
+                  setView(newView);
+                }}
+              />
+            ),
           }}
           views={["month", "week", "work_week", "day", "agenda"]}
           step={30}
