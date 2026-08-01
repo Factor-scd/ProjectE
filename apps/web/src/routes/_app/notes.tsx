@@ -17,16 +17,17 @@ import { cn } from "@/lib/utils";
 import type { Note, PaginatedResponse } from "@/lib/types";
 
 // Simple TipTap-like editor using contentEditable
+// Uses a key to force remount on note change instead of setting innerHTML
 const NoteEditor = memo(function NoteEditor({ initialContent, onSave, placeholder = "Start writing..." }: { initialContent: string; onSave: (html: string) => void; placeholder?: string }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const [isPlaceholder, setIsPlaceholder] = useState(!initialContent);
 
   useEffect(() => {
-    if (editorRef.current) {
+    if (editorRef.current && !editorRef.current.innerHTML) {
       editorRef.current.innerHTML = initialContent || "";
     }
     setIsPlaceholder(!initialContent);
-  }, [initialContent]);
+  }, []); // Only set initial content once on mount
 
   const handleBlur = () => {
     const html = editorRef.current?.innerHTML || "";
@@ -49,40 +50,13 @@ const NoteEditor = memo(function NoteEditor({ initialContent, onSave, placeholde
   );
 });
 
-// Separate component for title input to prevent focus stealing on parent re-render
-const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { noteId: string; initialTitle: string }) {
-  const [localTitle, setLocalTitle] = useState(initialTitle);
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    setLocalTitle(initialTitle);
-  }, [initialTitle, noteId]);
-
-  const handleBlur = () => {
-    if (localTitle !== initialTitle) {
-      api.patch<Note>(/notes/ + noteId, { title: localTitle }).then(() => {
-        queryClient.invalidateQueries({ queryKey: [notes] });
-      });
-    }
-  };
-
-  return (
-    <input
-      value={localTitle}
-      onChange={(e) => setLocalTitle(e.target.value)}
-      onBlur={handleBlur}
-      className="flex h-9 w-full rounded-md border-0 bg-transparent px-0 py-1 text-lg font-semibold text-base shadow-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50"
-    />
-  );
-});
-
 function NotesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
-  const [titleDraft, setTitleDraft] = useState("");
   const [editorContent, setEditorContent] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedNoteRef = useRef<Note | null>(null);
   const [showBacklinks, setShowBacklinks] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
 
@@ -121,19 +95,16 @@ function NotesPage() {
     try {
       const detail = await api.get<Note>("/notes/" + note.id);
       setSelectedNote(detail);
-      setTitleDraft(detail.title);
+      selectedNoteRef.current = detail;
       setEditorContent(detail.content || "");
     } catch {
       setSelectedNote(note);
-      setTitleDraft(note.title);
+      selectedNoteRef.current = note;
       setEditorContent(note.content || "");
     }
     setShowBacklinks(false);
     setShowVersions(false);
   };
-
-  const selectedNoteRef = useRef(selectedNote);
-  selectedNoteRef.current = selectedNote;
 
   const handleContentChange = useCallback((html: string) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -144,7 +115,6 @@ function NotesPage() {
       }
     }, 500);
   }, [updateMutation]);
-
 
   return (
     <div className="flex h-[calc(100vh-8rem)] -m-4 md:-m-6">
@@ -199,7 +169,6 @@ function NotesPage() {
               <input
                 key={selectedNote?.id || 'none'}
                 defaultValue={selectedNote?.title || ''}
-                onMouseDown={(e) => e.stopPropagation()}
                 onBlur={(e) => {
                   if (selectedNote && e.target.value !== selectedNote.title) {
                     updateMutation.mutate({ id: selectedNote.id, data: { title: e.target.value } });
@@ -235,7 +204,7 @@ function NotesPage() {
               </div>
             </div>
             <div className="flex-1 overflow-auto">
-              <NoteEditor initialContent={editorContent} onSave={handleContentChange} />
+              <NoteEditor key={selectedNote?.id || 'none'} initialContent={editorContent} onSave={handleContentChange} />
             </div>
             {/* Backlinks section */}
             {showBacklinks && selectedNote.backlinks && selectedNote.backlinks.length > 0 && (
