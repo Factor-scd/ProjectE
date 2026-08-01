@@ -39,7 +39,8 @@ const NoteEditor = memo(function NoteEditor({ initialContent, onSave, placeholde
         contentEditable
         suppressContentEditableWarning
         className="prose prose-sm dark:prose-invert max-w-none p-3 focus:outline-none min-h-[300px]"
-        onBlur={handleBlur}
+        onMouseDown={(e) => e.stopPropagation()}
+      onBlur={handleBlur}
       />
     </div>
   );
@@ -70,6 +71,7 @@ const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { 
       ref={inputRef}
       defaultValue={initialTitle}
       onBlur={handleBlur}
+      autoFocus
       className="flex h-9 w-full rounded-md border-0 bg-transparent px-0 py-1 text-lg font-semibold text-base shadow-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50"
     />
   );
