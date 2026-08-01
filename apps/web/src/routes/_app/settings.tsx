@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { useThemeStore } from "@/lib/stores/use-theme-store";
 import { cn } from "@/lib/utils";
 import type { Domain, CustomField, Webhook as WebhookType, ErrorLog, Agent, PaginatedResponse } from "@/lib/types";
 
@@ -57,14 +58,13 @@ const SHORTCUTS_MAP: Record<string, string> = {
 // ─── Appearance Tab ──────────────────────────────────────────────────────
 
 function AppearanceTab() {
-  const [theme, setTheme] = useState(localStorage.getItem("theme") || "system");
+  const { mode, setMode } = useThemeStore();
   const [accent, setAccent] = useState(localStorage.getItem("accent-color") || "#3b82f6");
   const [fontSize, setFontSize] = useState(localStorage.getItem("font-size") || "normal");
   const [density, setDensity] = useState(localStorage.getItem("density") || "comfortable");
   const [sidebarPos, setSidebarPos] = useState(localStorage.getItem("sidebar-position") || "left");
   const [reducedMotion, setReducedMotion] = useState(localStorage.getItem("reduced-motion") === "true");
 
-  useEffect(() => { localStorage.setItem("theme", theme); document.documentElement.className = theme; }, [theme]);
   useEffect(() => { localStorage.setItem("accent-color", accent); document.documentElement.style.setProperty("--accent-color", accent); }, [accent]);
   useEffect(() => { localStorage.setItem("font-size", fontSize); document.documentElement.style.fontSize = fontSize === "large" ? "18px" : fontSize === "small" ? "13px" : "16px"; }, [fontSize]);
   useEffect(() => { localStorage.setItem("density", density); }, [density]);
@@ -81,8 +81,8 @@ function AppearanceTab() {
             { id: "dark", icon: Moon, label: "Dark" },
             { id: "system", icon: Monitor, label: "System" },
           ].map((t) => (
-            <button key={t.id} onClick={() => setTheme(t.id)}
-              className={cn("flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-colors", theme === t.id ? "border-primary bg-primary/5" : "border-muted hover:border-muted-foreground/30")}>
+            <button key={t.id} onClick={() => setMode(t.id as "light" | "dark" | "system")}
+              className={cn("flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-colors", mode === t.id ? "border-primary bg-primary/5" : "border-muted hover:border-muted-foreground/30")}>
               <t.icon className="h-6 w-6" />
               <span className="text-xs font-medium">{t.label}</span>
             </button>

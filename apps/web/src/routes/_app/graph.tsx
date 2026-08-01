@@ -66,14 +66,22 @@ function GraphPage() {
     return () => observer.disconnect();
   }, []);
 
+  const { data: domainsData } = useApiQuery<{ items: { id: string; name: string }[] }>(
+    ["domains"],
+    "/domains"
+  );
+  const activeDomainId = domainsData?.items?.[0]?.id || "";
+
   const { data: nodesData } = useApiQuery<{ items: GraphNode[]; totalItems: number }>(
-    ["graph", "nodes"],
-    "/graph/nodes?domain=placeholder"
+    ["graph", "nodes", activeDomainId],
+    "/graph/nodes?domain=" + activeDomainId,
+    { enabled: !!activeDomainId }
   );
 
   const { data: edgesData } = useApiQuery<{ items: GraphEdge[]; totalItems: number }>(
-    ["graph", "edges"],
-    "/graph/edges?domain=placeholder"
+    ["graph", "edges", activeDomainId],
+    "/graph/edges?domain=" + activeDomainId,
+    { enabled: !!activeDomainId }
   );
 
   const allNodes = nodesData?.items || [];

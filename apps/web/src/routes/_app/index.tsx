@@ -251,6 +251,28 @@ function ProductivityChartWidget() {
   );
 }
 
+function StatsWidget() {
+  const { data } = useApiQuery<any>(["stats"], "/analytics/productivity?range=30");
+  const stats = data;
+  if (!stats) return <p className="text-sm text-muted-foreground">Loading...</p>;
+  return (
+    <div className="grid grid-cols-3 gap-3 h-full items-center">
+      <div className="text-center">
+        <p className="text-2xl font-bold">{stats.totalTasks || 0}</p>
+        <p className="text-xs text-muted-foreground">Total Tasks</p>
+      </div>
+      <div className="text-center">
+        <p className="text-2xl font-bold text-green-500">{stats.completedTasks || 0}</p>
+        <p className="text-xs text-muted-foreground">Completed</p>
+      </div>
+      <div className="text-center">
+        <p className="text-2xl font-bold">{stats.taskCompletionRate || 0}%</p>
+        <p className="text-xs text-muted-foreground">Rate</p>
+      </div>
+    </div>
+  );
+}
+
 function WidgetRenderer({ type }: { type: string }) {
   switch (type) {
     case "tasks_due": return <TasksDueWidget />;
@@ -261,6 +283,7 @@ function WidgetRenderer({ type }: { type: string }) {
     case "streak_counter": return <StreakCounterWidget />;
     case "quick_capture": return <QuickCaptureWidget />;
     case "productivity_chart": return <ProductivityChartWidget />;
+    case "stats": return <StatsWidget />;
     default: return <p className="text-sm text-muted-foreground">Unknown widget: {type}</p>;
   }
 }

@@ -176,24 +176,6 @@ agentRoutes.delete("/:id", async (c) => {
   }
 });
 
-// GET /api/agents/:id/activity — Agent activity log
-agentRoutes.get("/:id/activity", async (c) => {
-  try {
-    await requireAuth(c);
-    const id = c.req.param("id");
-    const items = await db.select()
-      .from(agentActivity)
-      .where(eq(agentActivity.agentId, id))
-      .orderBy(desc(agentActivity.createdAt))
-      .limit(100);
-    return c.json({ items, totalItems: items.length });
-  } catch (error) {
-    if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
-    console.error("[agents] GET /:id/activity error:", error);
-    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to get agent activity" } }, 500);
-  }
-});
-
 // POST /api/agents/:id/permissions — Set permissions
 agentRoutes.post("/:id/permissions", async (c) => {
   try {
@@ -239,5 +221,39 @@ agentRoutes.get("/:id/permissions", async (c) => {
     if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
     console.error("[agents] GET /:id/permissions error:", error);
     return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to get permissions" } }, 500);
+  }
+});
+
+// GET /api/agents/activity — All activity (bare path, no agent filter)
+agentRoutes.get("/activity", async (c) => {
+  try {
+    await requireAuth(c);
+    const items = await db.select()
+      .from(agentActivity)
+      .orderBy(desc(agentActivity.createdAt))
+      .limit(100);
+    return c.json({ items, totalItems: items.length });
+  } catch (error) {
+    if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    console.error("[agents] GET /activity error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to get activity" } }, 500);
+  }
+});
+
+// GET /api/agents/:id/activity — Agent activity log (or all if id=_all)
+agentRoutes.get("/:id/activity", async (c) => {
+  try {
+    await requireAuth(c);
+    const id = c.req.param("id");
+    const items = await db.select()
+      .from(agentActivity)
+      .where(id === "_all" ? undefined : eq(agentActivity.agentId, id))
+      .orderBy(desc(agentActivity.createdAt))
+      .limit(100);
+    return c.json({ items, totalItems: items.length });
+  } catch (error) {
+    if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    console.error("[agents] GET /:id/activity error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to get agent activity" } }, 500);
   }
 });
