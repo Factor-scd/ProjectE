@@ -63,7 +63,7 @@ function EventComponent({ event }: { event: CalendarEvent }) {
 }
 
 // Custom toolbar
-function CustomToolbar({ date, onNavigate, onView, view, label }: any) {
+function CustomToolbar({ date, onNavigate, onView, currentView, label }: any) {
   const goToBack = () => onNavigate(Navigate.PREVIOUS);
   const goToNext = () => onNavigate(Navigate.NEXT);
   const goToToday = () => onNavigate(Navigate.TODAY);
@@ -88,7 +88,7 @@ function CustomToolbar({ date, onNavigate, onView, view, label }: any) {
         {viewNames.map((name) => (
           <Button
             key={name}
-            variant={view === name ? "default" : "outline"}
+            variant={currentView === name ? "default" : "outline"}
             size="sm"
             onClick={() => onView(name)}
             className="capitalize"
@@ -266,8 +266,8 @@ function CalendarPage() {
           events={calendarEvents}
           startAccessor="start"
           endAccessor="end"
-          date={date}
           view={view}
+          defaultView={Views.MONTH}
           onNavigate={handleNavigate}
           onView={handleViewChange}
           onSelectEvent={handleSelectEvent}
@@ -280,9 +280,8 @@ function CalendarPage() {
           showMultiDayTimes
           components={{
             event: EventComponent,
-            toolbar: CustomToolbar,
+            toolbar: (props: any) => <CustomToolbar {...props} currentView={view} />,
           }}
-          defaultView={Views.MONTH}
           views={["month", "week", "work_week", "day", "agenda"]}
           step={30}
           timeslots={2}
