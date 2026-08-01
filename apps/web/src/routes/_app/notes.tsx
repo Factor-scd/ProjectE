@@ -49,6 +49,33 @@ const NoteEditor = memo(function NoteEditor({ content, onChange, placeholder = "
   );
 });
 
+// Separate component for title input to prevent focus stealing on parent re-render
+const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { noteId: string; initialTitle: string }) {
+  const [localTitle, setLocalTitle] = useState(initialTitle);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    setLocalTitle(initialTitle);
+  }, [initialTitle, noteId]);
+
+  const handleBlur = () => {
+    if (localTitle !== initialTitle) {
+      api.patch<Note>(/notes/ + noteId, { title: localTitle }).then(() => {
+        queryClient.invalidateQueries({ queryKey: [notes] });
+      });
+    }
+  };
+
+  return (
+    <input
+      value={localTitle}
+      onChange={(e) => setLocalTitle(e.target.value)}
+      onBlur={handleBlur}
+      className=flex h-9 w-full rounded-md border-0 bg-transparent px-0 py-1 text-lg font-semibold text-base shadow-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50
+    />
+  );
+});
+
 function NotesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -109,7 +136,6 @@ function NotesPage() {
   selectedNoteRef.current = selectedNote;
 
   const handleContentChange = useCallback((html: string) => {
-    setEditorContent(html);
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       const note = selectedNoteRef.current;
