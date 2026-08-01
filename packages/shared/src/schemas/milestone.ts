@@ -70,7 +70,7 @@ export const milestoneSchema = z.object({
   completed_at: z.string().datetime().optional(),
   tasks: z.array(z.string()).default([]),
   dependencies: z.array(milestoneDependencySchema).default([]),
-  custom_fields: z.record(z.unknown()).optional(),
+  custom_fields: z.record(z.string(), z.unknown()).optional(),
   created: z.string().datetime(),
   updated: z.string().datetime(),
 });

@@ -4,7 +4,7 @@
 // See AGENTS.md for full rules.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth, createErrorResponse } from '@/lib/auth';
+import { withAuth, createErrorResponse, resolveActiveDomain } from '@/lib/auth';
 import { recordActivity } from '@/lib/activity';
 import { db, projects, projectTags, tags as tagsTable } from '@project-e/db';
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
@@ -24,13 +24,17 @@ const createProjectSchema = z.object({
 });
 
 // GET /api/projects — List projects with filtering, sorting, pagination
-export const GET = withAuth(async (request: NextRequest, _user) => {
+export const GET = withAuth(async (request: NextRequest, user) => {
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
   const perPage = Math.min(100, Math.max(1, parseInt(searchParams.get('perPage') || '50')));
   const filter = searchParams.get('filter') || undefined;
   const sort = searchParams.get('sort') || '-created';
-  const domainId = searchParams.get('domain') || undefined;
+  let domainId = searchParams.get('domain') || undefined;
+  if (!domainId) {
+    const active = await resolveActiveDomain(user);
+    domainId = active.id;
+  }
 
   const sortDir = sort.startsWith('-') ? 'desc' : 'asc';
   const sortField = sort.replace(/^-/, '');
@@ -79,7 +83,10 @@ export const GET = withAuth(async (request: NextRequest, _user) => {
 export const POST = withAuth(async (request: NextRequest, user) => {
   try {
     const body = await request.json();
-    const data = createProjectSchema.parse(body);
+    const data = createProjectSchema.parse({
+      ...body,
+      domain: body.domain || (await resolveActiveDomain(user)).id,
+    });
 
     const [project] = await db.insert(projects).values({
       name: data.name,

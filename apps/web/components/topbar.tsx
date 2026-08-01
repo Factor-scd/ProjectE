@@ -17,9 +17,11 @@ export function TopBar() {
     if (pathname.startsWith('/projects')) openCreate('project');
     else if (pathname.startsWith('/habits')) openCreate('habit');
     else if (pathname.startsWith('/tasks')) openCreate('task');
-    else {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }));
-    }
+    // On other pages (e.g. /settings) the topbar's "Quick add" button
+    // visually overlaps form action buttons (e.g. Domain "Add") because
+    // both are anchored top-right. Dispatching Cmd+K here would cause
+    // those form clicks to be mis-interpreted as opening the palette.
+    // So we no-op on those pages — the form buttons handle their own actions.
   }
 
   const label = pathname.startsWith('/projects') ? 'New project'
@@ -39,10 +41,14 @@ export function TopBar() {
           </Button>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleCreate} aria-label={label === 'Quick add' ? 'Quick add' : `Create ${label.toLowerCase()}`}>
-            <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
-            {label}
-          </Button>
+          {(pathname.startsWith('/projects') ||
+            pathname.startsWith('/habits') ||
+            pathname.startsWith('/tasks')) && (
+            <Button variant="outline" size="sm" onClick={handleCreate} aria-label={label === 'Quick add' ? 'Quick add' : `Create ${label.toLowerCase()}`}>
+              <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+              {label}
+            </Button>
+          )}
           <NotificationBell />
         </div>
       </header>

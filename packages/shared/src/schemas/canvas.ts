@@ -56,7 +56,7 @@ export const canvasSchema = z.object({
     zoom: z.number().positive().default(1),
   }).optional(),
   background: z.string().optional(),
-  custom_fields: z.record(z.unknown()).optional(),
+  custom_fields: z.record(z.string(), z.unknown()).optional(),
   created: z.string().datetime(),
   updated: z.string().datetime(),
 });

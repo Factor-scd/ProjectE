@@ -14,7 +14,7 @@ export const reportTemplateSchema = z.object({
   sections: z.array(z.object({
     title: z.string(),
     type: z.enum(['summary', 'chart', 'table', 'list', 'text']).default('text'),
-    config: z.record(z.unknown()).optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
     sort_order: z.number().int().nonnegative().default(0),
   })).default([]),
   created: z.string().datetime(),
@@ -42,14 +42,14 @@ export const reportSchema = z.object({
   sections: z.array(z.object({
     title: z.string(),
     content: z.string().optional(),
-    data: z.record(z.unknown()).optional(),
+    data: z.record(z.string(), z.unknown()).optional(),
     sort_order: z.number().int().nonnegative().default(0),
   })).default([]),
   summary: z.string().optional(),
   is_draft: z.boolean().default(true),
   generated_at: z.string().datetime().optional(),
   tags: z.array(z.string()).default([]),
-  custom_fields: z.record(z.unknown()).optional(),
+  custom_fields: z.record(z.string(), z.unknown()).optional(),
   created: z.string().datetime(),
   updated: z.string().datetime(),
 });

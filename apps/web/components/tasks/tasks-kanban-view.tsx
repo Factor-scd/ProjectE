@@ -76,7 +76,7 @@ function TaskCard({
   onClick: () => void;
 }) {
   return (
-    <Card className="mb-2 cursor-pointer hover:shadow-md transition-shadow" onClick={onClick}>
+    <Card className="mb-2 cursor-pointer hover:shadow-md transition-shadow" onClick={onClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }} aria-label={task.title}>
       <CardContent className="p-3">
         <div className="mb-2 flex items-start justify-between gap-2">
           <span className="flex-1 text-sm font-medium leading-tight">

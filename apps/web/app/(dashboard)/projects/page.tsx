@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ProjectCreateDialog } from "@/components/projects/project-create-dialog";
 import { ProjectEditDialog } from "@/components/projects/project-edit-dialog";
+import { CreateItemDialog } from "@/components/create-item-dialog";
+import { useCreateDialogStore } from "@/lib/stores/use-create-dialog-store";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -54,6 +56,7 @@ export default function ProjectsPage() {
   const [domainId, setDomainId] = useState<string | null>(null);
   const [domains, setDomains] = useState<{ id: string; name: string }[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+  const { open: storeOpen, openCreate, closeCreate } = useCreateDialogStore();
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [archiveProject, setArchiveProject] = useState<Project | null>(null);
   const [archiving, setArchiving] = useState(false);
@@ -119,7 +122,7 @@ export default function ProjectsPage() {
               ))}
             </select>
           )}
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={() => { setCreateOpen(true); openCreate('project'); }}>
             <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
             New project
           </Button>
@@ -220,8 +223,16 @@ export default function ProjectsPage() {
 
       <ProjectCreateDialog
         open={createOpen}
-        onOpenChange={setCreateOpen}
+        onOpenChange={(o) => { setCreateOpen(o); if (!o) closeCreate(); }}
         domainId={domainId || ''}
+        onCreated={fetchProjects}
+      />
+
+      {/* Global CreateItemDialog from useCreateDialogStore — opened by topbar 'New project' button */}
+      <CreateItemDialog
+        type="project"
+        open={storeOpen}
+        onOpenChange={(o) => { if (!o) closeCreate(); else openCreate('project'); }}
         onCreated={fetchProjects}
       />
 
