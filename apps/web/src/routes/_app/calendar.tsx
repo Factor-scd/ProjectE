@@ -255,7 +255,9 @@ function CalendarPage() {
       </div>
 
       <div className="rbc-calendar-container" style={{ minHeight: isMobile ? 400 : 600 }}>
+        {/* Key={view} forces remount on view change (workaround for react-big-calendar DnD day view issue) */}
         <DragAndDropCalendar
+          key={'cal-' + view + '-' + (isMobile ? 'm' : 'd')}
           localizer={localizer}
           events={calendarEvents}
           startAccessor="start"
@@ -275,16 +277,7 @@ function CalendarPage() {
           showMultiDayTimes
           components={{
             event: EventComponent,
-            toolbar: (props: any) => (
-              <CustomToolbar
-                {...props}
-                currentView={view}
-                onView={(newView: string) => {
-                  props.onView(newView);
-                  setView(newView);
-                }}
-              />
-            ),
+            toolbar: (props: any) => <CustomToolbar {...props} currentView={view} />,
           }}
           views={["month", "week", "work_week", "day", "agenda"]}
           step={30}
