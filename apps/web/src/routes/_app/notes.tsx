@@ -53,10 +53,8 @@ function NotesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
-  const [titleDraft, setTitleDraft] = useState("");
   const [editorContent, setEditorContent] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showBacklinks, setShowBacklinks] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
 
@@ -95,11 +93,9 @@ function NotesPage() {
     try {
       const detail = await api.get<Note>("/notes/" + note.id);
       setSelectedNote(detail);
-      setTitleDraft(detail.title);
       setEditorContent(detail.content || "");
     } catch {
       setSelectedNote(note);
-      setTitleDraft(note.title);
       setEditorContent(note.content || "");
     }
     setShowBacklinks(false);
@@ -116,16 +112,6 @@ function NotesPage() {
     }, 500);
   }, [selectedNote, updateMutation]);
 
-  const handleTitleChange = (title: string) => {
-    setTitleDraft(title);
-  };
-
-  const handleTitleBlur = () => {
-    if (selectedNote && titleDraft !== selectedNote.title) {
-      updateMutation.mutate({ id: selectedNote.id, data: { title: titleDraft } });
-      setSelectedNote({ ...selectedNote, title: titleDraft });
-    }
-  };
 
   return (
     <div className="flex h-[calc(100vh-8rem)] -m-4 md:-m-6">
@@ -177,11 +163,16 @@ function NotesPage() {
         {selectedNote ? (
           <>
             <div className="flex items-center gap-2 p-3 border-b">
-              <Input
-                value={titleDraft}
-                onChange={(e) => handleTitleChange(e.target.value)}
-                onBlur={handleTitleBlur}
-                className="text-lg font-semibold border-0 focus-visible:ring-0 px-0"
+              <input
+                key={selectedNote?.id || 'none'}
+                defaultValue={selectedNote?.title || ''}
+                onBlur={(e) => {
+                  if (selectedNote && e.target.value !== selectedNote.title) {
+                    updateMutation.mutate({ id: selectedNote.id, data: { title: e.target.value } });
+                    setSelectedNote({ ...selectedNote, title: e.target.value });
+                  }
+                }}
+                className="flex h-9 w-full rounded-md border-0 bg-transparent px-0 py-1 text-lg font-semibold text-base shadow-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50"
               />
               <div className="flex items-center gap-1 shrink-0">
                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowBacklinks(!showBacklinks)} aria-label="Backlinks">
