@@ -1,19 +1,71 @@
 import { Hono } from "hono";
-import { stream } from "hono/streaming";
+import postgres from "postgres";
 
 export const realtimeRoutes = new Hono();
 
-// GET /api/realtime — SSE endpoint stub
-realtimeRoutes.get("/realtime", (c) => {
-  return stream(c, async (stream) => {
-    c.header("Content-Type", "text/event-stream");
-    c.header("Cache-Control", "no-cache");
-    c.header("Connection", "keep-alive");
-    await stream.write("data: {\"event\":\"connected\"}\n\n");
-    // Keep connection open
-    while (true) {
-      await stream.write(": heartbeat\n\n");
-      await stream.sleep(30000);
-    }
+// GET /api/realtime — SSE endpoint backed by PostgreSQL LISTEN/NOTIFY
+realtimeRoutes.get("/realtime", async (c) => {
+  const user = c.get("user");
+  if (!user) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const url = new URL(c.req.url);
+  const workspaceId = url.searchParams.get("workspace_id");
+
+  const encoder = new TextEncoder();
+  const listener = postgres(process.env.DATABASE_URL!, { max: 1 });
+  let unlisten: (() => Promise<void>) | undefined;
+  let keepalive: ReturnType<typeof setInterval> | undefined;
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      controller.enqueue(
+        encoder.encode(
+          `data: ${JSON.stringify({ type: "connected", workspace_id: workspaceId })}\n\n`
+        )
+      );
+
+      const subscription = await listener.listen("project_e_events", (payload) => {
+        try {
+          const event = JSON.parse(payload) as {
+            type: string;
+            action: string;
+            id: string;
+            workspace_id?: string;
+          };
+
+          if (workspaceId && event.workspace_id !== workspaceId) {
+            return;
+          }
+
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        } catch {
+          // Ignore malformed notifications
+        }
+      });
+      unlisten = subscription.unlisten;
+
+      keepalive = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(":ping\n\n"));
+        } catch {
+          if (keepalive) clearInterval(keepalive);
+        }
+      }, 30000);
+    },
+
+    async cancel() {
+      if (keepalive) clearInterval(keepalive);
+      await unlisten?.();
+      await listener.end({ timeout: 5 });
+    },
   });
+
+  c.header("Content-Type", "text/event-stream");
+  c.header("Cache-Control", "no-cache");
+  c.header("Connection", "keep-alive");
+  c.header("X-Accel-Buffering", "no");
+
+  return c.newResponse(stream);
 });
