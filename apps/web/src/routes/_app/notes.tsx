@@ -40,6 +40,7 @@ const NoteEditor = memo(function NoteEditor({ initialContent, onSave, placeholde
         suppressContentEditableWarning
         className="prose prose-sm dark:prose-invert max-w-none p-3 focus:outline-none min-h-[300px]"
         onMouseDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
       onBlur={handleBlur}
       />
     </div>
