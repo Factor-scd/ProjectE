@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { setCookie } from "hono/cookie";
 import bcrypt from "bcryptjs";
 import { db, users } from "@project-e/db";
 import { count, eq } from "drizzle-orm";
@@ -36,6 +37,13 @@ authRoutes.post("/credentials", async (c) => {
     }
 
     const token = await createToken({ id: user.id, email: user.email, name: user.name });
+    setCookie(c, "session", token, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "Lax",
+      path: "/",
+      maxAge: 30 * 24 * 60 * 60,
+    });
     return c.json({
       user: { id: user.id, email: user.email, name: user.name },
       token,
@@ -122,6 +130,14 @@ authRoutes.post("/passkey/authenticate", async (c) => {
     if (!user) {
       return c.json({ error: { code: "UNAUTHORIZED", message: "Passkey not found" } }, 401);
     }
+    const token = await createToken({ id: user.id, email: user.email, name: user.name });
+    setCookie(c, "session", token, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "Lax",
+      path: "/",
+      maxAge: 30 * 24 * 60 * 60,
+    });
 
     return c.json({
       user: {
