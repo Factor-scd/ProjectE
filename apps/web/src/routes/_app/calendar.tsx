@@ -15,7 +15,7 @@ import { format, parseISO, addDays, startOfWeek, getDay } from "date-fns";
 
 // react-big-calendar
 import { Calendar, dateFnsLocalizer, Views, Navigate } from "react-big-calendar";
-import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
+// import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 
 const localizer = dateFnsLocalizer({
@@ -25,7 +25,7 @@ const localizer = dateFnsLocalizer({
   locales: {},
 });
 
-const DragAndDropCalendar = withDragAndDrop(Calendar);
+// const DragAndDropCalendar = withDragAndDrop(Calendar);
 
 // Color palette: tasks=accent, events by domain
 const EVENT_COLORS: Record<string, string> = {
@@ -256,7 +256,7 @@ function CalendarPage() {
 
       <div className="rbc-calendar-container" style={{ minHeight: isMobile ? 400 : 600 }}>
         {/* Key={view} forces remount on view change (workaround for react-big-calendar DnD day view issue) */}
-        <DragAndDropCalendar
+        <Calendar
           key={'cal-' + view + '-' + (isMobile ? 'm' : 'd')}
           localizer={localizer}
           events={calendarEvents}
@@ -268,10 +268,7 @@ function CalendarPage() {
           onNavigate={handleNavigate}
           onSelectEvent={handleSelectEvent}
           onSelectSlot={handleSelectSlot}
-          onEventDrop={handleEventDrop}
-          onEventResize={handleEventResize}
           selectable
-          resizable
           popup
           showMultiDayTimes
           components={{
