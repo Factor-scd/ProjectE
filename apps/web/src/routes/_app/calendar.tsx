@@ -162,7 +162,7 @@ function EventForm({ event, onClose }: { event?: CalendarEvent; onClose: () => v
 function CalendarPage() {
   const queryClient = useQueryClient();
   const [date, setDate] = useState(new Date());
-  const [view, setView] = useState<string>("month");
+  const [view, setView] = useState<string>("day");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [eventDetailOpen, setEventDetailOpen] = useState(false);
@@ -254,17 +254,14 @@ function CalendarPage() {
         </Dialog>
       </div>
 
-      <div className="rbc-calendar-container" style={{ minHeight: isMobile ? 400 : 600 }}>
-        {/* Key={view} forces remount on view change (workaround for react-big-calendar DnD day view issue) */}
+      <div key={'cal-wrap-' + view} className="rbc-calendar-container" style={{ minHeight: isMobile ? 400 : 600 }}>
         <Calendar
-          key={'cal-' + view + '-' + (isMobile ? 'm' : 'd')}
           localizer={localizer}
           events={calendarEvents}
           startAccessor="start"
           endAccessor="end"
           date={date}
           view={view}
-          defaultView={isMobile ? Views.AGENDA : Views.MONTH}
           onNavigate={handleNavigate}
           onSelectEvent={handleSelectEvent}
           onSelectSlot={handleSelectSlot}
