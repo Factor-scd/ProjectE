@@ -1,22 +1,18 @@
-import { useState, useCallback, useRef, useEffect, memo } from "react";
+import { useState, useRef, useEffect, memo } from "react";
 import { createRoute } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, useApiQuery, useApiMutation } from "@/lib/api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { api, useApiQuery } from "@/lib/api";
 import { useRealtime } from "@/hooks/use-realtime";
-import { Plus, Trash2, Search, Pin, Archive, FileText, Link as LinkIcon, History } from "lucide-react";
+import { Plus, Trash2, Search, Pin, FileText, Link as LinkIcon, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import type { Note, PaginatedResponse } from "@/lib/types";
 
-// Simple TipTap-like editor using contentEditable
+// Simple TipTap-like editor using contentEditable - saves on blur only
 const NoteEditor = memo(function NoteEditor({ initialContent, onSave, placeholder = "Start writing..." }: { initialContent: string; onSave: (html: string) => void; placeholder?: string }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const [isPlaceholder, setIsPlaceholder] = useState(!initialContent);
@@ -82,12 +78,10 @@ const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { 
 function NotesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [selectedNote, setSelectedNote] = useState<Note | null>(null);
-  const [editorContent, setEditorContent] = useState("");
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const selectedNoteRef = useRef<Note | null>(null);
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [showBacklinks, setShowBacklinks] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
+  const selectedNoteRef = useRef<Note | null>(null);
 
   useRealtime({ enabled: true });
 
@@ -102,9 +96,8 @@ function NotesPage() {
     mutationFn: () => api.post<Note>("/notes", { title: "Untitled", content: "" }),
     onSuccess: (note) => {
       queryClient.invalidateQueries({ queryKey: ["notes"] });
-      setSelectedNote(note);
       selectedNoteRef.current = note;
-      setEditorContent("");
+      setSelectedNoteId(note.id);
     },
   });
 
@@ -117,34 +110,24 @@ function NotesPage() {
     mutationFn: (id: string) => api.delete("/notes/" + id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notes"] });
-      setSelectedNote(null);
+      selectedNoteRef.current = null;
+      setSelectedNoteId(null);
     },
   });
 
   const selectNote = async (note: Note) => {
     try {
       const detail = await api.get<Note>("/notes/" + note.id);
-      setSelectedNote(detail);
       selectedNoteRef.current = detail;
-      setEditorContent(detail.content || "");
     } catch {
-      setSelectedNote(note);
       selectedNoteRef.current = note;
-      setEditorContent(note.content || "");
     }
+    setSelectedNoteId(note.id);
     setShowBacklinks(false);
     setShowVersions(false);
   };
 
-  const handleContentChange = useCallback((html: string) => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      const note = selectedNoteRef.current;
-      if (note) {
-        updateMutation.mutate({ id: note.id, data: { content: html } });
-      }
-    }, 500);
-  }, [updateMutation]);
+  const selectedNote = selectedNoteRef.current;
 
   return (
     <div className="flex h-[calc(100vh-8rem)] -m-4 md:-m-6">
@@ -174,7 +157,7 @@ function NotesPage() {
                   onClick={() => selectNote(note)}
                   className={cn(
                     "w-full text-left px-3 py-2 rounded-md text-sm transition-colors",
-                    selectedNote?.id === note.id ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                    selectedNoteId === note.id ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
                   )}
                 >
                   <div className="flex items-center gap-2">
@@ -196,7 +179,7 @@ function NotesPage() {
         {selectedNote ? (
           <>
             <div className="flex items-center gap-2 p-3 border-b">
-              <NoteTitleInput noteId={selectedNote.id} initialTitle={selectedNote.title} />
+              <NoteTitleInput key={selectedNote.id} noteId={selectedNote.id} initialTitle={selectedNote.title} />
               <div className="flex items-center gap-1 shrink-0">
                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowBacklinks(!showBacklinks)} aria-label="Backlinks">
                   <LinkIcon className="h-4 w-4" />
@@ -224,7 +207,7 @@ function NotesPage() {
               </div>
             </div>
             <div className="flex-1 overflow-auto">
-              <NoteEditor key={selectedNote?.id || 'none'} initialContent={editorContent} onSave={handleContentChange} />
+              <NoteEditor key={selectedNote.id} initialContent={selectedNote.content || ''} onSave={(html) => { if (selectedNoteRef.current) { updateMutation.mutate({ id: selectedNoteRef.current.id, data: { content: html } }); } }} />
             </div>
             {/* Backlinks section */}
             {showBacklinks && selectedNote.backlinks && selectedNote.backlinks.length > 0 && (
