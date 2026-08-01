@@ -70,6 +70,7 @@ const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { 
     <input
       ref={inputRef}
       defaultValue={initialTitle}
+      onMouseDown={(e) => e.stopPropagation()}
       onBlur={handleBlur}
       autoFocus
       className="flex h-9 w-full rounded-md border-0 bg-transparent px-0 py-1 text-lg font-semibold text-base shadow-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50"
