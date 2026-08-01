@@ -10,6 +10,19 @@ import { taskRoutes } from "./routes/tasks";
 import { habitRoutes } from "./routes/habits";
 import { projectRoutes } from "./routes/projects";
 import { noteRoutes } from "./routes/notes";
+import { searchRoutes } from "./routes/search";
+import { calendarRoutes } from "./routes/calendar";
+import { graphRoutes } from "./routes/graph";
+import { dashboardRoutes } from "./routes/dashboard";
+import { agentRoutes } from "./routes/agents";
+import { webhookRoutes } from "./routes/webhooks";
+import { canvasRoutes } from "./routes/canvas";
+import { dailyNoteRoutes } from "./routes/daily-notes";
+import { tagRoutes } from "./routes/tags";
+import { customFieldRoutes } from "./routes/custom-fields";
+import { errorLogRoutes } from "./routes/error-log";
+import { analyticsRoutes } from "./routes/analytics";
+import { importExportRoutes } from "./routes/import-export";
 import { healthHandler } from "./routes/health";
 
 const app = new Hono();
@@ -32,6 +45,19 @@ app.route("/api/tasks", taskRoutes);
 app.route("/api/habits", habitRoutes);
 app.route("/api/projects", projectRoutes);
 app.route("/api/notes", noteRoutes);
+app.route("/api/search", searchRoutes);
+app.route("/api/calendar", calendarRoutes);
+app.route("/api/graph", graphRoutes);
+app.route("/api/dashboard", dashboardRoutes);
+app.route("/api/agents", agentRoutes);
+app.route("/api/webhooks", webhookRoutes);
+app.route("/api/canvas", canvasRoutes);
+app.route("/api/daily-notes", dailyNoteRoutes);
+app.route("/api/tags", tagRoutes);
+app.route("/api/custom-fields", customFieldRoutes);
+app.route("/api/error-log", errorLogRoutes);
+app.route("/api/analytics", analyticsRoutes);
+app.route("/api", importExportRoutes);
 app.route("/api", realtimeRoutes);
 app.route("/mcp", mcpRoutes);
 
@@ -42,4 +68,4 @@ export default {
   fetch: app.fetch,
 };
 
-console.log(`API server listening on :${port}`);
+console.log("API server listening on :" + port);

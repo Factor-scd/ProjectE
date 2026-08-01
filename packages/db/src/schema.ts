@@ -528,3 +528,280 @@ export const apiKeys = pgTable(
     index('api_keys_active_idx').on(table.active),
   ]
 );
+
+// ── Agents ──────────────────────────────────────────────────────────────────────
+
+export const agents = pgTable(
+  'agents',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    description: text('description'),
+    status: text('status').notNull().default('active'),
+    permissionTier: text('permission_tier').notNull().default('read_only'),
+    customPermissions: text('custom_permissions').array().default([]),
+    apiKey: text('api_key'),
+    lastActiveAt: timestamp('last_active_at', { withTimezone: true }),
+    domainId: uuid('domain_id')
+      .notNull()
+      .references((): any => domains.id, { onDelete: 'cascade' }),
+    tags: text('tags').array().default([]),
+    config: jsonb('config').$type<Record<string, unknown>>().default({}),
+    customFields: jsonb('custom_fields').$type<Record<string, unknown>>().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('agents_domain_id_idx').on(table.domainId),
+    index('agents_status_idx').on(table.status),
+  ]
+);
+
+// ── Agent Activity ──────────────────────────────────────────────────────────────
+
+export const agentActivity = pgTable(
+  'agent_activity',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    agentId: uuid('agent_id')
+      .notNull()
+      .references((): any => agents.id, { onDelete: 'cascade' }),
+    action: text('action').notNull(),
+    entityType: text('entity_type'),
+    entityId: uuid('entity_id'),
+    details: jsonb('details').$type<Record<string, unknown>>().default({}),
+    success: boolean('success').default(true),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('agent_activity_agent_id_idx').on(table.agentId),
+    index('agent_activity_created_at_idx').on(table.createdAt),
+  ]
+);
+
+// ── Agent Tasks ─────────────────────────────────────────────────────────────────
+
+export const agentTasks = pgTable(
+  'agent_tasks',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    agentId: uuid('agent_id')
+      .notNull()
+      .references((): any => agents.id, { onDelete: 'cascade' }),
+    taskType: text('task_type').notNull(),
+    input: jsonb('input').$type<Record<string, unknown>>().default({}),
+    status: text('status').notNull().default('pending'),
+    output: jsonb('output').$type<Record<string, unknown>>(),
+    errorMessage: text('error_message'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('agent_tasks_agent_id_idx').on(table.agentId),
+    index('agent_tasks_status_idx').on(table.status),
+  ]
+);
+
+// ── Canvases ────────────────────────────────────────────────────────────────────
+
+export const canvases = pgTable(
+  'canvases',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    description: text('description'),
+    mode: text('mode').notNull().default('freeform'),
+    domainId: uuid('domain_id')
+      .notNull()
+      .references((): any => domains.id, { onDelete: 'cascade' }),
+    tags: text('tags').array().default([]),
+    viewport: jsonb('viewport').$type<{ x: number; y: number; zoom: number }>().default({ x: 0, y: 0, zoom: 1 }),
+    background: text('background'),
+    customFields: jsonb('custom_fields').$type<Record<string, unknown>>().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('canvases_domain_id_idx').on(table.domainId),
+  ]
+);
+
+// ── Canvas Cards ─────────────────────────────────────────────────────────────────
+
+export const canvasCards = pgTable(
+  'canvas_cards',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    canvasId: uuid('canvas_id')
+      .notNull()
+      .references((): any => canvases.id, { onDelete: 'cascade' }),
+    type: text('type').notNull().default('note'),
+    entityId: uuid('entity_id'),
+    title: text('title'),
+    content: text('content'),
+    x: integer('x').default(0),
+    y: integer('y').default(0),
+    width: integer('width').default(200),
+    height: integer('height').default(150),
+    rotation: integer('rotation').default(0),
+    color: text('color'),
+    zIndex: integer('z_index').default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('canvas_cards_canvas_id_idx').on(table.canvasId),
+  ]
+);
+
+// ── Canvas Connections ───────────────────────────────────────────────────────────
+
+export const canvasConnections = pgTable(
+  'canvas_connections',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    canvasId: uuid('canvas_id')
+      .notNull()
+      .references((): any => canvases.id, { onDelete: 'cascade' }),
+    sourceCardId: uuid('source_card_id')
+      .notNull()
+      .references((): any => canvasCards.id, { onDelete: 'cascade' }),
+    targetCardId: uuid('target_card_id')
+      .notNull()
+      .references((): any => canvasCards.id, { onDelete: 'cascade' }),
+    label: text('label'),
+    style: text('style').notNull().default('solid'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('canvas_connections_canvas_id_idx').on(table.canvasId),
+  ]
+);
+
+// ── Calendar Events ──────────────────────────────────────────────────────────────
+
+export const calendarEvents = pgTable(
+  'calendar_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    title: text('title').notNull(),
+    description: text('description'),
+    startTime: timestamp('start_time', { withTimezone: true }).notNull(),
+    endTime: timestamp('end_time', { withTimezone: true }),
+    allDay: boolean('all_day').default(false),
+    color: text('color'),
+    domainId: uuid('domain_id')
+      .notNull()
+      .references((): any => domains.id, { onDelete: 'cascade' }),
+    entityType: text('entity_type'),
+    entityId: uuid('entity_id'),
+    recurrenceRule: text('recurrence_rule'),
+    customFields: jsonb('custom_fields').$type<Record<string, unknown>>().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('calendar_events_domain_id_idx').on(table.domainId),
+    index('calendar_events_start_time_idx').on(table.startTime),
+    index('calendar_events_end_time_idx').on(table.endTime),
+  ]
+);
+
+// ── Dashboard Widgets ────────────────────────────────────────────────────────────
+
+export const dashboardWidgets = pgTable(
+  'dashboard_widgets',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references((): any => users.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    title: text('title'),
+    config: jsonb('config').$type<Record<string, unknown>>().default({}),
+    layout: jsonb('layout').$type<{ x: number; y: number; w: number; h: number }>().default({ x: 0, y: 0, w: 2, h: 2 }),
+    domainId: uuid('domain_id')
+      .notNull()
+      .references((): any => domains.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('dashboard_widgets_user_id_idx').on(table.userId),
+    index('dashboard_widgets_domain_id_idx').on(table.domainId),
+  ]
+);
+
+// ── Daily Notes ──────────────────────────────────────────────────────────────────
+
+export const dailyNotes = pgTable(
+  'daily_notes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    date: timestamp('date', { withTimezone: true }).notNull(),
+    content: text('content'),
+    domainId: uuid('domain_id')
+      .notNull()
+      .references((): any => domains.id, { onDelete: 'cascade' }),
+    mood: integer('mood'),
+    energy: integer('energy'),
+    customFields: jsonb('custom_fields').$type<Record<string, unknown>>().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('daily_notes_domain_id_idx').on(table.domainId),
+    index('daily_notes_date_idx').on(table.date),
+    uniqueIndex('daily_notes_date_domain_idx').on(table.date, table.domainId),
+  ]
+);
+
+// ── Custom Fields ────────────────────────────────────────────────────────────────
+
+export const customFields = pgTable(
+  'custom_fields',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    type: text('type').notNull().default('text'),
+    entityType: text('entity_type').notNull(),
+    domainId: uuid('domain_id')
+      .notNull()
+      .references((): any => domains.id, { onDelete: 'cascade' }),
+    required: boolean('required').default(false),
+    options: jsonb('options').$type<string[]>().default([]),
+    defaultValue: jsonb('default_value'),
+    sortOrder: integer('sort_order').default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('custom_fields_domain_id_idx').on(table.domainId),
+    index('custom_fields_entity_type_idx').on(table.entityType),
+  ]
+);
+
+// ── Error Logs ───────────────────────────────────────────────────────────────────
+
+export const errorLogs = pgTable(
+  'error_logs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    level: text('level').notNull().default('error'),
+    source: text('source').notNull(),
+    message: text('message').notNull(),
+    stackTrace: text('stack_trace'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+    resolved: boolean('resolved').default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('error_logs_level_idx').on(table.level),
+    index('error_logs_created_at_idx').on(table.createdAt),
+    index('error_logs_resolved_idx').on(table.resolved),
+  ]
+);
