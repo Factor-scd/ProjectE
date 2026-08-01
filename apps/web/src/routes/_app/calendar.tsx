@@ -266,7 +266,6 @@ function CalendarPage() {
           view={view}
           defaultView={isMobile ? Views.AGENDA : Views.MONTH}
           onNavigate={handleNavigate}
-          onView={handleViewChange}
           onSelectEvent={handleSelectEvent}
           onSelectSlot={handleSelectSlot}
           onEventDrop={handleEventDrop}
@@ -277,7 +276,13 @@ function CalendarPage() {
           showMultiDayTimes
           components={{
             event: EventComponent,
-            toolbar: (props: any) => <CustomToolbar {...props} currentView={view} />,
+            toolbar: (props: any) => (
+              <CustomToolbar
+                {...props}
+                currentView={view}
+                onView={(newView: string) => setView(newView)}
+              />
+            ),
           }}
           views={["month", "week", "work_week", "day", "agenda"]}
           step={30}
