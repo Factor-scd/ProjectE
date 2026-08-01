@@ -100,11 +100,35 @@ agentRoutes.post("/", async (c) => {
   }
 });
 
+
+// GET /api/agents/activity — All activity (bare path, no agent filter)
+agentRoutes.get("/activity", async (c) => {
+  try {
+    await requireAuth(c);
+    const items = await db.select()
+      .from(agentActivity)
+      .orderBy(desc(agentActivity.createdAt))
+      .limit(100);
+    return c.json({ items, totalItems: items.length });
+  } catch (error) {
+    if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    console.error("[agents] GET /activity error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to get activity" } }, 500);
+  }
+});
+
+
 // GET /api/agents/:id — Read
 agentRoutes.get("/:id", async (c) => {
   try {
     await requireAuth(c);
     const id = c.req.param("id");
+    // Guard: /:id must be a UUID. Hono matches /:id before /activity when the
+    // param path was registered first; without this guard we get a Postgres
+    // "invalid input syntax for type uuid" 500 on /api/agents/activity.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Agent not found" } }, 404);
+    }
     const [agent] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
     if (!agent) return c.json({ error: { code: "NOT_FOUND", message: "Agent not found" } }, 404);
     return c.json(agent);
@@ -221,22 +245,6 @@ agentRoutes.get("/:id/permissions", async (c) => {
     if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
     console.error("[agents] GET /:id/permissions error:", error);
     return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to get permissions" } }, 500);
-  }
-});
-
-// GET /api/agents/activity — All activity (bare path, no agent filter)
-agentRoutes.get("/activity", async (c) => {
-  try {
-    await requireAuth(c);
-    const items = await db.select()
-      .from(agentActivity)
-      .orderBy(desc(agentActivity.createdAt))
-      .limit(100);
-    return c.json({ items, totalItems: items.length });
-  } catch (error) {
-    if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
-    console.error("[agents] GET /activity error:", error);
-    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to get activity" } }, 500);
   }
 });
 
