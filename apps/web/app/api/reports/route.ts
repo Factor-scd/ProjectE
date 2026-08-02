@@ -4,6 +4,23 @@ import { db, reports } from '@project-e/db';
 import { and, asc, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+// Map Drizzle DB fields to frontend-expected field names
+function mapReport(report: Record<string, any>) {
+  return {
+    id: report.id,
+    title: report.title,
+    content: report.content || '',
+    report_type: report.reportType || report.report_type || 'custom',
+    date_range_start: report.dateRangeStart?.toISOString?.() || report.date_range_start || null,
+    date_range_end: report.dateRangeEnd?.toISOString?.() || report.date_range_end || null,
+    domain: report.domain || 'personal',
+    is_draft: report.isDraft ?? report.is_draft ?? false,
+    created: report.createdAt?.toISOString?.() || report.created || new Date().toISOString(),
+    updated: report.updatedAt?.toISOString?.() || report.updated || new Date().toISOString(),
+  };
+}
+
+
 const createReportSchema = z.object({
   title: z.string().min(1, 'Title is required').default('Untitled report'),
   content: z.string().optional().default(''),
@@ -60,7 +77,7 @@ export const GET = withAuth(async (request: NextRequest, _user) => {
   const totalItems = Number(countResult[0]?.count || 0);
 
   return NextResponse.json({
-    items,
+    items: items.map(mapReport),
     totalItems,
     totalPages: Math.ceil(totalItems / perPage),
     page,
@@ -85,7 +102,7 @@ export const POST = withAuth(async (request: NextRequest, _user) => {
       })
       .returning();
 
-    return NextResponse.json(report, { status: 201 });
+    return NextResponse.json(mapReport(report), { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return createErrorResponse('VALIDATION_ERROR', 'Invalid input', 400, error.issues);

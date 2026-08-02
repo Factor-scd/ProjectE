@@ -4,6 +4,22 @@ import { db, reports } from '@project-e/db';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+function mapReport(report: Record<string, any>) {
+  return {
+    id: report.id,
+    title: report.title,
+    content: report.content || '',
+    report_type: report.reportType || report.report_type || 'custom',
+    date_range_start: report.dateRangeStart?.toISOString?.() || report.date_range_start || null,
+    date_range_end: report.dateRangeEnd?.toISOString?.() || report.date_range_end || null,
+    domain: report.domain || 'personal',
+    is_draft: report.isDraft ?? report.is_draft ?? false,
+    created: report.createdAt?.toISOString?.() || report.created || new Date().toISOString(),
+    updated: report.updatedAt?.toISOString?.() || report.updated || new Date().toISOString(),
+  };
+}
+
+
 const updateReportSchema = z.object({
   title: z.string().min(1, 'Title is required').optional(),
   content: z.string().optional(),
@@ -29,7 +45,7 @@ export const GET = withAuth<RouteContext>(async (request: NextRequest, _user, co
     return createErrorResponse('NOT_FOUND', 'Report not found', 404);
   }
 
-  return NextResponse.json(report);
+  return NextResponse.json(mapReport(report));
 });
 
 // PATCH /api/reports/[id] — Update a report
@@ -58,7 +74,7 @@ export const PATCH = withAuth<RouteContext>(async (request: NextRequest, _user, 
       return createErrorResponse('NOT_FOUND', 'Report not found', 404);
     }
 
-    return NextResponse.json(report);
+    return NextResponse.json(mapReport(report));
   } catch (error) {
     if (error instanceof z.ZodError) {
       return createErrorResponse('VALIDATION_ERROR', 'Invalid input', 400, error.issues);
