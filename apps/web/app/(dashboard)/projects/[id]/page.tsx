@@ -2,10 +2,16 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { Plus, ArrowLeft, GripVertical, MoreHorizontal } from "lucide-react";
+import { Plus, ArrowLeft, GripVertical, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { SectionDialog } from "@/components/projects/section-dialog";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -66,12 +72,17 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [sectionDialogOpen, setSectionDialogOpen] = useState(false);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [editingSection, setEditingSection] = useState<Section | null>(null);
+  const [editSectionName, setEditSectionName] = useState("");
+  const [editSectionKind, setEditSectionKind] = useState<"section" | "milestone">("section");
+  const [editSectionStatus, setEditSectionStatus] = useState<"planned" | "in_progress" | "complete">("planned");
+  const [editSectionSaving, setEditSectionSaving] = useState(false);
+  const [deleteSectionId, setDeleteSectionId] = useState<string | null>(null);
+  const [deleteSectionDeleting, setDeleteSectionDeleting] = useState(false);
 
-  // Extract domainId from the project data
   const fetchProject = useCallback(async () => {
     setLoading(true);
     try {
-      // We need to find the domain first — use the first domain
       const domainsRes = await fetch('/api/domains?sort=sort_order');
       const domainsData = await domainsRes.json();
       const firstDomain = domainsData.items?.[0];
@@ -80,7 +91,6 @@ export default function ProjectDetailPage() {
         return;
       }
       setDomainId(firstDomain.id);
-
       const res = await fetch(`/api/domains/${firstDomain.id}/projects/${projectId}`);
       if (!res.ok) throw new Error('Not found');
       const data = await res.json();
@@ -111,6 +121,58 @@ export default function ProjectDetailPage() {
     }
   };
 
+  // Edit section
+  const handleEditSection = async () => {
+    if (!editingSection || !editSectionName.trim() || !domainId) return;
+    setEditSectionSaving(true);
+    try {
+      const res = await fetch(`/api/domains/${domainId}/projects/${projectId}/sections/${editingSection.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editSectionName.trim(),
+          kind: editSectionKind,
+          status: editSectionStatus,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to update section');
+      toast.success('Section updated');
+      setEditingSection(null);
+      fetchProject();
+    } catch {
+      toast.error('Failed to update section');
+    } finally {
+      setEditSectionSaving(false);
+    }
+  };
+
+  // Delete section
+  const handleDeleteSection = async () => {
+    if (!deleteSectionId || !domainId) return;
+    setDeleteSectionDeleting(true);
+    try {
+      const res = await fetch(`/api/domains/${domainId}/projects/${projectId}/sections/${deleteSectionId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error('Failed to delete section');
+      toast.success('Section deleted');
+      setDeleteSectionId(null);
+      fetchProject();
+    } catch {
+      toast.error('Failed to delete section');
+    } finally {
+      setDeleteSectionDeleting(false);
+    }
+  };
+
+  // Open edit section dialog
+  const openEditSection = (section: Section) => {
+    setEditSectionName(section.name);
+    setEditSectionKind(section.kind);
+    setEditSectionStatus(section.status);
+    setEditingSection(section);
+  };
+
   // Listen for custom event to open section dialog
   useEffect(() => {
     const handler = () => setSectionDialogOpen(true);
@@ -133,7 +195,6 @@ export default function ProjectDetailPage() {
     );
   }
 
-  // Group tasks by section
   const tasksBySection = new Map<string | 'unsectioned', Task[]>();
   tasksBySection.set('unsectioned', []);
   for (const section of project.sections) {
@@ -239,9 +300,26 @@ export default function ProjectDetailPage() {
                   <Badge variant="outline" className="text-xs">Milestone</Badge>
                 )}
               </div>
-              <span className="text-xs text-muted-foreground">
-                {(tasksBySection.get(section.id) || []).length}
-              </span>
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-muted-foreground">
+                  {(tasksBySection.get(section.id) || []).length}
+                </span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-6 w-6">
+                      <MoreHorizontal className="h-3 w-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => openEditSection(section)}>
+                      <Pencil className="mr-2 h-4 w-4" /> Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="text-destructive" onClick={() => setDeleteSectionId(section.id)}>
+                      <Trash2 className="mr-2 h-4 w-4" /> Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
             <div
               className="space-y-2 min-h-[100px]"
@@ -297,6 +375,71 @@ export default function ProjectDetailPage() {
         domainId={domainId || ''}
         onCreated={fetchProject}
       />
+
+      {/* Edit Section Dialog */}
+      <Dialog open={!!editingSection} onOpenChange={(open) => { if (!open) setEditingSection(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit section</DialogTitle>
+            <DialogDescription>Update section details.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-section-name">Name</Label>
+              <Input id="edit-section-name" value={editSectionName} onChange={(e) => setEditSectionName(e.target.value)} autoFocus required />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-section-kind">Kind</Label>
+                <Select value={editSectionKind} onValueChange={(v: any) => setEditSectionKind(v)}>
+                  <SelectTrigger id="edit-section-kind">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="section">Section</SelectItem>
+                    <SelectItem value="milestone">Milestone</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-section-status">Status</Label>
+                <Select value={editSectionStatus} onValueChange={(v: any) => setEditSectionStatus(v)}>
+                  <SelectTrigger id="edit-section-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="planned">Planned</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="complete">Complete</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingSection(null)}>Cancel</Button>
+            <Button onClick={handleEditSection} disabled={editSectionSaving || !editSectionName.trim()}>
+              {editSectionSaving ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Section Confirmation */}
+      <AlertDialog open={!!deleteSectionId} onOpenChange={(open) => { if (!open) setDeleteSectionId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete section?</AlertDialogTitle>
+            <AlertDialogDescription>This cannot be undone. Tasks in this section will become unassigned.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteSectionDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteSection} disabled={deleteSectionDeleting}>
+              {deleteSectionDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

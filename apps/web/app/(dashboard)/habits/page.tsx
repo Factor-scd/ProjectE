@@ -1,9 +1,16 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, CheckCircle2, Circle, MoreHorizontal, Flame, Filter } from "lucide-react";
+import { Plus, CheckCircle2, Circle, MoreHorizontal, Flame, Filter, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { HabitCreateDialog } from "@/components/habits/habit-create-dialog";
 import { HabitCompletionDialog } from "@/components/habits/habit-completion-dialog";
 import { HabitCalendarHeatmap } from "@/components/habits/habit-calendar-heatmap";
@@ -40,6 +47,15 @@ export default function HabitsPage() {
   const [expandedHabit, setExpandedHabit] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
+  const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editFrequency, setEditFrequency] = useState<"daily" | "weekly" | "custom">("daily");
+  const [editDifficulty, setEditDifficulty] = useState<"easy" | "medium" | "hard">("medium");
+  const [editGoalPerPeriod, setEditGoalPerPeriod] = useState(1);
+  const [saving, setSaving] = useState(false);
+  const [deleteHabitId, setDeleteHabitId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Fetch domains
   useEffect(() => {
@@ -90,6 +106,60 @@ export default function HabitsPage() {
     } catch {
       toast.error('Failed to complete habit');
     }
+  };
+
+  // Edit a habit
+  const handleEdit = async () => {
+    if (!editingHabit || !editName.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/habits/${editingHabit.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editName.trim(),
+          description: editDescription || null,
+          frequency: editFrequency,
+          difficulty: editDifficulty,
+          goalPerPeriod: editGoalPerPeriod,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to update');
+      toast.success('Habit updated');
+      setEditingHabit(null);
+      fetchHabits();
+    } catch {
+      toast.error('Failed to update habit');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Delete a habit
+  const handleDelete = async () => {
+    if (!deleteHabitId) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/habits/${deleteHabitId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete');
+      toast.success('Habit deleted');
+      setDeleteHabitId(null);
+      fetchHabits();
+    } catch {
+      toast.error('Failed to delete habit');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Open edit dialog with habit data
+  const openEdit = (habit: Habit) => {
+    setEditName(habit.name);
+    setEditDescription(habit.description || "");
+    setEditFrequency(habit.frequency);
+    setEditDifficulty(habit.difficulty);
+    setEditGoalPerPeriod(habit.goalPerPeriod || 1);
+    setEditingHabit(habit);
   };
 
   // Listen for custom event to open create dialog
@@ -188,13 +258,27 @@ export default function HabitsPage() {
                     <Flame className="h-4 w-4 text-orange-500" aria-hidden="true" />
                     <span className="font-semibold">{habit.streakCount}</span>
                   </div>
-                  <button
-                    onClick={() => setCompletionHabit(habit)}
-                    className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                    aria-label={`Log ${habit.name} with details`}
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                        aria-label={`Options for ${habit.name}`}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => openEdit(habit)}>
+                        <Pencil className="mr-2 h-4 w-4" /> Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setCompletionHabit(habit)}>
+                        <CheckCircle2 className="mr-2 h-4 w-4" /> Log details
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="text-destructive" onClick={() => setDeleteHabitId(habit.id)}>
+                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <button
                     onClick={() => setExpandedHabit(expandedHabit === habit.id ? null : habit.id)}
                     className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -232,6 +316,80 @@ export default function HabitsPage() {
           }}
         />
       )}
+
+      {/* Edit Habit Dialog */}
+      <Dialog open={!!editingHabit} onOpenChange={(open) => { if (!open) setEditingHabit(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit habit</DialogTitle>
+            <DialogDescription>Update your habit details.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-habit-name">Name</Label>
+              <Input id="edit-habit-name" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus required />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-habit-description">Description</Label>
+              <Textarea id="edit-habit-description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-habit-frequency">Frequency</Label>
+                <Select value={editFrequency} onValueChange={(v: "daily" | "weekly" | "custom") => setEditFrequency(v)}>
+                  <SelectTrigger id="edit-habit-frequency">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-habit-difficulty">Difficulty</Label>
+                <Select value={editDifficulty} onValueChange={(v: "easy" | "medium" | "hard") => setEditDifficulty(v)}>
+                  <SelectTrigger id="edit-habit-difficulty">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="easy">Easy</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="hard">Hard</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-habit-goal">Goal per period</Label>
+              <Input id="edit-habit-goal" type="number" min="1" value={editGoalPerPeriod} onChange={(e) => setEditGoalPerPeriod(parseInt(e.target.value) || 1)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingHabit(null)}>Cancel</Button>
+            <Button onClick={handleEdit} disabled={saving || !editName.trim()}>
+              {saving ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Habit Confirmation */}
+      <AlertDialog open={!!deleteHabitId} onOpenChange={(open) => { if (!open) setDeleteHabitId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete habit?</AlertDialogTitle>
+            <AlertDialogDescription>This cannot be undone. The habit and all its completion history will be permanently deleted.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={deleting}>
+              {deleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
