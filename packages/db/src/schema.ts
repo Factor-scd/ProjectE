@@ -506,6 +506,32 @@ export const webhookDeliveries = pgTable(
 
 // ── API Keys ─────────────────────────────────────────────────────────────────────
 
+
+
+// ── Reports ──────────────────────────────────────────────────────────────────
+
+export const reports = pgTable(
+  'reports',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    title: text('title').notNull().default('Untitled report'),
+    content: text('content'),
+    reportType: text('report_type').notNull().default('custom'),
+    dateRangeStart: timestamp('date_range_start', { withTimezone: true }),
+    dateRangeEnd: timestamp('date_range_end', { withTimezone: true }),
+    domain: text('domain').notNull().default('personal'),
+    projectId: uuid('project_id').references((): any => projects.id, { onDelete: 'set null' }),
+    isDraft: boolean('is_draft').default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('reports_domain_idx').on(table.domain),
+    index('reports_type_idx').on(table.reportType),
+    index('reports_created_at_idx').on(table.createdAt),
+  ]
+);
+
 export const apiKeys = pgTable(
   'api_keys',
   {

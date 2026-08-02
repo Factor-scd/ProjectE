@@ -1,7 +1,8 @@
 'use client';
 
 import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
+import StarterKitRaw from '@tiptap/starter-kit';
+const StarterKit = StarterKitRaw as any;
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import { useEffect } from 'react';
@@ -90,14 +91,14 @@ export function ReportEditor({ content, onChange, onBlur }: ReportEditorProps) {
       {/* Toolbar */}
       <div className="mb-4 flex flex-wrap gap-1 border-b pb-2">
         <ToolbarButton
-          onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+          onClick={() => (editor.chain().focus() as any).toggleHeading({ level: 1 }).run()}
           active={editor.isActive('heading', { level: 1 })}
           label="Heading 1"
         >
           <Heading1 className="h-4 w-4" />
         </ToolbarButton>
         <ToolbarButton
-          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+          onClick={() => (editor.chain().focus() as any).toggleHeading({ level: 2 }).run()}
           active={editor.isActive('heading', { level: 2 })}
           label="Heading 2"
         >
@@ -105,28 +106,28 @@ export function ReportEditor({ content, onChange, onBlur }: ReportEditorProps) {
         </ToolbarButton>
         <div className="mx-1 w-px bg-border" />
         <ToolbarButton
-          onClick={() => editor.chain().focus().toggleBold().run()}
+          onClick={() => (editor.chain().focus() as any).toggleBold().run()}
           active={editor.isActive('bold')}
           label="Bold"
         >
           <Bold className="h-4 w-4" />
         </ToolbarButton>
         <ToolbarButton
-          onClick={() => editor.chain().focus().toggleItalic().run()}
+          onClick={() => (editor.chain().focus() as any).toggleItalic().run()}
           active={editor.isActive('italic')}
           label="Italic"
         >
           <Italic className="h-4 w-4" />
         </ToolbarButton>
         <ToolbarButton
-          onClick={() => editor.chain().focus().toggleStrike().run()}
+          onClick={() => (editor.chain().focus() as any).toggleStrike().run()}
           active={editor.isActive('strike')}
           label="Strikethrough"
         >
           <Strikethrough className="h-4 w-4" />
         </ToolbarButton>
         <ToolbarButton
-          onClick={() => editor.chain().focus().toggleCode().run()}
+          onClick={() => (editor.chain().focus() as any).toggleCode().run()}
           active={editor.isActive('code')}
           label="Code"
         >
@@ -134,21 +135,21 @@ export function ReportEditor({ content, onChange, onBlur }: ReportEditorProps) {
         </ToolbarButton>
         <div className="mx-1 w-px bg-border" />
         <ToolbarButton
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
+          onClick={() => (editor.chain().focus() as any).toggleBulletList().run()}
           active={editor.isActive('bulletList')}
           label="Bullet list"
         >
           <List className="h-4 w-4" />
         </ToolbarButton>
         <ToolbarButton
-          onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          onClick={() => (editor.chain().focus() as any).toggleOrderedList().run()}
           active={editor.isActive('orderedList')}
           label="Ordered list"
         >
           <ListOrdered className="h-4 w-4" />
         </ToolbarButton>
         <ToolbarButton
-          onClick={() => editor.chain().focus().toggleBlockquote().run()}
+          onClick={() => (editor.chain().focus() as any).toggleBlockquote().run()}
           active={editor.isActive('blockquote')}
           label="Blockquote"
         >
@@ -156,14 +157,14 @@ export function ReportEditor({ content, onChange, onBlur }: ReportEditorProps) {
         </ToolbarButton>
         <div className="mx-1 w-px bg-border" />
         <ToolbarButton
-          onClick={() => editor.chain().focus().undo().run()}
+          onClick={() => (editor.chain().focus() as any).undo().run()}
           disabled={!editor.can().undo()}
           label="Undo"
         >
           <Undo className="h-4 w-4" />
         </ToolbarButton>
         <ToolbarButton
-          onClick={() => editor.chain().focus().redo().run()}
+          onClick={() => (editor.chain().focus() as any).redo().run()}
           disabled={!editor.can().redo()}
           label="Redo"
         >

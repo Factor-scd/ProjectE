@@ -1,13 +1,18 @@
-// AGENT INSTRUCTION: After every write (INSERT/UPDATE/DELETE), you MUST:
-// 1. Insert activity feed entry
-// 2. Call pg.notify('project_e_events', JSON.stringify({ type, action, id, workspace_id }))
-// See AGENTS.md for full rules.
-
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, createErrorResponse } from '@/lib/auth';
-import { createPocketBaseClient } from '@/lib/pocketbase';
-import { updateReportSchema } from '@project-e/shared';
+import { db, reports } from '@project-e/db';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+
+const updateReportSchema = z.object({
+  title: z.string().min(1, 'Title is required').optional(),
+  content: z.string().optional(),
+  report_type: z.enum(['weekly', 'monthly', 'project', 'habit', 'custom']).optional(),
+  date_range_start: z.string().optional(),
+  date_range_end: z.string().optional(),
+  domain: z.string().optional(),
+  is_draft: z.boolean().optional(),
+});
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -15,8 +20,14 @@ type RouteContext = { params: Promise<{ id: string }> };
 export const GET = withAuth<RouteContext>(async (request: NextRequest, _user, context) => {
   const { id } = await context!.params;
 
-  const pb = createPocketBaseClient();
-  const report = await pb.collection('reports').getOne(id);
+  const [report] = await db.select()
+    .from(reports)
+    .where(eq(reports.id, id))
+    .limit(1);
+
+  if (!report) {
+    return createErrorResponse('NOT_FOUND', 'Report not found', 404);
+  }
 
   return NextResponse.json(report);
 });
@@ -28,8 +39,24 @@ export const PATCH = withAuth<RouteContext>(async (request: NextRequest, _user, 
     const body = await request.json();
     const data = updateReportSchema.parse(body);
 
-    const pb = createPocketBaseClient();
-    const report = await pb.collection('reports').update(id, data);
+    const updateValues: Record<string, any> = {};
+    if (data.title !== undefined) updateValues.title = data.title;
+    if (data.content !== undefined) updateValues.content = data.content;
+    if (data.report_type !== undefined) updateValues.reportType = data.report_type;
+    if (data.date_range_start !== undefined) updateValues.dateRangeStart = new Date(data.date_range_start);
+    if (data.date_range_end !== undefined) updateValues.dateRangeEnd = new Date(data.date_range_end);
+    if (data.domain !== undefined) updateValues.domain = data.domain;
+    if (data.is_draft !== undefined) updateValues.isDraft = data.is_draft;
+    updateValues.updatedAt = new Date();
+
+    const [report] = await db.update(reports)
+      .set(updateValues)
+      .where(eq(reports.id, id))
+      .returning();
+
+    if (!report) {
+      return createErrorResponse('NOT_FOUND', 'Report not found', 404);
+    }
 
     return NextResponse.json(report);
   } catch (error) {
@@ -44,8 +71,13 @@ export const PATCH = withAuth<RouteContext>(async (request: NextRequest, _user, 
 export const DELETE = withAuth<RouteContext>(async (request: NextRequest, _user, context) => {
   const { id } = await context!.params;
 
-  const pb = createPocketBaseClient();
-  await pb.collection('reports').delete(id);
+  const [deleted] = await db.delete(reports)
+    .where(eq(reports.id, id))
+    .returning({ id: reports.id });
+
+  if (!deleted) {
+    return createErrorResponse('NOT_FOUND', 'Report not found', 404);
+  }
 
   return new NextResponse(null, { status: 204 });
 });
