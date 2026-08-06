@@ -1,5 +1,5 @@
 import { db, jobs, webhooks, webhookDeliveries, scheduledJobs, tasks, habits, habitCompletions } from '@project-e/db';
-import { and, eq, lte, isNull, sql } from 'drizzle-orm';
+import { and, eq, lte, isNull, or } from 'drizzle-orm';
 import { createHmac } from 'node:crypto';
 import rrule from 'rrule';
 const { RRule } = rrule;
@@ -21,12 +21,13 @@ async function poll(): Promise<void> {
   try {
     const now = new Date();
 
-    // Get pending jobs that are due
+    // Get pending jobs that are due.
+    // nextRetryAt is NULL for freshly-queued jobs, which are due immediately.
     const pendingJobs = await db.select()
       .from(jobs)
       .where(and(
         eq(jobs.status, 'pending'),
-        lte(jobs.nextRetryAt ?? sql`now()`, now),
+        or(isNull(jobs.nextRetryAt), lte(jobs.nextRetryAt, now)),
       ))
       .orderBy(jobs.createdAt)
       .limit(10);
@@ -90,8 +91,9 @@ async function processJob(job: typeof jobs.$inferSelect): Promise<void> {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const attempts = (job.attempts || 0) + 1;
+    const maxAttempts = job.maxAttempts || MAX_RETRIES;
 
-    if (attempts >= MAX_RETRIES) {
+    if (attempts >= maxAttempts) {
       // Max retries reached — mark as failed
       await db.update(jobs)
         .set({
