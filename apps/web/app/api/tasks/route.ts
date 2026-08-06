@@ -34,6 +34,7 @@ export const GET = withAuth(async (request: NextRequest, _user) => {
   const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
   const perPage = Math.min(100, Math.max(1, parseInt(searchParams.get('perPage') || '50')));
   const filter = searchParams.get('filter') || undefined;
+  const status = searchParams.get('status');
   const sort = searchParams.get('sort') || '-created';
   const domainId = searchParams.get('domain') || undefined;
 
@@ -54,6 +55,10 @@ export const GET = withAuth(async (request: NextRequest, _user) => {
 
   const conditions: any[] = [isNull(tasks.deletedAt)];
   if (domainId) conditions.push(eq(tasks.domainId, domainId));
+  if (status) {
+    const statuses = status.split(',');
+    conditions.push(inArray(tasks.status, statuses as any));
+  }
   if (filter) {
     conditions.push(
       or(

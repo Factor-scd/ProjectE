@@ -12,7 +12,8 @@ interface Task {
   title: string;
   status: string;
   priority: string;
-  domain: string;
+  domainId?: string;
+  domain?: string;
 }
 
 interface Domain { id: string; name: string; color: string; }
@@ -43,7 +44,7 @@ export function TodayTasksWidget() {
   async function fetchTasks() {
     try {
       const response = await fetch(
-        '/api/tasks?filter=status!%3D%22done%22&perPage=5&sort=-priority'
+        '/api/tasks?status=todo,in_progress&perPage=5&sort=-priority'
       );
       if (response.ok) {
         const data = await response.json();
@@ -115,7 +116,7 @@ export function TodayTasksWidget() {
                   {task.title}
                 </span>
                 <Badge variant="outline" className="text-xs">
-                  {domainMap.get(task.domain) || task.domain}
+                  {domainMap.get(task.domainId ?? task.domain ?? '') || task.domainId || task.domain}
                 </Badge>
               </div>
             ))}
