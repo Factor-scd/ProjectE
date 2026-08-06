@@ -60,7 +60,7 @@ export async function getGraphData(domainId: string): Promise<GraphData> {
   }
 
   // Fetch all entities in this domain
-  const projectIds = (await db.select({ id: projects.id }).from(projects).where(eq(projects.domainId, domainId))).map(p => p.id);
+  const projectIds = (await db.select({ id: projects.id }).from(projects).where(and(eq(projects.domainId, domainId), isNull(projects.deletedAt)))).map(p => p.id);
   const [noteRows, taskRows, habitRows, projectRows, sectionRows, tagRows, domainRows] = await Promise.all([
     db.select({ id: notes.id, title: notes.title }).from(notes).where(and(eq(notes.domainId, domainId), isNull(notes.deletedAt))),
     db.select({ id: tasks.id, title: tasks.title, projectId: tasks.projectId }).from(tasks).where(and(eq(tasks.domainId, domainId), isNull(tasks.deletedAt))),
