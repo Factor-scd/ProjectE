@@ -1,4 +1,4 @@
-import { createAdminClient } from '../pocketbase';
+import { createAdminClient, createPocketBaseClient } from '../pocketbase';
 import type {
   Task,
   Habit,
@@ -46,7 +46,7 @@ export async function generateWeeklySummary(
   streaks: Array<{ name: string; streak: number }>;
   byDomain: Record<string, { tasks: number; habits: number }>;
 }> {
-  const pb = token ? createAdminClient() : createAdminClient();
+  const pb = token ? createPocketBaseClient(token) : createAdminClient();
 
   // Tasks completed this week
   const taskResults = await pb.collection('tasks').getFullList({
@@ -112,7 +112,7 @@ export async function generateProjectHealth(
   milestoneStatus: Record<string, number>;
   completionRate: number;
 }> {
-  const pb = token ? createAdminClient() : createAdminClient();
+  const pb = token ? createPocketBaseClient(token) : createAdminClient();
 
   const taskResults = await pb.collection('tasks').getFullList({
     filter: `project_id = "${projectId}"`,
@@ -169,7 +169,7 @@ export async function generateHabitAnalysis(
   }>;
   atRiskHabits: string[];
 }> {
-  const pb = token ? createAdminClient() : createAdminClient();
+  const pb = token ? createPocketBaseClient(token) : createAdminClient();
 
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
@@ -225,7 +225,7 @@ export async function generateTimeAudit(
   byProject: Record<string, number>;
   byTag: Record<string, number>;
 }> {
-  const pb = token ? createAdminClient() : createAdminClient();
+  const pb = token ? createPocketBaseClient(token) : createAdminClient();
 
   const entryResults = await pb.collection('time_entries').getFullList({
     filter: `started_at >= "${startDate}" && started_at <= "${endDate}"`,
