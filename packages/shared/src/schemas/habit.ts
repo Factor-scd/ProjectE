@@ -62,7 +62,7 @@ export const habitSchema = z.object({
   score_config: habitScoreConfigSchema.optional(),
   active: z.boolean().default(true),
   tags: z.array(z.string()).default([]),
-  custom_fields: z.record(z.unknown()).optional(),
+  custom_fields: z.record(z.string(), z.unknown()).optional(),
   created: z.string().datetime(),
   updated: z.string().datetime(),
 });

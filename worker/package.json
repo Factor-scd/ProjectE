@@ -1,5 +1,5 @@
 {
-  "name": "@project-e/worker",
+  "name": "@project-e/worker-legacy",
   "version": "0.1.0",
   "private": true,
   "type": "module",
