@@ -17,8 +17,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { useThemeStore } from "@/lib/stores/use-theme-store";
 import { cn } from "@/lib/utils";
+import { useThemeStore, ACCENT_PALETTE, type ThemeMode, type AccentColor } from "@/lib/stores/use-theme-store";
 import type { Domain, CustomField, Webhook as WebhookType, ErrorLog, Agent, PaginatedResponse } from "@/lib/types";
 
 const SETTINGS_TABS = [
@@ -33,13 +33,10 @@ const SETTINGS_TABS = [
   { id: "error-log", label: "Error Log", icon: AlertCircle },
 ] as const;
 
-const ACCENT_COLORS = [
-  { name: "Blue", value: "#3b82f6" },
-  { name: "Green", value: "#22c55e" },
-  { name: "Purple", value: "#a855f7" },
-  { name: "Orange", value: "#f97316" },
-  { name: "Rose", value: "#e11d48" },
-];
+const ACCENT_COLORS = Object.entries(ACCENT_PALETTE).map(([key, val]) => ({
+  name: val.name,
+  value: key as AccentColor,
+}));
 
 const SHORTCUTS_MAP: Record<string, string> = {
   "Cmd+K": "Command palette",
@@ -58,14 +55,12 @@ const SHORTCUTS_MAP: Record<string, string> = {
 // ─── Appearance Tab ──────────────────────────────────────────────────────
 
 function AppearanceTab() {
-  const { mode, setMode } = useThemeStore();
-  const [accent, setAccent] = useState(localStorage.getItem("accent-color") || "#3b82f6");
+  const { mode, setMode, accent, setAccent } = useThemeStore();
   const [fontSize, setFontSize] = useState(localStorage.getItem("font-size") || "normal");
   const [density, setDensity] = useState(localStorage.getItem("density") || "comfortable");
   const [sidebarPos, setSidebarPos] = useState(localStorage.getItem("sidebar-position") || "left");
   const [reducedMotion, setReducedMotion] = useState(localStorage.getItem("reduced-motion") === "true");
 
-  useEffect(() => { localStorage.setItem("accent-color", accent); document.documentElement.style.setProperty("--accent-color", accent); }, [accent]);
   useEffect(() => { localStorage.setItem("font-size", fontSize); document.documentElement.style.fontSize = fontSize === "large" ? "18px" : fontSize === "small" ? "13px" : "16px"; }, [fontSize]);
   useEffect(() => { localStorage.setItem("density", density); }, [density]);
   useEffect(() => { localStorage.setItem("sidebar-position", sidebarPos); }, [sidebarPos]);
@@ -81,7 +76,7 @@ function AppearanceTab() {
             { id: "dark", icon: Moon, label: "Dark" },
             { id: "system", icon: Monitor, label: "System" },
           ].map((t) => (
-            <button key={t.id} onClick={() => setMode(t.id as "light" | "dark" | "system")}
+            <button key={t.id} onClick={() => setMode(t.id as ThemeMode)}
               className={cn("flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-colors", mode === t.id ? "border-primary bg-primary/5" : "border-muted hover:border-muted-foreground/30")}>
               <t.icon className="h-6 w-6" />
               <span className="text-xs font-medium">{t.label}</span>
@@ -93,11 +88,14 @@ function AppearanceTab() {
       <div>
         <h3 className="text-lg font-semibold mb-3">Accent Color</h3>
         <div className="flex gap-3">
-          {ACCENT_COLORS.map((c) => (
-            <button key={c.value} onClick={() => setAccent(c.value)}
-              className={cn("w-10 h-10 rounded-full border-2 transition-all", accent === c.value ? "border-foreground scale-110" : "border-transparent")}
-              style={{ backgroundColor: c.value }} aria-label={c.name} />
-          ))}
+          {ACCENT_COLORS.map((c) => {
+            const palette = ACCENT_PALETTE[c.value];
+            return (
+              <button key={c.value} onClick={() => setAccent(c.value)}
+                className={cn("w-10 h-10 rounded-full border-2 transition-all", accent === c.value ? "border-foreground scale-110" : "border-transparent")}
+                style={{ backgroundColor: "hsl(" + palette.hsl + ")" }} aria-label={c.name} />
+            );
+          })}
         </div>
       </div>
       <Separator />
@@ -146,8 +144,6 @@ function AppearanceTab() {
     </div>
   );
 }
-
-// ─── Domains Tab ─────────────────────────────────────────────────────────
 
 function DomainsTab() {
   const queryClient = useQueryClient();

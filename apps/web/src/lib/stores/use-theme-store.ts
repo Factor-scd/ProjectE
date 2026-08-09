@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type ThemeMode = "light" | "dark" | "system";
-export type AccentColor = "slate" | "blue" | "green" | "purple" | "orange";
+export type AccentColor = "slate" | "blue" | "green" | "purple" | "orange" | "rose";
 
 interface ThemeState {
   mode: ThemeMode;
@@ -18,6 +18,7 @@ export const ACCENT_PALETTE: Record<AccentColor, { name: string; hsl: string }> 
   green: { name: "Green", hsl: "142 71% 45%" },
   purple: { name: "Purple", hsl: "271 81% 56%" },
   orange: { name: "Orange", hsl: "24 95% 53%" },
+  rose: { name: "Rose", hsl: "340 82% 52%" },
 };
 
 export const useThemeStore = create<ThemeState>()(
