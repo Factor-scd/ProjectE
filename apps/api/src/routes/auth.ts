@@ -1,11 +1,16 @@
 import { Hono } from "hono";
-import { setCookie } from "hono/cookie";
+import { deleteCookie, setCookie } from "hono/cookie";
 import bcrypt from "bcryptjs";
 import { db, users } from "@project-e/db";
 import { count, eq } from "drizzle-orm";
-import { createToken, requireAuth, createErrorResponse, AuthError } from "../middleware/auth";
+import { createToken } from "../middleware/auth";
 
 export const authRoutes = new Hono();
+
+// NOTE: Passkeys are intentionally NOT implemented. The legacy passkey routes were
+// removed because they issued a session without verifying the WebAuthn signature
+// (an authentication bypass). Do not re-add passkey endpoints without full
+// WebAuthn challenge/attestation verification.
 
 // POST /api/auth/credentials — Login with email + password
 authRoutes.post("/credentials", async (c) => {
@@ -67,6 +72,12 @@ authRoutes.get("/session", async (c) => {
   }
 });
 
+// POST /api/auth/logout — Clear the session cookie
+authRoutes.post("/logout", (c) => {
+  deleteCookie(c, "session", { path: "/" });
+  return c.json({ success: true });
+});
+
 // GET /api/auth/me — Return current user profile
 authRoutes.get("/me", async (c) => {
   try {
@@ -77,77 +88,5 @@ authRoutes.get("/me", async (c) => {
     return c.json({ user });
   } catch {
     return c.json({ error: { code: "AUTH_ERROR", message: "Invalid or expired token" } }, 401);
-  }
-});
-
-// POST /api/auth/passkey/register — Register a passkey
-authRoutes.post("/passkey/register", async (c) => {
-  try {
-    const user = c.get("user");
-    if (!user) {
-      return c.json({ error: { code: "UNAUTHORIZED", message: "Not authenticated" } }, 401);
-    }
-
-    const body = await c.req.json();
-    const { credentialId, publicKey, counter } = body;
-
-    if (!credentialId || !publicKey) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "credentialId and publicKey are required" } }, 400);
-    }
-
-    await db
-      .update(users)
-      .set({
-        passkeyCredentialId: credentialId,
-        passkeyPublicKey: publicKey,
-        passkeyCounter: counter ?? 0,
-      })
-      .where(eq(users.id, user.id));
-
-    return c.json({ success: true });
-  } catch (error) {
-    console.error("[passkey/register] error:", error);
-    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to register passkey" } }, 500);
-  }
-});
-
-// POST /api/auth/passkey/authenticate — Verify passkey login
-authRoutes.post("/passkey/authenticate", async (c) => {
-  try {
-    const body = await c.req.json();
-    const { credentialId, signature, authenticatorData, clientDataJSON } = body;
-
-    if (!credentialId || !signature) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "credentialId and signature are required" } }, 400);
-    }
-
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.passkeyCredentialId, credentialId))
-      .limit(1);
-
-    if (!user) {
-      return c.json({ error: { code: "UNAUTHORIZED", message: "Passkey not found" } }, 401);
-    }
-    const token = await createToken({ id: user.id, email: user.email, name: user.name });
-    setCookie(c, "session", token, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "Lax",
-      path: "/",
-      maxAge: 30 * 24 * 60 * 60,
-    });
-
-    return c.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-      },
-    });
-  } catch (error) {
-    console.error("[passkey/authenticate] error:", error);
-    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to verify passkey" } }, 500);
   }
 });

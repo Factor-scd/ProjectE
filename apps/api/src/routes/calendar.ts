@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, calendarEvents } from "@project-e/db";
 import { and, asc, desc, eq, gte, lte, isNull } from "drizzle-orm";
-import { requireAuth, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { requireAuth, createErrorResponse, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { z } from "zod";
 
@@ -46,6 +46,7 @@ calendarRoutes.get("/events", async (c) => {
       const active = await resolveActiveDomain(user);
       domainId = active.id;
     }
+    await requireWorkspaceAccess(c, domainId);
 
     const conditions: any[] = [eq(calendarEvents.domainId, domainId)];
     if (from) conditions.push(gte(calendarEvents.startTime, new Date(from)));
@@ -75,6 +76,8 @@ calendarRoutes.post("/events", async (c) => {
       ...body,
       domain: body.domain || (await resolveActiveDomain(user)).id,
     });
+
+    await requireWorkspaceAccess(c, data.domain);
 
     const [event] = await db.insert(calendarEvents).values({
       title: data.title,
@@ -128,6 +131,8 @@ calendarRoutes.patch("/events/:id", async (c) => {
     if (!existing) {
       return c.json({ error: { code: "NOT_FOUND", message: "Event not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, existing.domainId);
 
     const updateValues: Record<string, unknown> = {};
     if (data.title !== undefined) updateValues.title = data.title;
@@ -184,6 +189,8 @@ calendarRoutes.delete("/events/:id", async (c) => {
       return c.json({ error: { code: "NOT_FOUND", message: "Event not found" } }, 404);
     }
 
+    await requireWorkspaceAccess(c, existing.domainId);
+
     await db.delete(calendarEvents).where(eq(calendarEvents.id, id));
 
     await recordActivity({
@@ -216,6 +223,7 @@ calendarRoutes.get("/upcoming", async (c) => {
       const active = await resolveActiveDomain(user);
       domainId = active.id;
     }
+    await requireWorkspaceAccess(c, domainId);
 
     const now = new Date();
     const end = new Date();

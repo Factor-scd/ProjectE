@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { db, projects, tasks, sections, projectTags, tags as tagsTable, activityFeed } from "@project-e/db";
 import { and, asc, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
-import { requireAuth, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
+import { enqueueWebhooks } from "../middleware/webhook-queue";
 import { z } from "zod";
 
 export const projectRoutes = new Hono();
@@ -68,6 +69,8 @@ projectRoutes.get("/", async (c) => {
       const active = await resolveActiveDomain(user);
       domainId = active.id;
     }
+
+    await requireWorkspaceAccess(c, domainId);
 
     const conditions: any[] = [
       eq(projects.domainId, domainId),
@@ -189,6 +192,8 @@ projectRoutes.post("/", async (c) => {
       domain: body.domain || (await resolveActiveDomain(user)).id,
     });
 
+    await requireWorkspaceAccess(c, data.domain);
+
     const [project] = await db.insert(projects).values({
       name: data.name,
       description: data.description ?? null,
@@ -213,6 +218,8 @@ projectRoutes.post("/", async (c) => {
       changes: { name: project.name, status: project.status },
       workspaceId: data.domain,
     });
+
+    await enqueueWebhooks({ workspaceId: data.domain, event: "project.created", entityType: "project", entityId: project.id, data: { name: project.name } });
 
     return c.json(project, 201);
   } catch (error) {
@@ -241,6 +248,8 @@ projectRoutes.get("/:id", async (c) => {
     if (!project) {
       return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, project.domainId);
 
     // Fetch sections
     const projectSections = await db.select()
@@ -303,6 +312,8 @@ projectRoutes.patch("/:id", async (c) => {
       return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
     }
 
+    await requireWorkspaceAccess(c, existing.domainId);
+
     const updateValues: Record<string, unknown> = {};
     if (data.name !== undefined) updateValues.name = data.name;
     if (data.description !== undefined) updateValues.description = data.description;
@@ -325,6 +336,8 @@ projectRoutes.patch("/:id", async (c) => {
       changes: { ...data, previousName: existing.name },
       workspaceId: existing.domainId,
     });
+
+    await enqueueWebhooks({ workspaceId: existing.domainId, event: "project.updated", entityType: "project", entityId: id, data: { ...data, previousName: existing.name } });
 
     return c.json(updated);
   } catch (error) {
@@ -354,6 +367,8 @@ projectRoutes.delete("/:id", async (c) => {
       return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
     }
 
+    await requireWorkspaceAccess(c, existing.domainId);
+
     await db.update(projects)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(eq(projects.id, id));
@@ -366,6 +381,8 @@ projectRoutes.delete("/:id", async (c) => {
       changes: { name: existing.name },
       workspaceId: existing.domainId,
     });
+
+    await enqueueWebhooks({ workspaceId: existing.domainId, event: "project.deleted", entityType: "project", entityId: id, data: { name: existing.name } });
 
     return c.body(null, 204);
   } catch (error) {
@@ -383,7 +400,7 @@ projectRoutes.get("/:id/sections", async (c) => {
     const user = await requireAuth(c);
     const projectId = c.req.param("id");
 
-    const [project] = await db.select({ id: projects.id })
+    const [project] = await db.select({ id: projects.id, domainId: projects.domainId })
       .from(projects)
       .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
       .limit(1);
@@ -391,6 +408,8 @@ projectRoutes.get("/:id/sections", async (c) => {
     if (!project) {
       return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, project.domainId);
 
     const items = await db.select()
       .from(sections)
@@ -423,6 +442,8 @@ projectRoutes.post("/:id/sections", async (c) => {
     if (!project) {
       return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, project.domainId);
 
     let sortOrder = data.sortOrder;
     if (sortOrder === undefined) {
@@ -470,6 +491,17 @@ projectRoutes.get("/:id/sections/:sid", async (c) => {
     const projectId = c.req.param("id");
     const id = c.req.param("sid");
 
+    const [project] = await db.select({ id: projects.id, domainId: projects.domainId })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
+      .limit(1);
+
+    if (!project) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, project.domainId);
+
     const [section] = await db.select()
       .from(sections)
       .where(and(eq(sections.id, id), eq(sections.projectId, projectId)))
@@ -497,6 +529,17 @@ projectRoutes.patch("/:id/sections/:sid", async (c) => {
     const id = c.req.param("sid");
     const body = await c.req.json();
     const data = updateSectionSchema.parse(body);
+
+    const [project] = await db.select({ id: projects.id, domainId: projects.domainId })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
+      .limit(1);
+
+    if (!project) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, project.domainId);
 
     const [existing] = await db.select()
       .from(sections)
@@ -555,6 +598,17 @@ projectRoutes.delete("/:id/sections/:sid", async (c) => {
     const projectId = c.req.param("id");
     const id = c.req.param("sid");
 
+    const [project] = await db.select({ id: projects.id, domainId: projects.domainId })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
+      .limit(1);
+
+    if (!project) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, project.domainId);
+
     const [existing] = await db.select()
       .from(sections)
       .where(and(eq(sections.id, id), eq(sections.projectId, projectId)))
@@ -598,7 +652,7 @@ projectRoutes.get("/:id/members", async (c) => {
     const user = await requireAuth(c);
     const id = c.req.param("id");
 
-    const [project] = await db.select({ id: projects.id })
+    const [project] = await db.select({ id: projects.id, domainId: projects.domainId })
       .from(projects)
       .where(and(eq(projects.id, id), isNull(projects.deletedAt)))
       .limit(1);
@@ -606,6 +660,8 @@ projectRoutes.get("/:id/members", async (c) => {
     if (!project) {
       return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, project.domainId);
 
     // Members are stored in activity feed with entityType=member
     const members = await db.select()
@@ -646,6 +702,8 @@ projectRoutes.post("/:id/members", async (c) => {
       return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
     }
 
+    await requireWorkspaceAccess(c, project.domainId);
+
     await recordActivity({
       actor: user.name,
       action: "added",
@@ -683,6 +741,8 @@ projectRoutes.delete("/:id/members/:uid", async (c) => {
     if (!project) {
       return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, project.domainId);
 
     await recordActivity({
       actor: user.name,

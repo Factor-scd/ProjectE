@@ -40,6 +40,10 @@ async function apiFetch<T>(
     throw new Error(error.message);
   }
 
+  // Some routes return 204 No Content (e.g. deletes). res.json() throws on an
+  // empty body, so return undefined for those instead.
+  if (res.status === 204) return undefined as T;
+
   return res.json();
 }
 

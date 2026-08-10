@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
 import { useRealtime } from "@/hooks/use-realtime";
 import { Plus, Settings2, Trash2, ListTodo, Flame, FileText, FolderKanban, Calendar, Zap, TrendingUp, Target } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +31,7 @@ const WIDGET_TYPES = [
 ] as const;
 
 function TasksDueWidget() {
-  const { data } = useApiQuery<PaginatedResponse<Task>>(["tasks-due"], "/tasks?limit=10&status=todo,in_progress&sort=dueDate");
+  const { data } = useApiQuery<PaginatedResponse<Task>>(["tasks-due"], "/tasks?limit=10&status=todo,in_progress&sort=due_date");
   const tasks = data?.items || [];
   const today = tasks.filter((t) => t.dueDate && isToday(parseISO(t.dueDate)));
   const overdue = tasks.filter((t) => t.dueDate && isPast(parseISO(t.dueDate)) && t.status !== "done");
@@ -74,7 +75,12 @@ function HabitsTodayWidget() {
   const queryClient = useQueryClient();
   const completeMutation = useMutation({
     mutationFn: (id: string) => api.post("/habits/" + id + "/complete", {}),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["habits-today"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["habits-today"] });
+      queryClient.invalidateQueries({ queryKey: ["streaks"] });
+      toast.success("Habit completed");
+    },
+    onError: (err) => toast.error(err.message || "Failed to complete habit"),
   });
   return (
     <div className="space-y-1">
@@ -197,11 +203,21 @@ function QuickCaptureWidget() {
   const [type, setType] = useState<"task" | "note">("task");
   const createTask = useMutation({
     mutationFn: (title: string) => api.post<Task>("/tasks", { title, status: "todo", priority: "medium" }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["tasks-due"] }); setText(""); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tasks-due"] });
+      setText("");
+      toast.success("Task added");
+    },
+    onError: (err) => toast.error(err.message || "Failed to create task"),
   });
   const createNote = useMutation({
     mutationFn: (title: string) => api.post<Note>("/notes", { title, content: "" }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["recent-notes"] }); setText(""); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["recent-notes"] });
+      setText("");
+      toast.success("Note added");
+    },
+    onError: (err) => toast.error(err.message || "Failed to create note"),
   });
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -293,7 +309,10 @@ function WidgetCard({ widget, onConfigure, onDelete }: { widget: DashboardWidget
   const typeInfo = WIDGET_TYPES.find((t) => t.id === widget.type);
   const Icon = typeInfo?.icon || Target;
   return (
-    <Card className="h-full flex flex-col group" style={{ gridColumn: "span " + (widget.layout.w || 2), gridRow: "span " + (widget.layout.h || 2) }}>
+    <Card
+      className="h-full flex flex-col group lg:[grid-column:span_var(--w)] lg:[grid-row:span_var(--h)]"
+      style={{ "--w": Math.min(widget.layout.w || 2, 4), "--h": widget.layout.h || 2 } as React.CSSProperties}
+    >
       <CardHeader className="p-3 pb-0 flex flex-row items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -397,15 +416,27 @@ function DashboardPage() {
   const widgets = widgetsData?.items || [];
   const createMutation = useMutation({
     mutationFn: (data: any) => api.post<DashboardWidget>("/dashboard/widgets", data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["dashboard-widgets"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dashboard-widgets"] });
+      toast.success("Widget added");
+    },
+    onError: (err) => toast.error(err.message || "Failed to add widget"),
   });
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => api.patch<DashboardWidget>("/dashboard/widgets/" + id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["dashboard-widgets"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dashboard-widgets"] });
+      toast.success("Widget updated");
+    },
+    onError: (err) => toast.error(err.message || "Failed to update widget"),
   });
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete("/dashboard/widgets/" + id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["dashboard-widgets"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dashboard-widgets"] });
+      toast.success("Widget removed");
+    },
+    onError: (err) => toast.error(err.message || "Failed to remove widget"),
   });
   const handleAddWidget = (type: string) => {
     const typeInfo = WIDGET_TYPES.find((t) => t.id === type);
@@ -431,7 +462,7 @@ function DashboardPage() {
           <Button onClick={() => handleAddWidget("tasks_due")}><Plus className="h-4 w-4 mr-2" />Add Default Widgets</Button>
         </div>
       ) : (
-        <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(12, 1fr)", gridAutoRows: "minmax(120px, auto)" }}>
+        <div className="grid grid-cols-1 gap-4 auto-rows-[minmax(120px,auto)] sm:grid-cols-2 lg:grid-cols-4">
           {widgets.map((w) => (
             <WidgetCard key={w.id} widget={w} onConfigure={() => handleConfigure(w)} onDelete={() => handleDelete(w.id)} />
           ))}

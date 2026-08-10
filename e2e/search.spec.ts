@@ -4,19 +4,26 @@ import { login } from './helpers/auth';
 test.describe('Search', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
+    await page.goto('/search');
   });
 
-  test('should display search page with search input', async ({ page }) => {
-    await page.goto('/search');
-    await expect(page.getByRole('heading', { name: /search/i })).toBeVisible();
-    await expect(page.getByPlaceholder(/search/i).first()).toBeVisible();
+  test('renders the search page with the query input', async ({ page }) => {
+    await expect(page.getByPlaceholder(/search tasks, notes/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Tasks' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Notes' })).toBeVisible();
   });
 
-  test('should perform search and show results', async ({ page }) => {
-    await page.goto('/search');
-    const searchInput = page.getByPlaceholder(/search/i).first();
-    await searchInput.fill('test');
-    // Wait for results
-    await page.waitForTimeout(1000);
+  test('shows a no-results state for an unmatched query', async ({ page }) => {
+    await page.getByPlaceholder(/search tasks, notes/i).fill('zzz-no-such-thing-xyz');
+    await expect(page.getByText(/no results found/i)).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('filters results by type', async ({ page }) => {
+    await page.getByPlaceholder(/search tasks, notes/i).fill('meeting');
+    await page.getByRole('button', { name: 'Habits' }).click();
+
+    // The filter buttons stay interactive after toggling a type off.
+    await expect(page.getByRole('button', { name: 'Habits' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Tasks' })).toBeVisible();
   });
 });

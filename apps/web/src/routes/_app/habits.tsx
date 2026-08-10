@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { createRoute } from "@tanstack/react-router";
+import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
-import { Plus, Flame, Trash2, Check, Calendar, TrendingUp } from "lucide-react";
+import { Plus, Flame, Trash2, Check, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { EntityDetailPanel } from "@/components/entities/entity-detail-panel";
+import { LoadingState, EmptyState, ErrorState } from "@/components/state";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type { Habit, HabitCompletion, PaginatedResponse } from "@/lib/types";
@@ -58,7 +60,7 @@ function HabitForm({ habit, onClose }: { habit?: Habit; onClose: () => void }) {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="freq">Frequency</Label>
-          <Select value={frequency} onValueChange={setFrequency}>
+          <Select value={frequency} onValueChange={(v) => setFrequency(v as "daily" | "weekly" | "custom")}>
             <SelectTrigger id="freq"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="daily">Daily</SelectItem>
@@ -69,7 +71,7 @@ function HabitForm({ habit, onClose }: { habit?: Habit; onClose: () => void }) {
         </div>
         <div>
           <Label htmlFor="diff">Difficulty</Label>
-          <Select value={difficulty} onValueChange={setDifficulty}>
+          <Select value={difficulty} onValueChange={(v) => setDifficulty(v as "easy" | "medium" | "hard")}>
             <SelectTrigger id="diff"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="easy">Easy</SelectItem>
@@ -113,6 +115,7 @@ function MiniGrid({ completions, days = 7 }: { completions: HabitCompletion[]; d
 }
 
 function HabitsPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedHabit, setSelectedHabit] = useState<Habit | null>(null);
@@ -121,9 +124,11 @@ function HabitsPage() {
 
   useRealtime({ enabled: true });
 
-  const { data: habitsData, isLoading } = useApiQuery<PaginatedResponse<Habit>>(
-    ["habits"],
-    "/habits?limit=200"
+  const activeDomainId = useApiDomain();
+
+  const { data: habitsData, isLoading, isError, refetch } = useApiQuery<PaginatedResponse<Habit>>(
+    ["habits", activeDomainId],
+    "/habits?limit=200" + (activeDomainId ? "&domain=" + activeDomainId : "")
   );
 
   const habits = habitsData?.items || [];
@@ -138,7 +143,11 @@ function HabitsPage() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["habits"] }); setPanelOpen(false); },
   });
 
-  const openHabitDetail = async (habit: Habit) => {
+  const openHabitDetail = (habit: Habit) => {
+    navigate({ to: "/habits/$id", params: { id: habit.id } });
+  };
+
+  const openHabitPanel = async (habit: Habit) => {
     try {
       const detail = await api.get<Habit>("/habits/" + habit.id);
       setSelectedHabit(detail);
@@ -164,9 +173,11 @@ function HabitsPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">Loading habits...</div>
+        <LoadingState label="Loading habits..." />
+      ) : isError ? (
+        <ErrorState message="Failed to load habits." onRetry={() => refetch()} />
       ) : habits.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">No habits yet. Create your first one!</div>
+        <EmptyState icon={Flame} title="No habits yet" description="Create your first one!" />
       ) : (
         <div className="space-y-2">
           {habits.map((habit) => (
@@ -196,6 +207,15 @@ function HabitsPage() {
                       aria-label={"Mark " + habit.name + " complete"}
                     >
                       <Check className="h-4 w-4 mr-1" />Complete
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={(e) => { e.stopPropagation(); openHabitPanel(habit); }}
+                      aria-label={"Edit " + habit.name}
+                    >
+                      <Pencil className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db, sql } from "@project-e/db";
-import { requireAuth, AuthError } from "../middleware/auth";
+import { requireAuth, resolveActiveDomain, AuthError } from "../middleware/auth";
 
 export const searchRoutes = new Hono();
 
@@ -31,6 +31,11 @@ searchRoutes.get("/", async (c) => {
       return c.json({ results: [], totalCount: 0 });
     }
 
+    // Scope all searches to the user's active domain so users can never see
+    // another workspace's data.
+    const userDomain = await resolveActiveDomain(user);
+    const userDomainId = userDomain.id;
+
     const results: Array<{ id: string; type: string; title: string; snippet: string; score: number; workspaceId: string; link: string }> = [];
 
     for (const type of types) {
@@ -42,6 +47,17 @@ searchRoutes.get("/", async (c) => {
       const conditions: string[] = ["search_vector @@ websearch_to_tsquery('english', '" + escaped + "')"];
       if (deletedColumn) {
         conditions.push(deletedColumn + " IS NULL");
+      }
+
+      // Restrict results to the user's active domain. For `domain` the
+      // workspace column is the table's own `id`; for all other entities it
+      // is `domain_id`. userDomainId is a trusted uuid from the DB, but we
+      // escape single quotes defensively anyway.
+      const domainValue = String(userDomainId).replace(/'/g, "''");
+      if (type === 'domain') {
+        conditions.push(workspaceColumn + " = '" + domainValue + "'");
+      } else {
+        conditions.push("domain_id = '" + domainValue + "'");
       }
 
       const whereClause = conditions.join(' AND ');

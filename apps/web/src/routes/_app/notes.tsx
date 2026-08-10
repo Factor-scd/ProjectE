@@ -3,6 +3,7 @@ import { createRoute } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery } from "@/lib/api";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
 import { Plus, Trash2, Search, Pin, FileText, Link as LinkIcon, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,38 +12,92 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { Note, PaginatedResponse } from "@/lib/types";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
 
-// Simple TipTap-like editor using contentEditable - saves on blur only
+const AUTOSAVE_DEBOUNCE_MS = 800;
+
+// TipTap-based note editor. Autosaves with a debounce (plus a save-on-blur and a
+// flush-on-unmount safety net) and deliberately does NOT stop propagation of
+// key/mouse events, so global shortcuts (command palette, etc.) keep working.
 const NoteEditor = memo(function NoteEditor({ initialContent, onSave, placeholder = "Start writing..." }: { initialContent: string; onSave: (html: string) => void; placeholder?: string }) {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const [isPlaceholder, setIsPlaceholder] = useState(!initialContent);
+  const latestHtmlRef = useRef(initialContent || "");
+  const dirtyRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const editor = useEditor(
+    {
+      extensions: [
+        StarterKit.configure({ link: false }),
+        Link.configure({ openOnClick: false }),
+        Placeholder.configure({ placeholder }),
+      ],
+      content: initialContent || "",
+      editorProps: {
+        attributes: {
+          class: "focus:outline-none min-h-[300px] p-3",
+        },
+      },
+    },
+    [placeholder, initialContent]
+  );
 
   useEffect(() => {
-    if (editorRef.current && !editorRef.current.innerHTML) {
-      editorRef.current.innerHTML = initialContent || "";
-    }
-    setIsPlaceholder(!initialContent);
-  }, []);
+    if (!editor) return;
 
-  const handleBlur = () => {
-    const html = editorRef.current?.innerHTML || "";
-    onSave(html);
-  };
+    const flushSave = () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      if (!dirtyRef.current) return;
+      dirtyRef.current = false;
+      onSave(latestHtmlRef.current);
+    };
+
+    const handleUpdate = () => {
+      latestHtmlRef.current = editor.getHTML();
+      dirtyRef.current = true;
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(flushSave, AUTOSAVE_DEBOUNCE_MS);
+    };
+
+    editor.on("update", handleUpdate);
+    editor.on("blur", flushSave);
+
+    return () => {
+      editor.off("update", handleUpdate);
+      editor.off("blur", flushSave);
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      // Flush any unsaved edits on unmount so switching notes doesn't drop typing.
+      if (dirtyRef.current) {
+        dirtyRef.current = false;
+        onSave(latestHtmlRef.current);
+      }
+    };
+  }, [editor, onSave]);
+
+  if (!editor) return null;
 
   return (
-    <div className="relative min-h-[300px]">
-      {isPlaceholder && (
-        <div className="absolute top-0 left-0 text-muted-foreground pointer-events-none p-3 text-sm">{placeholder}</div>
-      )}
-      <div
-        ref={editorRef}
-        contentEditable
-        suppressContentEditableWarning
-        className="prose prose-sm dark:prose-invert max-w-none p-3 focus:outline-none min-h-[300px]"
-        onMouseDown={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.stopPropagation()}
-      onBlur={handleBlur}
-      />
+    <div className="note-editor relative min-h-[300px]">
+      {/* Placeholder needs its ::before styling; the @tailwindcss/typography plugin
+          is not installed, so this is scoped CSS for the empty-editor state. */}
+      <style>{`
+        .note-editor p.is-editor-empty:first-child::before {
+          content: attr(data-placeholder);
+          color: hsl(var(--muted-foreground));
+          float: left;
+          height: 0;
+          pointer-events: none;
+        }
+      `}</style>
+      <EditorContent editor={editor} />
     </div>
   );
 });
@@ -159,9 +214,11 @@ function NotesPage() {
 
   useRealtime({ enabled: true });
 
+  const activeDomainId = useApiDomain();
+
   const { data: notesData, isLoading } = useApiQuery<PaginatedResponse<Note>>(
-    ["notes", search],
-    "/notes?limit=200" + (search ? "&search=" + encodeURIComponent(search) : "")
+    ["notes", activeDomainId, search],
+    "/notes?limit=200" + (activeDomainId ? "&domain=" + activeDomainId : "") + (search ? "&search=" + encodeURIComponent(search) : "")
   );
 
   const notes = notesData?.items || [];
@@ -201,9 +258,9 @@ function NotesPage() {
   }, [deleteMutation]);
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] -m-4 md:-m-6">
+    <div className="flex flex-col md:flex-row h-auto min-h-[calc(100vh-8rem)] md:h-[calc(100vh-8rem)] -m-4 md:-m-6">
       {/* Left pane - note list */}
-      <div className="w-72 border-r flex flex-col shrink-0">
+      <div className="w-full md:w-72 h-64 md:h-auto border-b md:border-b-0 md:border-r flex flex-col shrink-0">
         <div className="p-3 border-b">
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -246,7 +303,7 @@ function NotesPage() {
       </div>
 
       {/* Right pane - editor (memoized, won't re-render on parent state changes) */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-h-64 md:min-h-0">
         {selectedNote ? (
           <NoteEditorPane key={selectedNote.id} note={selectedNote} onDelete={handleDeleteNote} />
         ) : (

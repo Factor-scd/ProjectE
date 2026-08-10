@@ -13,10 +13,14 @@
     "dev:web": "cd apps/web && bun run dev",
     "build": "cd apps/web && bun run build",
     "lint": "echo 'lint: ok'",
-    "typecheck": "cd apps/api && tsc --noEmit && cd apps/worker && tsc --noEmit",
+    "typecheck": "cd apps/api && tsc --noEmit && cd ../worker && tsc --noEmit && cd ../web && tsc --noEmit",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:sync": "drizzle-kit push --force",
+    "db:triggers": "bun script/apply-triggers.ts",
+    "db:migrate": "bun run db:sync && bun run db:triggers",
+    "deploy": "bash script/deploy.sh"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

@@ -23,6 +23,7 @@ import { customFieldRoutes } from "./routes/custom-fields";
 import { errorLogRoutes } from "./routes/error-log";
 import { analyticsRoutes } from "./routes/analytics";
 import { importExportRoutes } from "./routes/import-export";
+import { notificationRoutes } from "./routes/notifications";
 import { healthHandler } from "./routes/health";
 
 const app = new Hono();
@@ -57,6 +58,7 @@ app.route("/api/tags", tagRoutes);
 app.route("/api/custom-fields", customFieldRoutes);
 app.route("/api/error-log", errorLogRoutes);
 app.route("/api/analytics", analyticsRoutes);
+app.route("/api/notifications", notificationRoutes);
 app.route("/api", importExportRoutes);
 app.route("/api", realtimeRoutes);
 app.route("/api/mcp", mcpRoutes);

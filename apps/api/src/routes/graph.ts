@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, domains, notes, noteLinks, noteEntityLinks, tasks, taskDependencies, habits, projects, sections, tags as tagsTable } from "@project-e/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { requireAuth, AuthError } from "../middleware/auth";
+import { requireAuth, requireWorkspaceAccess, AuthError } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { z } from "zod";
 
@@ -80,6 +80,20 @@ async function getGraphData(domainId: string): Promise<{ nodes: GraphNode[]; edg
   return { nodes, edges };
 }
 
+// Resolve the owning domain for a graph edge source. `type` may be an edge type
+// (note_link / note_entity / task_dependency) or a source entity type (note / task).
+async function resolveEdgeWorkspaceId(sourceId: string, type: string): Promise<string | null> {
+  if (type === "note_link" || type === "note_entity" || type === "note") {
+    const [row] = await db.select({ domainId: notes.domainId }).from(notes).where(eq(notes.id, sourceId)).limit(1);
+    return row?.domainId ?? null;
+  }
+  if (type === "task_dependency" || type === "task") {
+    const [row] = await db.select({ domainId: tasks.domainId }).from(tasks).where(eq(tasks.id, sourceId)).limit(1);
+    return row?.domainId ?? null;
+  }
+  return null;
+}
+
 // GET /api/graph/nodes — All nodes
 graphRoutes.get("/nodes", async (c) => {
   try {
@@ -89,6 +103,7 @@ graphRoutes.get("/nodes", async (c) => {
     if (!domainId) {
       return c.json({ error: { code: "VALIDATION_ERROR", message: "domain parameter is required" } }, 400);
     }
+    await requireWorkspaceAccess(c, domainId);
     const data = await getGraphData(domainId);
     return c.json({ items: data.nodes, totalItems: data.nodes.length });
   } catch (error) {
@@ -109,6 +124,7 @@ graphRoutes.get("/edges", async (c) => {
     if (!domainId) {
       return c.json({ error: { code: "VALIDATION_ERROR", message: "domain parameter is required" } }, 400);
     }
+    await requireWorkspaceAccess(c, domainId);
     const data = await getGraphData(domainId);
     return c.json({ items: data.edges, totalItems: data.edges.length });
   } catch (error) {
@@ -131,6 +147,18 @@ graphRoutes.post("/edges", async (c) => {
       type: z.string().default("note_link"),
     }).parse(body);
 
+    // Verify ownership before mutating anything. Both endpoints of the edge
+    // must belong to the caller's domain.
+    const workspaceId = await resolveEdgeWorkspaceId(sourceId, type);
+    if (workspaceId) {
+      await requireWorkspaceAccess(c, workspaceId);
+    }
+    const targetType = type === "note_link" ? "note" : (type === "note_entity" || type === "task_dependency") ? "task" : type;
+    const targetWorkspaceId = await resolveEdgeWorkspaceId(targetId, targetType);
+    if (targetWorkspaceId) {
+      await requireWorkspaceAccess(c, targetWorkspaceId);
+    }
+
     if (type === "note_link") {
       await db.insert(noteLinks).values({ sourceNoteId: sourceId, targetNoteId: targetId });
     } else if (type === "note_entity") {
@@ -141,14 +169,18 @@ graphRoutes.post("/edges", async (c) => {
       return c.json({ error: { code: "VALIDATION_ERROR", message: "Unknown edge type: " + type } }, 400);
     }
 
-    await recordActivity({
-      actor: user.name,
-      action: "created",
-      entityType: "graph_edge",
-      entityId: sourceId + "-" + targetId,
-      changes: { type, sourceId, targetId },
-      workspaceId: "",
-    });
+    if (!workspaceId) {
+      console.warn(`[graph] POST /edges: could not resolve workspace for source ${sourceId} (type ${type}); skipping activity`);
+    } else {
+      await recordActivity({
+        actor: user.name,
+        action: "created",
+        entityType: "graph_edge",
+        entityId: sourceId + "-" + targetId,
+        changes: { type, sourceId, targetId },
+        workspaceId,
+      });
+    }
 
     return c.json({ success: true }, 201);
   } catch (error) {
@@ -170,6 +202,16 @@ graphRoutes.delete("/edges/:id", async (c) => {
     const id = c.req.param("id");
     const [sourceId, targetId] = id.split("-");
 
+    // The type isn't known at delete time, so resolve from the source entity:
+    // it's either a note or a task. Verify ownership before mutating anything.
+    let workspaceId = await resolveEdgeWorkspaceId(sourceId, "note");
+    if (!workspaceId) {
+      workspaceId = await resolveEdgeWorkspaceId(sourceId, "task");
+    }
+    if (workspaceId) {
+      await requireWorkspaceAccess(c, workspaceId);
+    }
+
     // Try deleting from note_links first
     const result = await db.delete(noteLinks)
       .where(and(eq(noteLinks.sourceNoteId, sourceId), eq(noteLinks.targetNoteId, targetId)))
@@ -181,14 +223,18 @@ graphRoutes.delete("/edges/:id", async (c) => {
         .where(and(eq(taskDependencies.taskId, sourceId), eq(taskDependencies.dependsOnTaskId, targetId)));
     }
 
-    await recordActivity({
-      actor: user.name,
-      action: "deleted",
-      entityType: "graph_edge",
-      entityId: id,
-      changes: {},
-      workspaceId: "",
-    });
+    if (!workspaceId) {
+      console.warn(`[graph] DELETE /edges/${id}: could not resolve workspace for source ${sourceId}; skipping activity`);
+    } else {
+      await recordActivity({
+        actor: user.name,
+        action: "deleted",
+        entityType: "graph_edge",
+        entityId: id,
+        changes: {},
+        workspaceId,
+      });
+    }
 
     return c.body(null, 204);
   } catch (error) {

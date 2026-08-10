@@ -1,11 +1,14 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { createRoute } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
 import { Plus, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { LoadingState, EmptyState } from "@/components/state";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,9 +17,10 @@ import type { CalendarEvent } from "@/lib/types";
 import { format, parseISO, addDays, startOfWeek, getDay } from "date-fns";
 
 // react-big-calendar
-import { Calendar, dateFnsLocalizer, Views, Navigate } from "react-big-calendar";
-// import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
+import { Calendar, dateFnsLocalizer, Navigate, type View, type stringOrDate } from "react-big-calendar";
+import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
 import "react-big-calendar/lib/css/react-big-calendar.css";
+import "react-big-calendar/lib/addons/dragAndDrop/styles.css";
 
 const localizer = dateFnsLocalizer({
   startOfWeek,
@@ -25,7 +29,10 @@ const localizer = dateFnsLocalizer({
   locales: {},
 });
 
-// const DragAndDropCalendar = withDragAndDrop(Calendar);
+// Mapped calendar event shape used by react-big-calendar (adds Date start/end accessors)
+type CalendarViewEvent = CalendarEvent & { start: Date; end: Date };
+
+const DragAndDropCalendar = withDragAndDrop<CalendarViewEvent>(Calendar);
 
 // Color palette: tasks=accent, events by domain
 const EVENT_COLORS: Record<string, string> = {
@@ -95,11 +102,21 @@ function EventForm({ event, onClose }: { event?: CalendarEvent; onClose: () => v
   const [color, setColor] = useState(event?.color || "#3b82f6");
 
   const createMutation = useApiMutation<CalendarEvent, any>("post", "/calendar/events", {
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["calendar-events"] }); onClose(); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+      toast.success("Event created");
+      onClose();
+    },
+    onError: (err) => toast.error(err.message || "Failed to create event"),
   });
 
   const updateMutation = useApiMutation<CalendarEvent, any>("patch", event ? `/calendar/events/${event.id}` : "", {
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["calendar-events"] }); onClose(); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+      toast.success("Event updated");
+      onClose();
+    },
+    onError: (err) => toast.error(err.message || "Failed to update event"),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -147,7 +164,7 @@ function EventForm({ event, onClose }: { event?: CalendarEvent; onClose: () => v
 function CalendarPage() {
   const queryClient = useQueryClient();
   const [date, setDate] = useState(new Date());
-  const [view, setView] = useState<string>("month");
+  const [view, setView] = useState<View>("month");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [eventDetailOpen, setEventDetailOpen] = useState(false);
@@ -163,19 +180,27 @@ function CalendarPage() {
   }, []);
 
 
-  const { data: eventsData } = useApiQuery<{ items: CalendarEvent[]; totalItems: number }>(
-    ["calendar-events", date.toISOString()],
-    `/calendar/events?from=${new Date(0).toISOString()}&to=${new Date("2100-01-01").toISOString()}`
+  const activeDomainId = useApiDomain();
+
+  const { data: eventsData, isLoading: eventsLoading } = useApiQuery<{ items: CalendarEvent[]; totalItems: number }>(
+    ["calendar-events", activeDomainId, date.toISOString()],
+    `/calendar/events?from=${new Date(0).toISOString()}&to=${new Date("2100-01-01").toISOString()}` + (activeDomainId ? "&domain=" + activeDomainId : "")
   );
 
   const events = eventsData?.items || [];
 
-  const deleteMutation = useApiMutation<any, string>("delete", "", {
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["calendar-events"] }); setEventDetailOpen(false); },
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete("/calendar/events/" + id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+      setEventDetailOpen(false);
+      toast.success("Event deleted");
+    },
+    onError: (err) => toast.error(err.message || "Failed to delete event"),
   });
 
   // Map API events to react-big-calendar format
-  const calendarEvents = useMemo(() => {
+  const calendarEvents = useMemo<CalendarViewEvent[]>(() => {
     return events.map((evt) => ({
       ...evt,
       start: parseISO(evt.startTime),
@@ -193,10 +218,10 @@ function CalendarPage() {
   }, []);
 
   const handleEventDrop = useCallback(
-    ({ event, start, end }: { event: any; start: Date; end: Date }) => {
+    ({ event, start, end }: { event: any; start: stringOrDate; end: stringOrDate }) => {
       api.patch(`/calendar/events/${event.id}`, {
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
+        startTime: start instanceof Date ? start.toISOString() : new Date(start).toISOString(),
+        endTime: end instanceof Date ? end.toISOString() : new Date(end).toISOString(),
       }).then(() => {
         queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
       });
@@ -205,10 +230,10 @@ function CalendarPage() {
   );
 
   const handleEventResize = useCallback(
-    ({ event, start, end }: { event: any; start: Date; end: Date }) => {
+    ({ event, start, end }: { event: any; start: stringOrDate; end: stringOrDate }) => {
       api.patch(`/calendar/events/${event.id}`, {
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
+        startTime: start instanceof Date ? start.toISOString() : new Date(start).toISOString(),
+        endTime: end instanceof Date ? end.toISOString() : new Date(end).toISOString(),
       }).then(() => {
         queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
       });
@@ -221,7 +246,7 @@ function CalendarPage() {
   }, []);
 
   const handleViewChange = useCallback((newView: string) => {
-    setView(newView);
+    setView(newView as View);
   }, []);
 
   return (
@@ -245,38 +270,54 @@ function CalendarPage() {
             key={name}
             variant={view === name ? "default" : "outline"}
             size="sm"
-            onClick={() => setView(name)}
+            onClick={() => setView(name as View)}
             className="capitalize"
           >
             {name}
           </Button>
         ))}
       </div>
-      <div className="rbc-calendar-container" style={{ minHeight: isMobile ? 400 : 600 }}>
-        <Calendar
-          key={view}
-          localizer={localizer}
-          events={calendarEvents}
-          startAccessor="start"
-          endAccessor="end"
-          date={date}
-          view={view}
-          onNavigate={handleNavigate}
-          onSelectEvent={handleSelectEvent}
-          onSelectSlot={handleSelectSlot}
-          selectable
-          popup
-          showMultiDayTimes
-          components={{
-            event: EventComponent,
-            toolbar: (props: any) => <CustomToolbar {...props} />,
-          }}
-          views={["month", "week", "work_week", "day", "agenda"]}
-          step={30}
-          timeslots={2}
-          style={{ height: isMobile ? 400 : 600 }}
+      {eventsLoading && events.length === 0 ? (
+        <LoadingState label="Loading events..." />
+      ) : !eventsLoading && events.length === 0 ? (
+        <EmptyState
+          title="No events yet"
+          description="Create your first event to get started"
+          action={
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />New Event
+            </Button>
+          }
         />
-      </div>
+      ) : (
+        <div className="rbc-calendar-container" style={{ minHeight: isMobile ? 400 : 600 }}>
+          <DragAndDropCalendar
+            key={view}
+            localizer={localizer}
+            events={calendarEvents}
+            startAccessor="start"
+            endAccessor="end"
+            date={date}
+            view={view}
+            onNavigate={handleNavigate}
+            onSelectEvent={handleSelectEvent}
+            onSelectSlot={handleSelectSlot}
+            onEventDrop={handleEventDrop}
+            onEventResize={handleEventResize}
+            selectable
+            popup
+            showMultiDayTimes
+            components={{
+              event: EventComponent,
+              toolbar: (props: any) => <CustomToolbar {...props} />,
+            }}
+            views={["month", "week", "work_week", "day", "agenda"]}
+            step={30}
+            timeslots={2}
+            style={{ height: isMobile ? 400 : 600 }}
+          />
+        </div>
+      )}
 
       {/* Event detail dialog */}
       <Dialog open={eventDetailOpen} onOpenChange={setEventDetailOpen}>

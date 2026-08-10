@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, agents, agentActivity, agentTasks } from "@project-e/db";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
-import { requireAuth, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { and, asc, desc, eq, gte, ilike, isNull, lte, sql } from "drizzle-orm";
+import { requireAuth, createErrorResponse, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { z } from "zod";
 
@@ -30,6 +30,33 @@ const updateAgentSchema = z.object({
   customFields: z.record(z.string(), z.unknown()).optional(),
 });
 
+// ── Activity filter helpers ──────────────────────────────────────────────────
+// GET /activity and GET /:id/activity honor the `action`, `from`, `to` and
+// `limit` query params the frontend activity page sends. Invalid dates are
+// ignored rather than erroring; a bare "YYYY-MM-DD" bounds the whole day for
+// the `to` filter so a date-picker value doesn't silently drop that day.
+
+function parseActivityDate(value: string): Date | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) date.setUTCHours(23, 59, 59, 999);
+  return date;
+}
+
+function parseActivityFilters(c: any): { conditions: any[]; limit: number } {
+  const conditions: any[] = [];
+  const action = c.req.query("action");
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  if (action) conditions.push(eq(agentActivity.action, action));
+  const fromDate = from ? parseActivityDate(from) : null;
+  if (fromDate) conditions.push(gte(agentActivity.createdAt, fromDate));
+  const toDate = to ? parseActivityDate(to) : null;
+  if (toDate) conditions.push(lte(agentActivity.createdAt, toDate));
+  const limit = Math.min(Math.max(parseInt(c.req.query("limit") || "100", 10) || 100, 1), 500);
+  return { conditions, limit };
+}
+
 // GET /api/agents — List agents
 agentRoutes.get("/", async (c) => {
   try {
@@ -38,13 +65,16 @@ agentRoutes.get("/", async (c) => {
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1"));
     const perPage = Math.min(100, Math.max(1, parseInt(url.searchParams.get("perPage") || "50")));
     const sort = url.searchParams.get("sort") || "-created";
+    const q = url.searchParams.get("q")?.trim();
     let domainId = url.searchParams.get("domain") || undefined;
     if (!domainId) {
       const active = await resolveActiveDomain(user);
       domainId = active.id;
     }
+    await requireWorkspaceAccess(c, domainId);
 
     const conditions: any[] = [eq(agents.domainId, domainId)];
+    if (q) conditions.push(ilike(agents.name, `%${q}%`));
     const sortField = sort.replace(/^-/, "");
     const sortDir = sort.startsWith("-") ? "desc" : "asc";
     const sortColumns: Record<string, any> = { created: agents.createdAt, updated: agents.updatedAt, name: agents.name };
@@ -72,6 +102,8 @@ agentRoutes.post("/", async (c) => {
       ...body,
       domain: body.domain || (await resolveActiveDomain(user)).id,
     });
+
+    await requireWorkspaceAccess(c, data.domain);
 
     const [agent] = await db.insert(agents).values({
       name: data.name,
@@ -104,11 +136,27 @@ agentRoutes.post("/", async (c) => {
 // GET /api/agents/activity — All activity (bare path, no agent filter)
 agentRoutes.get("/activity", async (c) => {
   try {
-    await requireAuth(c);
-    const items = await db.select()
+    const user = await requireAuth(c);
+    // agent_activity has no domain_id — scope through the owning agent
+    const domainId = c.req.query("domain") || (await resolveActiveDomain(user)).id;
+    await requireWorkspaceAccess(c, domainId);
+    const { conditions: filterConditions, limit } = parseActivityFilters(c);
+    const items = await db.select({
+      id: agentActivity.id,
+      agentId: agentActivity.agentId,
+      action: agentActivity.action,
+      entityType: agentActivity.entityType,
+      entityId: agentActivity.entityId,
+      details: agentActivity.details,
+      success: agentActivity.success,
+      errorMessage: agentActivity.errorMessage,
+      createdAt: agentActivity.createdAt,
+    })
       .from(agentActivity)
+      .innerJoin(agents, eq(agentActivity.agentId, agents.id))
+      .where(and(eq(agents.domainId, domainId), ...filterConditions))
       .orderBy(desc(agentActivity.createdAt))
-      .limit(100);
+      .limit(limit);
     return c.json({ items, totalItems: items.length });
   } catch (error) {
     if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
@@ -131,6 +179,7 @@ agentRoutes.get("/:id", async (c) => {
     }
     const [agent] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
     if (!agent) return c.json({ error: { code: "NOT_FOUND", message: "Agent not found" } }, 404);
+    await requireWorkspaceAccess(c, agent.domainId);
     return c.json(agent);
   } catch (error) {
     if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
@@ -149,6 +198,8 @@ agentRoutes.patch("/:id", async (c) => {
 
     const [existing] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
     if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Agent not found" } }, 404);
+
+    await requireWorkspaceAccess(c, existing.domainId);
 
     const updateValues: Record<string, unknown> = {};
     if (data.name !== undefined) updateValues.name = data.name;
@@ -185,6 +236,8 @@ agentRoutes.delete("/:id", async (c) => {
     const [existing] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
     if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Agent not found" } }, 404);
 
+    await requireWorkspaceAccess(c, existing.domainId);
+
     await db.delete(agents).where(eq(agents.id, id));
 
     await recordActivity({
@@ -211,6 +264,10 @@ agentRoutes.post("/:id/permissions", async (c) => {
       customPermissions: z.array(z.string()).optional().default([]),
     }).parse(body);
 
+    const [existing] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
+    if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Agent not found" } }, 404);
+    await requireWorkspaceAccess(c, existing.domainId);
+
     const [updated] = await db.update(agents)
       .set({ permissionTier, customPermissions: customPermissions ?? [], updatedAt: new Date() })
       .where(eq(agents.id, id))
@@ -236,11 +293,12 @@ agentRoutes.get("/:id/permissions", async (c) => {
     await requireAuth(c);
     const id = c.req.param("id");
     const [agent] = await db.select({
-      id: agents.id, permissionTier: agents.permissionTier, customPermissions: agents.customPermissions,
+      id: agents.id, permissionTier: agents.permissionTier, customPermissions: agents.customPermissions, domainId: agents.domainId,
     }).from(agents).where(eq(agents.id, id)).limit(1);
 
     if (!agent) return c.json({ error: { code: "NOT_FOUND", message: "Agent not found" } }, 404);
-    return c.json(agent);
+    await requireWorkspaceAccess(c, agent.domainId);
+    return c.json({ id: agent.id, permissionTier: agent.permissionTier, customPermissions: agent.customPermissions });
   } catch (error) {
     if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
     console.error("[agents] GET /:id/permissions error:", error);
@@ -251,13 +309,47 @@ agentRoutes.get("/:id/permissions", async (c) => {
 // GET /api/agents/:id/activity — Agent activity log (or all if id=_all)
 agentRoutes.get("/:id/activity", async (c) => {
   try {
-    await requireAuth(c);
+    const user = await requireAuth(c);
     const id = c.req.param("id");
+
+    if (id === "_all") {
+      // agent_activity has no domain_id — scope through the owning agent
+      const domainId = c.req.query("domain") || (await resolveActiveDomain(user)).id;
+      await requireWorkspaceAccess(c, domainId);
+      const { conditions: filterConditions, limit } = parseActivityFilters(c);
+      const items = await db.select({
+        id: agentActivity.id,
+        agentId: agentActivity.agentId,
+        action: agentActivity.action,
+        entityType: agentActivity.entityType,
+        entityId: agentActivity.entityId,
+        details: agentActivity.details,
+        success: agentActivity.success,
+        errorMessage: agentActivity.errorMessage,
+        createdAt: agentActivity.createdAt,
+      })
+        .from(agentActivity)
+        .innerJoin(agents, eq(agentActivity.agentId, agents.id))
+        .where(and(eq(agents.domainId, domainId), ...filterConditions))
+        .orderBy(desc(agentActivity.createdAt))
+        .limit(limit);
+      return c.json({ items, totalItems: items.length });
+    }
+
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Agent not found" } }, 404);
+    }
+
+    const [agent] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
+    if (!agent) return c.json({ error: { code: "NOT_FOUND", message: "Agent not found" } }, 404);
+    await requireWorkspaceAccess(c, agent.domainId);
+
+    const { conditions: filterConditions, limit } = parseActivityFilters(c);
     const items = await db.select()
       .from(agentActivity)
-      .where(id === "_all" ? undefined : eq(agentActivity.agentId, id))
+      .where(and(eq(agentActivity.agentId, id), ...filterConditions))
       .orderBy(desc(agentActivity.createdAt))
-      .limit(100);
+      .limit(limit);
     return c.json({ items, totalItems: items.length });
   } catch (error) {
     if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);

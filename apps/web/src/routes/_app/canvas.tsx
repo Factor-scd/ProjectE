@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { createRoute } from "@tanstack/react-router";
+import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
 import { Plus, Trash2, GripVertical, Type, Heading1, Heading2, List, CheckSquare, Code, Image, FileText, ArrowUp, ArrowDown, Bold, Italic } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -186,13 +186,26 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown }: {
 
 // ─── Canvas Editor ────────────────────────────────────────────────────────
 
-function CanvasEditor({ canvas, onBack }: { canvas: Canvas; onBack: () => void }) {
+type Block = { id: string; type: string; content: string };
+
+export function CanvasEditor({ canvas, onBack }: { canvas: Canvas; onBack: () => void }) {
   const queryClient = useQueryClient();
-  const [blocks, setBlocks] = useState<Array<{ id: string; type: string; content: string }>>(
+  const [blocks, setBlocks] = useState<Block[]>(
     canvas.cards?.map((c) => ({ id: c.id, type: c.type, content: c.content })) || [{ id: "new-1", type: "text", content: "" }]
   );
   const [title, setTitle] = useState(canvas.name);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const blockIdCounter = useRef(blocks.length + 1);
+  const lastSavedTitle = useRef(canvas.name);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDirty = useRef(false);
+  const lastSeen = useRef<{ blocks: Block[]; title: string }>({ blocks, title });
+
+  // Keep latest values reachable from the debounced save without stale closures
+  const blocksRef = useRef(blocks);
+  blocksRef.current = blocks;
+  const titleRef = useRef(title);
+  titleRef.current = title;
 
   // Listen for block type changes
   useEffect(() => {
@@ -204,10 +217,84 @@ function CanvasEditor({ canvas, onBack }: { canvas: Canvas; onBack: () => void }
     return () => window.removeEventListener("change-block-type", handler);
   }, []);
 
-  const updateMutation = useMutation({
-    mutationFn: (data: any) => api.patch("/canvas/" + canvas.id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["canvas"] }),
-  });
+  // Persist the full block list via the bulk endpoint, then adopt the
+  // server-generated ids for newly created blocks (content stays local).
+  const persist = useCallback(async () => {
+    const currentBlocks = blocksRef.current;
+    const currentTitle = titleRef.current;
+    setSaveState("saving");
+    try {
+      const payload = {
+        cards: currentBlocks.map((b, i) => ({
+          ...(b.id.startsWith("new-") || b.id.startsWith("block-") ? {} : { id: b.id }),
+          type: b.type,
+          content: b.content,
+          zIndex: i,
+        })),
+      };
+      const result = await api.put<{ cards: { id: string }[] }>("/canvas/" + canvas.id + "/cards", payload);
+      setBlocks((prev) => {
+        if (result.cards.length !== prev.length) return prev;
+        let changed = false;
+        const next = prev.map((b, i) => {
+          const newId = result.cards[i]?.id;
+          if (newId && b.id !== newId) {
+            changed = true;
+            return { ...b, id: newId };
+          }
+          return b;
+        });
+        return changed ? next : prev;
+      });
+      if (currentTitle !== lastSavedTitle.current) {
+        await api.patch("/canvas/" + canvas.id, { name: currentTitle });
+        lastSavedTitle.current = currentTitle;
+      }
+      queryClient.invalidateQueries({ queryKey: ["canvas"] });
+      isDirty.current = false;
+      setSaveState("saved");
+    } catch (error) {
+      console.error("[canvas] save failed:", error);
+      setSaveState("error");
+    }
+  }, [canvas.id, queryClient]);
+
+  // Debounced autosave: persist shortly after blocks/title stop changing
+  useEffect(() => {
+    if (lastSeen.current.blocks === blocks && lastSeen.current.title === title) {
+      return;
+    }
+    lastSeen.current = { blocks, title };
+    isDirty.current = true;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null;
+      persist();
+    }, 800);
+    return () => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+    };
+  }, [blocks, title, persist]);
+
+  // Flush any unsaved edits when leaving the editor
+  useEffect(() => {
+    return () => {
+      if (isDirty.current) {
+        persist();
+      }
+    };
+  }, [persist]);
+
+  const handleSave = () => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    persist();
+  };
 
   const handleBlockChange = (id: string, content: string) => {
     setBlocks((prev) => prev.map((b) => b.id === id ? { ...b, content } : b));
@@ -240,10 +327,6 @@ function CanvasEditor({ canvas, onBack }: { canvas: Canvas; onBack: () => void }
     setBlocks((prev) => [...prev, { id: "block-" + blockIdCounter.current, type, content: "" }]);
   };
 
-  const handleSave = () => {
-    updateMutation.mutate({ name: title });
-  };
-
   return (
     <div className="max-w-3xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
@@ -252,11 +335,15 @@ function CanvasEditor({ canvas, onBack }: { canvas: Canvas; onBack: () => void }
           <Input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            onBlur={handleSave}
             className="text-xl font-bold border-none bg-transparent h-auto px-0 focus-visible:ring-0"
           />
         </div>
-        <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending}>Save</Button>
+        <div className="flex items-center gap-2">
+          {saveState === "saving" && <span className="text-xs text-muted-foreground">Saving&hellip;</span>}
+          {saveState === "saved" && <span className="text-xs text-muted-foreground">Saved</span>}
+          {saveState === "error" && <span className="text-xs text-destructive">Save failed</span>}
+          <Button size="sm" onClick={handleSave} disabled={saveState === "saving"}>Save</Button>
+        </div>
       </div>
       <Separator />
       <div className="space-y-1">
@@ -292,7 +379,7 @@ function CanvasEditor({ canvas, onBack }: { canvas: Canvas; onBack: () => void }
 
 function CanvasList() {
   const queryClient = useQueryClient();
-  const [selectedCanvas, setSelectedCanvas] = useState<Canvas | null>(null);
+  const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
 
@@ -305,7 +392,7 @@ function CanvasList() {
       queryClient.invalidateQueries({ queryKey: ["canvas"] });
       setCreateOpen(false);
       setNewName("");
-      setSelectedCanvas(canvas);
+      navigate({ to: "/canvas/$id", params: { id: canvas.id } });
     },
   });
 
@@ -313,20 +400,6 @@ function CanvasList() {
     mutationFn: (id: string) => api.delete("/canvas/" + id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["canvas"] }),
   });
-
-  const openCanvas = async (id: string) => {
-    try {
-      const detail = await api.get<Canvas>("/canvas/" + id);
-      setSelectedCanvas(detail);
-    } catch {
-      const c = canvases.find((c) => c.id === id);
-      if (c) setSelectedCanvas(c);
-    }
-  };
-
-  if (selectedCanvas) {
-    return <CanvasEditor canvas={selectedCanvas} onBack={() => setSelectedCanvas(null)} />;
-  }
 
   return (
     <div className="space-y-4">
@@ -356,7 +429,7 @@ function CanvasList() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {canvases.map((c) => (
-            <Card key={c.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => openCanvas(c.id)}>
+            <Card key={c.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate({ to: "/canvas/$id", params: { id: c.id } })}>
               <CardHeader className="p-4 pb-2">
                 <CardTitle className="text-sm font-semibold truncate">{c.name}</CardTitle>
               </CardHeader>

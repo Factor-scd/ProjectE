@@ -1,0 +1,220 @@
+name: ci-cd
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  quality:
+    runs-on: projecte-runner
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Self-hosted Gitea runners may not be able to resolve actions from
+      # github.com. If the checkout action above failed (e.g. it could not be
+      # fetched), fall back to a manual shallow clone from the Gitea server.
+      - name: Fallback checkout (manual clone)
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          SERVER_URL="${{ github.server_url }}"
+          REPO="${{ github.repository }}"
+          TOKEN="${{ github.token }}"
+          HOST="${SERVER_URL#https://}"
+          HOST="${HOST#http://}"
+          rm -rf ./* ./.git 2>/dev/null || true
+          echo "Manual shallow clone from ${HOST}/${REPO}"
+          git clone --depth 1 "https://oauth2:${TOKEN}@${HOST}/${REPO}.git" .
+
+      - name: Ensure bun
+        shell: bash
+        run: command -v bun || npm i -g bun@1.3.14
+
+      - name: Install dependencies
+        shell: bash
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Typecheck
+        shell: bash
+        run: bun run typecheck
+
+      - name: Build web
+        shell: bash
+        run: cd apps/web && bun run build
+
+      - name: Docker compose build
+        shell: bash
+        run: docker compose build
+
+  e2e:
+    runs-on: projecte-runner
+    needs: quality
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Self-hosted Gitea runners may not be able to resolve actions from
+      # github.com. If the checkout action above failed (e.g. it could not be
+      # fetched), fall back to a manual shallow clone from the Gitea server.
+      - name: Fallback checkout (manual clone)
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          SERVER_URL="${{ github.server_url }}"
+          REPO="${{ github.repository }}"
+          TOKEN="${{ github.token }}"
+          HOST="${SERVER_URL#https://}"
+          HOST="${HOST#http://}"
+          rm -rf ./* ./.git 2>/dev/null || true
+          echo "Manual shallow clone from ${HOST}/${REPO}"
+          git clone --depth 1 "https://oauth2:${TOKEN}@${HOST}/${REPO}.git" .
+
+      - name: Ensure bun
+        shell: bash
+        run: command -v bun || npm i -g bun@1.3.14
+
+      - name: Install dependencies
+        shell: bash
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Start ephemeral Postgres
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker rm -f projecte-e2e-db >/dev/null 2>&1 || true
+          docker run -d --name projecte-e2e-db \
+            -e POSTGRES_PASSWORD=test \
+            -e POSTGRES_DB=project_e \
+            -e POSTGRES_USER=project_e \
+            -p 5433:5432 \
+            postgres:16-alpine
+          echo "Waiting for Postgres to accept connections..."
+          for i in $(seq 1 30); do
+            if docker exec projecte-e2e-db pg_isready -U project_e -d project_e >/dev/null 2>&1; then
+              echo "Postgres ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "ERROR: Postgres did not become ready in time"
+          exit 1
+
+      - name: Sync database schema
+        shell: bash
+        env:
+          DATABASE_URL: postgresql://project_e:test@localhost:5433/project_e
+        run: bun run db:migrate
+
+      - name: Install Playwright chromium
+        shell: bash
+        run: npx playwright install --with-deps chromium
+
+      # The Playwright webServer boots the API + Vite dev server itself via
+      # `bun run dev`. The API needs the ephemeral DB connection, and the admin
+      # auto-creation on first login depends on INITIAL_ADMIN_* — the same
+      # values the e2e fixtures fall back to.
+      - name: Run E2E tests (chromium)
+        shell: bash
+        env:
+          DATABASE_URL: postgresql://project_e:test@localhost:5433/project_e
+          INITIAL_ADMIN_EMAIL: admin@example.com
+          INITIAL_ADMIN_PASSWORD: testpassword123
+          CI: "1"
+        run: bunx playwright test
+
+      - name: Stop ephemeral Postgres
+        if: always()
+        shell: bash
+        run: docker rm -f projecte-e2e-db >/dev/null 2>&1 || true
+
+  deploy:
+    runs-on: projecte-runner
+    needs: quality
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Fallback checkout (manual clone)
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          SERVER_URL="${{ github.server_url }}"
+          REPO="${{ github.repository }}"
+          TOKEN="${{ github.token }}"
+          HOST="${SERVER_URL#https://}"
+          HOST="${HOST#http://}"
+          rm -rf ./* ./.git 2>/dev/null || true
+          echo "Manual shallow clone from ${HOST}/${REPO}"
+          git clone --depth 1 "https://oauth2:${TOKEN}@${HOST}/${REPO}.git" .
+
+      - name: Deploy
+        shell: bash
+        env:
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR || '/home/projecte/ProjectE' }}
+        run: bash script/deploy.sh
+
+  smoke:
+    runs-on: projecte-runner
+    needs: deploy
+    if: always()
+    timeout-minutes: 10
+    steps:
+      - name: API health check
+        shell: bash
+        run: |
+          set -euo pipefail
+          BODY="$(curl -s http://localhost:3000/api/health || true)"
+          echo "${BODY}"
+          echo "${BODY}" | grep -q '"status"' || {
+            echo "ERROR: API health did not return the expected payload"
+            exit 1
+          }
+          echo "API health: OK"
+
+      - name: SPA root returns HTML
+        shell: bash
+        run: |
+          set -euo pipefail
+          BODY="$(curl -s http://localhost:3000/ || true)"
+          echo "${BODY}" | grep -qi '<html' || {
+            echo "ERROR: SPA root did not return HTML"
+            exit 1
+          }
+          echo "SPA root: HTML OK"
+
+      - name: Login smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          . /home/projecte/ProjectE/.env
+          set +a
+          CODE="$(curl -s -o /tmp/smoke-login.json -w '%{http_code}' \
+            -X POST http://localhost:3000/api/auth/credentials \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":\"${INITIAL_ADMIN_EMAIL}\",\"password\":\"${INITIAL_ADMIN_PASSWORD}\"}" \
+            || true)"
+          echo "Login HTTP status: ${CODE}"
+          cat /tmp/smoke-login.json
+          if [ "${CODE}" != "200" ]; then
+            echo "ERROR: Login smoke test failed (expected HTTP 200)"
+            exit 1
+          fi
+          echo "Login smoke test: OK"

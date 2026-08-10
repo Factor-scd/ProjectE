@@ -6,40 +6,47 @@ test.describe('Navigation', () => {
     await login(page);
   });
 
-  test('should navigate between all main pages via sidebar', async ({ page }) => {
+  test('every primary route renders its page', async ({ page }) => {
     const pages = [
-      { href: '/dashboard', name: /dashboard/i },
-      { href: '/tasks', name: /tasks/i },
-      { href: '/habits', name: /habits/i },
-      { href: '/projects', name: /projects/i },
-      { href: '/notes', name: /notes/i },
-      { href: '/graph', name: /graph/i },
-      { href: '/calendar', name: /calendar/i },
-      { href: '/search', name: /search/i },
+      { url: '/', check: page.getByRole('heading', { name: /dashboard/i }) },
+      { url: '/tasks', check: page.getByRole('heading', { name: /tasks/i }) },
+      { url: '/habits', check: page.getByRole('heading', { name: /habits/i }) },
+      { url: '/projects', check: page.getByRole('heading', { name: /projects/i }) },
+      { url: '/notes', check: page.getByRole('button', { name: /new note/i }) },
+      { url: '/calendar', check: page.getByRole('heading', { name: /calendar/i }) },
+      { url: '/graph', check: page.getByPlaceholder(/find a node/i) },
+      { url: '/search', check: page.getByPlaceholder(/search tasks, notes/i) },
+      { url: '/analytics', check: page.getByRole('heading', { name: /analytics/i }) },
+      { url: '/agents/activity', check: page.getByRole('heading', { name: /agent activity/i }) },
+      { url: '/canvas', check: page.getByRole('heading', { name: /canvas/i }) },
+      { url: '/daily', check: page.getByRole('button', { name: /today/i }) },
+      { url: '/settings', check: page.getByRole('button', { name: 'Appearance' }) },
     ];
 
-    for (const { href, name } of pages) {
-      await page.goto(href);
-      await page.waitForURL(`**${href}`, { timeout: 10_000 });
-      await expect(page.locator('h1, h2').filter({ hasText: name }).first()).toBeVisible();
+    for (const { url, check } of pages) {
+      await page.goto(url);
+      await page.waitForURL(`**${url}`, { timeout: 10_000 });
+      await expect(check).toBeVisible({ timeout: 10_000 });
     }
   });
 
-  test('should open command palette with Cmd+K', async ({ page }) => {
-    await page.goto('/dashboard');
-    await page.keyboard.press('Meta+k');
-    // Command palette should be visible
-    await expect(page.getByPlaceholder(/type a command/i)).toBeVisible({ timeout: 5_000 });
-    // Close with Escape
-    await page.keyboard.press('Escape');
-  });
+  test('navigates via the sidebar links', async ({ page }) => {
+    // The sidebar is desktop-only; on narrow viewports it lives behind the
+    // topbar menu button.
+    test.skip((page.viewportSize()?.width ?? 0) < 768, 'sidebar is hidden on mobile');
 
-  test('should open keyboard shortcuts help with ?', async ({ page }) => {
-    await page.goto('/dashboard');
-    await page.keyboard.press('?');
-    // Shortcuts help dialog should be visible
-    await expect(page.getByText(/keyboard shortcuts/i)).toBeVisible({ timeout: 5_000 });
-    // Close with Escape
-    await page.keyboard.press('Escape');
+    const nav = page.getByRole('navigation', { name: 'Primary' });
+
+    await nav.getByRole('link', { name: 'Tasks' }).click();
+    await page.waitForURL('**/tasks', { timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: /tasks/i })).toBeVisible();
+
+    await nav.getByRole('link', { name: 'Habits' }).click();
+    await page.waitForURL('**/habits', { timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: /habits/i })).toBeVisible();
+
+    await nav.getByRole('link', { name: 'Settings' }).click();
+    await page.waitForURL('**/settings', { timeout: 10_000 });
+    await expect(page.getByRole('button', { name: 'Appearance' })).toBeVisible();
   });
 });

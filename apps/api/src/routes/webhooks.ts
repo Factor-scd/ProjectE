@@ -1,8 +1,9 @@
 import { Hono } from "hono";
-import { db, webhooks, webhookDeliveries } from "@project-e/db";
+import { db, webhooks } from "@project-e/db";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { requireAuth, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
+import { enqueueWebhookDelivery } from "../middleware/webhook-queue";
 import { z } from "zod";
 
 export const webhookRoutes = new Hono();
@@ -43,6 +44,7 @@ webhookRoutes.get("/", async (c) => {
       const active = await resolveActiveDomain(user);
       domainId = active.id;
     }
+    await requireWorkspaceAccess(c, domainId);
 
     const conditions: any[] = [eq(webhooks.workspaceId, domainId)];
     const sortField = sort.replace(/^-/, "");
@@ -72,6 +74,8 @@ webhookRoutes.post("/", async (c) => {
       ...body,
       domain: body.domain || (await resolveActiveDomain(user)).id,
     });
+
+    await requireWorkspaceAccess(c, data.domain);
 
     const [webhook] = await db.insert(webhooks).values({
       name: data.name,
@@ -107,6 +111,8 @@ webhookRoutes.patch("/:id", async (c) => {
     const [existing] = await db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1);
     if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Webhook not found" } }, 404);
 
+    await requireWorkspaceAccess(c, existing.workspaceId);
+
     const updateValues: Record<string, unknown> = {};
     if (data.name !== undefined) updateValues.name = data.name;
     if (data.url !== undefined) updateValues.url = data.url;
@@ -139,6 +145,8 @@ webhookRoutes.delete("/:id", async (c) => {
     const [existing] = await db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1);
     if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Webhook not found" } }, 404);
 
+    await requireWorkspaceAccess(c, existing.workspaceId);
+
     await db.delete(webhooks).where(eq(webhooks.id, id));
 
     await recordActivity({
@@ -162,13 +170,17 @@ webhookRoutes.post("/:id/test", async (c) => {
     const [webhook] = await db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1);
     if (!webhook) return c.json({ error: { code: "NOT_FOUND", message: "Webhook not found" } }, 404);
 
-    const testPayload = { event: "test", data: { message: "This is a test webhook from Project E", timestamp: new Date().toISOString() } };
+    await requireWorkspaceAccess(c, webhook.workspaceId);
 
-    await db.insert(webhookDeliveries).values({
+    // Enqueue a delivery job instead of inserting a delivery row directly — the
+    // worker performs the delivery and records the webhook_deliveries row.
+    await enqueueWebhookDelivery({
       webhookId: id,
       event: "test",
-      payload: testPayload,
-      status: "pending",
+      entityType: "test",
+      entityId: webhook.id,
+      data: { message: "This is a test webhook from Project E", timestamp: new Date().toISOString() },
+      workspaceId: webhook.workspaceId,
     });
 
     return c.json({ success: true, message: "Test webhook queued" });

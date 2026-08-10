@@ -3,8 +3,9 @@ import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
-import { Plus, Trash2, FolderKanban, Users, Calendar, ListTodo, GripVertical } from "lucide-react";
+import { Plus, Pencil, Trash2, FolderKanban, Users, Calendar, ListTodo, GripVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { EntityDetailPanel } from "@/components/entities/entity-detail-panel";
+import { LoadingState, EmptyState, ErrorState } from "@/components/state";
+import { PROJECT_STATUS, TASK_STATUS } from "@/lib/status-colors";
 import { cn } from "@/lib/utils";
 import type { Project, Section, Task, PaginatedResponse } from "@/lib/types";
 
@@ -61,7 +64,7 @@ function ProjectForm({ project, onClose }: { project?: Project; onClose: () => v
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="status">Status</Label>
-          <Select value={status} onValueChange={setStatus}>
+          <Select value={status} onValueChange={(v) => setStatus(v as "active" | "paused" | "completed" | "archived")}>
             <SelectTrigger id="status"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="active">Active</SelectItem>
@@ -100,9 +103,11 @@ function ProjectsPage() {
 
   useRealtime({ enabled: true });
 
-  const { data: projectsData, isLoading } = useApiQuery<PaginatedResponse<Project>>(
-    ["projects"],
-    "/projects?limit=200"
+  const activeDomainId = useApiDomain();
+
+  const { data: projectsData, isLoading, isError, refetch } = useApiQuery<PaginatedResponse<Project>>(
+    ["projects", activeDomainId],
+    "/projects?limit=200" + (activeDomainId ? "&domain=" + activeDomainId : "")
   );
 
   const projects = projectsData?.items || [];
@@ -112,7 +117,11 @@ function ProjectsPage() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["projects"] }); setPanelOpen(false); },
   });
 
-  const openProjectDetail = async (project: Project) => {
+  const openProjectDetail = (project: Project) => {
+    navigate({ to: "/projects/$id", params: { id: project.id } });
+  };
+
+  const openProjectPanel = async (project: Project) => {
     try {
       const detail = await api.get<Project>("/projects/" + project.id);
       setSelectedProject(detail);
@@ -138,9 +147,11 @@ function ProjectsPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">Loading projects...</div>
+        <LoadingState label="Loading projects..." />
+      ) : isError ? (
+        <ErrorState message="Failed to load projects." onRetry={() => refetch()} />
       ) : projects.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">No projects yet.</div>
+        <EmptyState title="No projects yet" description="Create your first project to get started." />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {projects.map((project) => (
@@ -149,7 +160,18 @@ function ProjectsPage() {
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: project.color || "#3b82f6" }} />
                   <CardTitle className="text-base truncate">{project.name}</CardTitle>
-                  <Badge variant="secondary" className="ml-auto text-[10px]">{project.status}</Badge>
+                  <Badge className={cn("ml-auto text-[10px]", PROJECT_STATUS[project.status]?.badge)}>
+                    {PROJECT_STATUS[project.status]?.label ?? project.status}
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={(e) => { e.stopPropagation(); openProjectPanel(project); }}
+                    aria-label={"Edit " + project.name}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
                 </div>
               </CardHeader>
               <CardContent>
@@ -208,7 +230,7 @@ function ProjectsPage() {
                   {selectedProject.tasks.map((task: any) => (
                     <div key={task.id} className="flex items-center justify-between text-sm py-1.5 border-b last:border-0">
                       <span className="truncate">{task.title}</span>
-                      <Badge variant="secondary" className="text-[10px] shrink-0">{task.status}</Badge>
+                      <Badge className={cn("text-[10px] shrink-0", TASK_STATUS[task.status]?.badge)}>{TASK_STATUS[task.status]?.label ?? task.status}</Badge>
                     </div>
                   ))}
                 </div>

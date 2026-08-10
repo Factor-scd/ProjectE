@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { db, notes, noteTags, tags as tagsTable, activityFeed } from "@project-e/db";
-import { and, asc, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
-import { requireAuth, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { and, asc, desc, eq, exists, ilike, inArray, isNull, sql } from "drizzle-orm";
+import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
+import { enqueueWebhooks } from "../middleware/webhook-queue";
 import { syncNoteLinks, getBacklinks, getOutgoingLinks } from "./note-link-service";
 import { z } from "zod";
 
@@ -35,6 +36,7 @@ noteRoutes.get("/", async (c) => {
     const sort = url.searchParams.get("sort") || "-updated_at";
     const pinned = url.searchParams.get("pinned");
     const archived = url.searchParams.get("archived");
+    const tag = url.searchParams.get("tag");
     const search = url.searchParams.get("search");
     const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 200);
     const offset = parseInt(url.searchParams.get("offset") || "0");
@@ -46,6 +48,8 @@ noteRoutes.get("/", async (c) => {
       domainId = active.id;
     }
 
+    await requireWorkspaceAccess(c, domainId);
+
     const conditions: any[] = [
       eq(notes.domainId, domainId),
       isNull(notes.deletedAt),
@@ -56,6 +60,20 @@ noteRoutes.get("/", async (c) => {
     else if (archived !== "all") conditions.push(eq(notes.isArchived, false));
     if (search) conditions.push(ilike(notes.title, `%${search}%`));
     if (filter) conditions.push(ilike(notes.title, `%${filter}%`));
+    // Tag filter applied in SQL (EXISTS on the junction table) so it runs over
+    // the full dataset before pagination.
+    if (tag) {
+      const tagIds = tag.split(",").map((t) => t.trim()).filter(Boolean);
+      if (tagIds.length > 0) {
+        conditions.push(
+          exists(
+            db.select({ one: sql`1` })
+              .from(noteTags)
+              .where(and(eq(noteTags.noteId, notes.id), inArray(noteTags.tagId, tagIds)))
+          )
+        );
+      }
+    }
 
     const sortDir = sort.startsWith("-") ? "desc" : "asc";
     const sortField = sort.replace(/^-/, "");
@@ -136,6 +154,8 @@ noteRoutes.post("/", async (c) => {
       domain: body.domain || (await resolveActiveDomain(user)).id,
     });
 
+    await requireWorkspaceAccess(c, data.domain);
+
     const [note] = await db.insert(notes).values({
       title: data.title,
       content: data.content ?? null,
@@ -164,6 +184,8 @@ noteRoutes.post("/", async (c) => {
       workspaceId: data.domain,
     });
 
+    await enqueueWebhooks({ workspaceId: data.domain, event: "note.created", entityType: "note", entityId: note.id, data: { title: note.title } });
+
     return c.json(note, 201);
   } catch (error) {
     if (error instanceof AuthError) {
@@ -191,6 +213,8 @@ noteRoutes.get("/:id", async (c) => {
     if (!note) {
       return c.json({ error: { code: "NOT_FOUND", message: "Note not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, note.domainId);
 
     // Fetch tags
     const tagRows = await db.select({
@@ -240,6 +264,8 @@ noteRoutes.patch("/:id", async (c) => {
       return c.json({ error: { code: "NOT_FOUND", message: "Note not found" } }, 404);
     }
 
+    await requireWorkspaceAccess(c, existing.domainId);
+
     const updateValues: Record<string, unknown> = {};
     if (data.title !== undefined) updateValues.title = data.title;
     if (data.content !== undefined) updateValues.content = data.content;
@@ -266,6 +292,8 @@ noteRoutes.patch("/:id", async (c) => {
       changes: { ...data, previousTitle: existing.title },
       workspaceId: existing.domainId,
     });
+
+    await enqueueWebhooks({ workspaceId: existing.domainId, event: "note.updated", entityType: "note", entityId: id, data: { ...data, previousTitle: existing.title } });
 
     return c.json(updated);
   } catch (error) {
@@ -295,6 +323,8 @@ noteRoutes.delete("/:id", async (c) => {
       return c.json({ error: { code: "NOT_FOUND", message: "Note not found" } }, 404);
     }
 
+    await requireWorkspaceAccess(c, existing.domainId);
+
     await db.update(notes)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(eq(notes.id, id));
@@ -308,6 +338,8 @@ noteRoutes.delete("/:id", async (c) => {
       workspaceId: existing.domainId,
     });
 
+    await enqueueWebhooks({ workspaceId: existing.domainId, event: "note.deleted", entityType: "note", entityId: id, data: { title: existing.title } });
+
     return c.body(null, 204);
   } catch (error) {
     if (error instanceof AuthError) {
@@ -318,11 +350,112 @@ noteRoutes.delete("/:id", async (c) => {
   }
 });
 
+// POST /api/notes/:id/tags — Assign a tag to a note
+noteRoutes.post("/:id/tags", async (c) => {
+  try {
+    const user = await requireAuth(c);
+    const id = c.req.param("id");
+    const body = await c.req.json();
+    const { tagId } = z.object({ tagId: z.string().uuid("Invalid tag id") }).parse(body);
+
+    const [note] = await db.select({ id: notes.id, domainId: notes.domainId })
+      .from(notes)
+      .where(and(eq(notes.id, id), isNull(notes.deletedAt)))
+      .limit(1);
+    if (!note) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Note not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, note.domainId);
+
+    const [tag] = await db.select({ id: tagsTable.id, name: tagsTable.name })
+      .from(tagsTable)
+      .where(eq(tagsTable.id, tagId))
+      .limit(1);
+    if (!tag) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Tag not found" } }, 404);
+    }
+
+    // Junction table has a composite PK — ignore re-assigns instead of erroring
+    await db.insert(noteTags).values({ noteId: id, tagId }).onConflictDoNothing();
+
+    await recordActivity({
+      actor: user.name,
+      action: "tagged",
+      entityType: "note",
+      entityId: id,
+      changes: { tagId, tagName: tag.name },
+      workspaceId: note.domainId,
+    });
+
+    return c.json({ success: true }, 201);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    }
+    if (error instanceof z.ZodError) {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid input", details: error.issues } }, 400);
+    }
+    console.error("[notes] POST /:id/tags error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to assign tag" } }, 500);
+  }
+});
+
+// DELETE /api/notes/:id/tags/:tagId — Remove a tag from a note
+noteRoutes.delete("/:id/tags/:tagId", async (c) => {
+  try {
+    const user = await requireAuth(c);
+    const id = c.req.param("id");
+    const tagId = c.req.param("tagId");
+
+    const [note] = await db.select({ id: notes.id, domainId: notes.domainId })
+      .from(notes)
+      .where(and(eq(notes.id, id), isNull(notes.deletedAt)))
+      .limit(1);
+    if (!note) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Note not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, note.domainId);
+
+    // Junction tables have no deleted_at — hard delete is correct here
+    await db.delete(noteTags).where(and(eq(noteTags.noteId, id), eq(noteTags.tagId, tagId)));
+
+    await recordActivity({
+      actor: user.name,
+      action: "untagged",
+      entityType: "note",
+      entityId: id,
+      changes: { tagId },
+      workspaceId: note.domainId,
+    });
+
+    return c.body(null, 204);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    }
+    console.error("[notes] DELETE /:id/tags/:tagId error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to remove tag" } }, 500);
+  }
+});
+
 // GET /api/notes/:id/backlinks — Notes that link TO this one
 noteRoutes.get("/:id/backlinks", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+
+    const [note] = await db.select({ id: notes.id, domainId: notes.domainId })
+      .from(notes)
+      .where(and(eq(notes.id, id), isNull(notes.deletedAt)))
+      .limit(1);
+
+    if (!note) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Note not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, note.domainId);
 
     const backlinks = await getBacklinks(id);
 
@@ -345,11 +478,23 @@ noteRoutes.get("/:id/versions", async (c) => {
     const user = await requireAuth(c);
     const id = c.req.param("id");
 
+    const [note] = await db.select({ id: notes.id, domainId: notes.domainId })
+      .from(notes)
+      .where(and(eq(notes.id, id), isNull(notes.deletedAt)))
+      .limit(1);
+
+    if (!note) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Note not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, note.domainId);
+
     const versions = await db.select()
       .from(activityFeed)
       .where(and(
         eq(activityFeed.entityId, id),
         eq(activityFeed.entityType, "note"),
+        eq(activityFeed.workspaceId, note.domainId),
       ))
       .orderBy(desc(activityFeed.createdAt))
       .limit(100);

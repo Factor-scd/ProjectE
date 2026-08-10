@@ -2,87 +2,49 @@ import { test, expect } from '@playwright/test';
 import { login } from './helpers/auth';
 import { testHabits } from './helpers/fixtures';
 
-test.describe('Habit Tracking', () => {
+test.describe('Habits', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
     await page.goto('/habits');
-    // Wait for the habits page to load
     await expect(page.getByRole('heading', { name: /habits/i })).toBeVisible();
   });
 
-  test.describe('Habits page', () => {
-    test('should display habits page with summary banner', async ({ page }) => {
-      // Summary banner should show today's progress
-      await expect(page.getByText(/today's progress/i)).toBeVisible();
-      await expect(page.getByText(/completion rate/i)).toBeVisible();
-    });
+  test('shows the empty state when there are no habits', async ({ page }) => {
+    if (await page.getByText('No habits yet').isVisible().catch(() => false)) {
+      await expect(page.getByText(/create your first one/i)).toBeVisible();
+    }
+  });
 
-    test('should show "New habit" button', async ({ page }) => {
-      await expect(page.getByRole('button', { name: /new habit/i })).toBeVisible();
+  test('creates a habit via the New Habit dialog', async ({ page }) => {
+    await page.getByRole('button', { name: /new habit/i }).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'New Habit' })).toBeVisible();
+
+    await dialog.getByLabel('Name').fill(testHabits.name);
+    await dialog.getByLabel('Description').fill(testHabits.description);
+    await dialog.getByRole('button', { name: /create habit/i }).click();
+
+    // The dialog closes and the habit appears in the list.
+    await expect(dialog).toBeHidden();
+    await expect(page.getByText(testHabits.name, { exact: true })).toBeVisible({
+      timeout: 10_000,
     });
   });
 
-  test.describe('Create habit', () => {
-    test('should open new habit dialog when clicking "New habit"', async ({ page }) => {
+  test('marks a habit complete from the list', async ({ page }) => {
+    // Ensure the fixture habit exists.
+    if (!(await page.getByText(testHabits.name, { exact: true }).isVisible().catch(() => false))) {
       await page.getByRole('button', { name: /new habit/i }).click();
-      // A dialog or form should appear
-      // The habit creation might be a dialog or inline form
-      await page.waitForTimeout(500);
-    });
-  });
+      const dialog = page.getByRole('dialog');
+      await dialog.getByLabel('Name').fill(testHabits.name);
+      await dialog.getByRole('button', { name: /create habit/i }).click();
+      await expect(page.getByText(testHabits.name, { exact: true })).toBeVisible({ timeout: 10_000 });
+    }
 
-  test.describe('Habit completion', () => {
-    test('should display habit cards in a grid', async ({ page }) => {
-      // Habit cards should be in a grid layout
-      const habitCards = page.locator('.grid > div, [class*="habit"]');
-      // Verify the grid container exists
-      await expect(page.locator('.grid')).toBeVisible();
-    });
-
-    test('should show consistency heatmap section', async ({ page }) => {
-      // The heatmap section should exist
-      await expect(page.getByText(/consistency overview/i)).toBeVisible();
-    });
-  });
-
-  test.describe('Quick completion mode', () => {
-    test('should complete a quick-mode habit with a single click', async ({ page }) => {
-      // Find a habit card with a complete button
-      const completeButtons = page.locator('button:has-text("Complete"), button[aria-label*="complete"]');
-      const count = await completeButtons.count();
-
-      if (count > 0) {
-        await completeButtons.first().click();
-        // Should update without showing a dialog (quick mode)
-        await page.waitForTimeout(1_000);
-      } else {
-        test.skip();
-      }
-    });
-  });
-
-  test.describe('Detailed completion mode', () => {
-    test('should open completion dialog for detailed habits', async ({ page }) => {
-      // Detailed mode habits open a dialog with mood/quantity fields
-      const detailedButtons = page.locator('button:has-text("Complete")');
-      const count = await detailedButtons.count();
-
-      if (count > 0) {
-        // Try clicking - if it's detailed mode, a dialog should open
-        await detailedButtons.first().click();
-        await page.waitForTimeout(1_000);
-      } else {
-        test.skip();
-      }
-    });
-  });
-
-  test.describe('Habit streaks', () => {
-    test('should display streak information on habit cards', async ({ page }) => {
-      // Habit cards should show streak/fire icons
-      const streakElements = page.locator('[class*="streak"], [class*="fire"], [class*="flame"]');
-      // Just verify the page loaded properly
-      await expect(page.getByRole('heading', { name: /habits/i })).toBeVisible();
-    });
+    // Completing today's habit bumps the streak to 1 day.
+    await page.getByRole('button', { name: /mark .* complete/i }).first().click();
+    await expect(page.getByText('1 day streak', { exact: true })).toBeVisible({ timeout: 10_000 });
   });
 });

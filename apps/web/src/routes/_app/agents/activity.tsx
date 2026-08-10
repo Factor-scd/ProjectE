@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
 import { Bot, Filter, Calendar, RefreshCw, ExternalLink, Clock, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LoadingState, EmptyState } from "@/components/state";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -57,8 +58,20 @@ function AgentActivityPage() {
     es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.type === "agent_activity" || data.type === "activity") {
-          setLiveActivities((prev) => [data.payload, ...prev].slice(0, 5));
+        // Realtime events are flat: { type: entityType, action, id, workspace_id }.
+        // Match only agent events so unrelated task/habit/etc. activity doesn't leak in.
+        if (data.type === "agent") {
+          const entry: AgentActivity = {
+            id: `${data.id}-live-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            agentId: data.id,
+            action: data.action,
+            description: `Live update: ${data.action}`,
+            entityType: "agent",
+            entityId: data.id,
+            metadata: null,
+            createdAt: new Date().toISOString(),
+          };
+          setLiveActivities((prev) => [entry, ...prev].slice(0, 5));
         }
       } catch {}
     };
@@ -117,9 +130,9 @@ function AgentActivityPage() {
 
       {/* Timeline */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">Loading activity...</div>
+        <LoadingState label="Loading activity..." />
       ) : activities.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">No activity found</div>
+        <EmptyState title="No activity found" description="Agent activity will appear here as agents run" />
       ) : (
         <div className="space-y-1">
           {activities.map((a, idx) => (

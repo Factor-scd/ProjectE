@@ -18,6 +18,7 @@ export interface Task {
   updatedAt: string;
   deletedAt: string | null;
   tags: Tag[];
+  customFields?: Record<string, unknown>;
   subtasks?: Task[];
   dependencies?: { id: string; title: string; status: string }[];
   dependents?: { id: string; title: string; status: string }[];
@@ -133,6 +134,8 @@ export interface GraphNode {
   label: string;
   type: string;
   color: string;
+  x?: number;
+  y?: number;
 }
 
 export interface GraphEdge {
@@ -259,8 +262,25 @@ export interface Agent {
   domainId: string;
   tags: string[];
   config: Record<string, unknown>;
+  apiKey?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Notification {
+  id: string;
+  actor: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  changes: Record<string, unknown> | null;
+  workspaceId: string;
+  createdAt: string;
+}
+
+export interface NotificationsResponse {
+  items: Notification[];
+  count: number;
 }
 
 export interface AgentActivity {
@@ -343,10 +363,28 @@ export interface HabitAnalytics {
   period: number;
 }
 
-export interface ProjectAnalytics {
-  taskCompletionRate: number;
+export interface DailyAnalyticsItem {
+  date: string;
+  created: number;
+  completed: number;
+}
+
+export interface DailyAnalytics {
+  items: DailyAnalyticsItem[];
+  period: number;
+}
+
+export interface ProjectProgress {
+  id: string;
+  name: string;
   totalTasks: number;
   completedTasks: number;
+  progress: number;
+}
+
+export interface ProjectAnalytics {
+  projects: ProjectProgress[];
+  totalProjects: number;
   period: number;
 }
 

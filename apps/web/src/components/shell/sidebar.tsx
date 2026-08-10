@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import { useSidebarStore } from "@/lib/stores/use-sidebar-store";
@@ -76,6 +77,24 @@ export function Sidebar() {
   const location = useLocation();
   const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebarStore();
 
+  // Sidebar position (left/right) is set in Settings. Read once on mount and
+  // update live via the "sidebar-position-change" custom event dispatched by
+  // the settings page.
+  const [sidebarPos, setSidebarPos] = useState<"left" | "right">(() =>
+    typeof window !== "undefined" && localStorage.getItem("sidebar-position") === "right"
+      ? "right"
+      : "left"
+  );
+
+  useEffect(() => {
+    const onSidebarPositionChange = (event: Event) => {
+      const detail = (event as CustomEvent<string>).detail;
+      if (detail === "left" || detail === "right") setSidebarPos(detail);
+    };
+    window.addEventListener("sidebar-position-change", onSidebarPositionChange);
+    return () => window.removeEventListener("sidebar-position-change", onSidebarPositionChange);
+  }, []);
+
   const isActive = (href: string) => {
     if (href === "/") return location.pathname === "/";
     return location.pathname.startsWith(href);
@@ -114,7 +133,7 @@ export function Sidebar() {
       return (
         <Tooltip key={item.href}>
           <TooltipTrigger asChild>{link}</TooltipTrigger>
-          <TooltipContent side="right">{item.label}</TooltipContent>
+          <TooltipContent side={sidebarPos === "right" ? "left" : "right"}>{item.label}</TooltipContent>
         </Tooltip>
       );
     }
@@ -143,8 +162,9 @@ export function Sidebar() {
     <TooltipProvider delayDuration={0}>
       <aside
         className={cn(
-          "hidden flex-col border-r bg-card transition-all duration-200 md:flex",
-          collapsed ? "w-16" : "w-60"
+          "hidden flex-col bg-card transition-all duration-200 md:flex",
+          collapsed ? "w-16" : "w-60",
+          sidebarPos === "right" ? "order-last border-l" : "border-r"
         )}
         aria-label="Main navigation"
       >
@@ -188,7 +208,7 @@ export function Sidebar() {
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="right" align="start" className="w-48">
+              <DropdownMenuContent side={sidebarPos === "right" ? "left" : "right"} align="start" className="w-48">
                 <DropdownMenuItem onClick={() => {}}>
                   <User className="mr-2 h-4 w-4" />
                   Profile
@@ -214,7 +234,7 @@ export function Sidebar() {
                   <span className="text-sm font-medium">User</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="right" align="start" className="w-48">
+              <DropdownMenuContent side={sidebarPos === "right" ? "left" : "right"} align="start" className="w-48">
                 <DropdownMenuItem onClick={() => {}}>
                   <User className="mr-2 h-4 w-4" />
                   Profile
@@ -236,7 +256,7 @@ export function Sidebar() {
 
       {/* Mobile sheet */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="flex w-72 flex-col p-0 md:hidden">
+        <SheetContent side={sidebarPos === "right" ? "right" : "left"} className="flex w-72 flex-col p-0 md:hidden">
           <SheetHeader className="border-b px-4 py-4 pr-12">
             <SheetTitle>Project E</SheetTitle>
             <SheetDescription>Navigate your workspace.</SheetDescription>

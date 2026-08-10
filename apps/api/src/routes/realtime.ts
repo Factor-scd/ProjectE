@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import postgres from "postgres";
+import { requireWorkspaceAccess, AuthError } from "../middleware/auth";
 
 export const realtimeRoutes = new Hono();
 
@@ -12,6 +13,21 @@ realtimeRoutes.get("/realtime", async (c) => {
 
   const url = new URL(c.req.url);
   const workspaceId = url.searchParams.get("workspace_id");
+
+  // IDOR guard: if a workspace is requested, verify the current user actually
+  // owns it before subscribing to the event stream. Without this check any
+  // authenticated user could tail another workspace's events.
+  if (workspaceId) {
+    try {
+      await requireWorkspaceAccess(c, workspaceId);
+    } catch (error) {
+      if (error instanceof AuthError) {
+        return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+      }
+      console.error("[realtime] workspace validation error:", error);
+      return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to validate workspace" } }, 500);
+    }
+  }
 
   const encoder = new TextEncoder();
   const listener = postgres(process.env.DATABASE_URL!, { max: 1 });

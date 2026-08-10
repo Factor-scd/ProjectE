@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { createHash } from "node:crypto";
 import { db, apiKeys, users, tasks, taskTags, tags as tagsTable, habits, habitCompletions, projects, notes, noteLinks, domains, activityFeed, webhooks, webhookDeliveries } from "@project-e/db";
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, isNull, or } from "drizzle-orm";
 import { recordActivity } from "../middleware/activity";
 
 export const mcpRoutes = new Hono();
@@ -484,7 +484,7 @@ const tools: ToolDefinition[] = [
         .where(and(
           eq(notes.domainId, params.domain_id as string),
           isNull(notes.deletedAt),
-          or(ilike(notes.title, `%${query}%`), ilike(notes.content ?? sql``, `%${query}%`))
+          or(ilike(notes.title, `%${query}%`), ilike(notes.content, `%${query}%`))
         ))
         .orderBy(desc(notes.updatedAt))
         .limit(20);
@@ -493,10 +493,15 @@ const tools: ToolDefinition[] = [
   },
   {
     name: "domains.list",
-    description: "List domains/workspaces",
+    description: "List the caller's domains/workspaces",
     inputSchema: { type: "object", properties: {} },
-    handler: async () => {
-      const items = await db.select().from(domains).orderBy(asc(domains.name));
+    handler: async (_params, auth) => {
+      // Only the caller's own domains (plus legacy ownerless rows) — never every
+      // domain in the database.
+      const items = await db.select()
+        .from(domains)
+        .where(or(eq(domains.ownerId, auth.userId), isNull(domains.ownerId)))
+        .orderBy(asc(domains.name));
       return { items };
     },
   },
@@ -517,6 +522,7 @@ const tools: ToolDefinition[] = [
         name: params.name as string,
         slug: params.slug as string,
         color: (params.color as string) ?? null,
+        ownerId: auth.userId,
       }).returning();
 
       await recordActivity({
@@ -603,12 +609,46 @@ class JsonRpcErrorResponse extends Error {
   }
 }
 
-function makeError(code: number, message: string, data?: unknown): JsonRpcResponse {
-  return { jsonrpc: "2.0", error: { code, message, data }, id: null };
+function makeError(code: number, message: string, data?: unknown, id: string | number | null = null): JsonRpcResponse {
+  return { jsonrpc: "2.0", error: { code, message, data }, id };
 }
 
 function makeResult(result: unknown, id: string | number | null): JsonRpcResponse {
   return { jsonrpc: "2.0", result, id };
+}
+
+// Validate that every field listed in the tool's inputSchema `required` array is
+// present. Prevents silent empty-result queries (e.g. a missing domain_id) from
+// reaching the database.
+function validateParams(tool: ToolDefinition, args: Record<string, unknown>): string | null {
+  const schema = tool.inputSchema as { required?: string[] } | undefined;
+  for (const field of schema?.required || []) {
+    const value = args[field];
+    if (value === undefined || value === null || value === "") {
+      return `Missing required parameter: ${field}`;
+    }
+  }
+  return null;
+}
+
+// Domain/workspace ownership check for tools that receive a domain_id or
+// workspace_id. Mirrors requireWorkspaceAccess but works without a Hono context:
+// legacy domains with a NULL ownerId pass through the existence check only.
+async function verifyDomainAccess(domainId: string, userId: string): Promise<void> {
+  if (!domainId || domainId.trim() === "") {
+    throw new JsonRpcErrorResponse(JSONRPC_INVALID_PARAMS, "domain_id is required");
+  }
+  const [domain] = await db
+    .select({ id: domains.id, ownerId: domains.ownerId })
+    .from(domains)
+    .where(eq(domains.id, domainId))
+    .limit(1);
+  if (!domain) {
+    throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, `Domain not found: ${domainId}`);
+  }
+  if (domain.ownerId !== null && domain.ownerId !== userId) {
+    throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, `No access to domain: ${domainId}`);
+  }
 }
 
 async function handleRequest(body: JsonRpcRequest, auth: { userId: string; userName: string }): Promise<JsonRpcResponse> {
@@ -644,23 +684,36 @@ async function handleRequest(body: JsonRpcRequest, auth: { userId: string; userN
   if (method === "tools/call") {
     const callParams = params as { name?: string; arguments?: Record<string, unknown> } | undefined;
     if (!callParams?.name) {
-      return makeError(JSONRPC_INVALID_PARAMS, "Missing tool name", id);
+      return makeError(JSONRPC_INVALID_PARAMS, "Missing tool name", undefined, id);
     }
 
     const tool = tools.find(t => t.name === callParams.name);
     if (!tool) {
-      return makeError(JSONRPC_METHOD_NOT_FOUND, `Unknown tool: ${callParams.name}`, id);
+      return makeError(JSONRPC_METHOD_NOT_FOUND, `Unknown tool: ${callParams.name}`, undefined, id);
     }
 
     try {
-      const result = await tool.handler(callParams.arguments || {}, auth);
+      const args = callParams.arguments || {};
+
+      const missing = validateParams(tool, args);
+      if (missing) {
+        return makeError(JSONRPC_INVALID_PARAMS, missing, undefined, id);
+      }
+
+      // Scope to the caller's domains when a domain/workspace is passed.
+      const domainId = (args.domain_id as string | undefined) ?? (args.workspace_id as string | undefined);
+      if (domainId) {
+        await verifyDomainAccess(domainId, auth.userId);
+      }
+
+      const result = await tool.handler(args, auth);
       return makeResult({ content: [{ type: "text", text: JSON.stringify(result) }] }, id);
     } catch (error) {
       if (error instanceof JsonRpcErrorResponse) {
-        return makeError(error.code, error.message, error.data);
+        return makeError(error.code, error.message, error.data, id);
       }
       console.error(`[MCP] Tool ${callParams.name} error:`, error);
-      return makeError(JSONRPC_INTERNAL_ERROR, error instanceof Error ? error.message : "Internal error", id);
+      return makeError(JSONRPC_INTERNAL_ERROR, error instanceof Error ? error.message : "Internal error", undefined, id);
     }
   }
 
@@ -700,7 +753,7 @@ async function handleRequest(body: JsonRpcRequest, auth: { userId: string; userN
   if (method === "resources/read") {
     const readParams = params as { uri?: string } | undefined;
     if (!readParams?.uri) {
-      return makeError(JSONRPC_INVALID_PARAMS, "Missing resource URI", id);
+      return makeError(JSONRPC_INVALID_PARAMS, "Missing resource URI", undefined, id);
     }
     return makeResult({
       contents: [
@@ -727,7 +780,7 @@ async function handleRequest(body: JsonRpcRequest, auth: { userId: string; userN
     }, id);
   }
 
-  return makeError(JSONRPC_METHOD_NOT_FOUND, `Unknown method: ${method}`, id);
+  return makeError(JSONRPC_METHOD_NOT_FOUND, `Unknown method: ${method}`, undefined, id);
 }
 
 // ── Route handler ────────────────────────────────────────────────────────────────

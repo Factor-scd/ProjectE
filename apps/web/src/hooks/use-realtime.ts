@@ -13,7 +13,7 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
   const { workspaceId, enabled = true } = options;
   const queryClient = useQueryClient();
   const eventSourceRef = useRef<EventSource | null>(null);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempts = useRef(0);
 
   const handleEvent = useCallback(
@@ -23,19 +23,22 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
 
       switch (entityType) {
         case "task":
-          queryKeys.push(["tasks"]);
+          queryKeys.push(["tasks"], ["tasks-due"], ["stats"], ["productivity-chart"]);
           break;
         case "habit":
-          queryKeys.push(["habits"]);
+          queryKeys.push(["habits"], ["habits-today"], ["streaks"]);
           break;
         case "project":
-          queryKeys.push(["projects"]);
+          queryKeys.push(["projects"], ["active-projects"]);
           break;
         case "note":
-          queryKeys.push(["notes"]);
+          queryKeys.push(["notes"], ["recent-notes"]);
           break;
         case "calendar_event":
-          queryKeys.push(["calendar-events"]);
+          queryKeys.push(["calendar-events"], ["upcoming-events"]);
+          break;
+        case "dashboard_widget":
+          queryKeys.push(["dashboard-widgets"]);
           break;
         case "graph_edge":
           queryKeys.push(["graph"]);

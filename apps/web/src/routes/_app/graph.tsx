@@ -1,11 +1,13 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { createRoute } from "@tanstack/react-router";
+import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery } from "@/lib/api";
+import { useActiveDomainId } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
 import { Search, ZoomIn, ZoomOut, RotateCcw, Filter, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LoadingState, EmptyState } from "@/components/state";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -30,12 +32,26 @@ const ENTITY_COLORS: Record<string, string> = {
   domain: "#6366f1",
 };
 
+// Graph node types that have a detail page. section/tag/domain nodes appear in
+// the graph but have no detail route, so they are intentionally absent.
+const NODE_TYPE_ROUTES: Record<string, string> = {
+  task: "/tasks/$id",
+  habit: "/habits/$id",
+  project: "/projects/$id",
+  note: "/notes/$id",
+};
+
 const MAX_NODES = 500;
 
 function GraphPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(undefined);
+  // Simulated node positions, keyed by node id. react-force-graph assigns x/y to
+  // the node objects it renders during the simulation; the raw API nodes
+  // (displayNodes) never gain coordinates, so fly-to must look here instead.
+  const positionsRef = useRef(new Map<string, { x: number; y: number }>());
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [search, setSearch] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
@@ -70,9 +86,16 @@ function GraphPage() {
     ["domains"],
     "/domains"
   );
-  const activeDomainId = domainsData?.items?.[0]?.id || "";
+  // Use the active domain from the store, falling back to the first domain
+  // while unset. Validate against the fetched list so a persisted id that no
+  // longer exists doesn't produce a query for a deleted domain.
+  const storedDomainId = useActiveDomainId();
+  const activeDomainId =
+    (storedDomainId && domainsData?.items?.some((d) => d.id === storedDomainId) ? storedDomainId : null) ||
+    domainsData?.items?.[0]?.id ||
+    "";
 
-  const { data: nodesData } = useApiQuery<{ items: GraphNode[]; totalItems: number }>(
+  const { data: nodesData, isLoading: nodesLoading } = useApiQuery<{ items: GraphNode[]; totalItems: number }>(
     ["graph", "nodes", activeDomainId],
     "/graph/nodes?domain=" + activeDomainId,
     { enabled: !!activeDomainId }
@@ -154,14 +177,34 @@ function GraphPage() {
   };
 
   // Search: fly to node
+  const trackNodePosition = useCallback((node: any) => {
+    if (node && typeof node.x === "number" && typeof node.y === "number") {
+      positionsRef.current.set(String(node.id), { x: node.x, y: node.y });
+    }
+  }, []);
+
+  // Snapshot every simulated node's position once the force simulation settles.
+  const snapshotPositions = useCallback(() => {
+    const nodes = graphRef.current?.graphData()?.nodes;
+    if (!nodes) return;
+    for (const node of nodes) {
+      trackNodePosition(node);
+    }
+  }, [trackNodePosition]);
+
   const handleSearch = useCallback(() => {
     if (!search.trim() || !graphRef.current) return;
     const found = displayNodes.find(
       (n) => n.label.toLowerCase().includes(search.toLowerCase())
     );
-    if (found) {
-      graphRef.current.centerAt(found.x, found.y, 1000);
+    if (!found) return;
+    const pos = positionsRef.current.get(found.id);
+    if (pos) {
+      graphRef.current.centerAt(pos.x, pos.y, 1000);
       graphRef.current.zoom(3, 1000);
+    } else {
+      // No coordinates yet (e.g. simulation still warming up) — fit the view instead.
+      graphRef.current.zoomToFit(1000, 50);
     }
   }, [search, displayNodes]);
 
@@ -174,6 +217,15 @@ function GraphPage() {
     setSelectedNode(node as GraphNode);
     setDetailOpen(true);
   }, []);
+
+  // Close the detail panel and navigate to the node's detail page when one
+  // exists (task/habit/project/note). No-ops for types without a detail route.
+  const handleOpenEntity = useCallback((node: GraphNode) => {
+    const to = NODE_TYPE_ROUTES[node.type];
+    if (!to) return;
+    setDetailOpen(false);
+    navigate({ to, params: { id: node.id } });
+  }, [navigate]);
 
   // Node hover → highlight
   const handleNodeHover = useCallback((node: any | null) => {
@@ -273,7 +325,7 @@ function GraphPage() {
       {/* Graph canvas area */}
       <div ref={containerRef} className="flex-1 relative bg-muted/20">
         {/* Toolbar */}
-        <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
+        <div className="absolute top-4 left-4 z-10 flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
@@ -281,7 +333,7 @@ function GraphPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={handleSearchKeyDown}
-              className="pl-8 w-64 bg-background/90 backdrop-blur"
+              className="pl-8 w-40 sm:w-64 bg-background/90 backdrop-blur"
             />
           </div>
           <Button variant="outline" size="icon" onClick={() => setFilterOpen(true)} aria-label="Filters">
@@ -312,24 +364,35 @@ function GraphPage() {
         )}
 
         {/* Force graph */}
-        <ForceGraph2D
-          ref={graphRef}
-          graphData={graphData}
-          width={dimensions.width}
-          height={dimensions.height}
-          nodeCanvasObject={nodeCanvasObject}
-          linkCanvasObject={linkCanvasObject}
-          linkDirectionalArrowLength={0}
-          linkDirectionalArrowRelPos={0.5}
-          onNodeClick={handleNodeClick}
-          onNodeHover={handleNodeHover}
-          nodeRelSize={6}
-          d3AlphaDecay={0.02}
-          d3VelocityDecay={0.3}
-          cooldownTicks={100}
-          warmupTicks={40}
-          backgroundColor="transparent"
-        />
+        {activeDomainId && nodesLoading ? (
+          <LoadingState label="Loading graph..." />
+        ) : displayNodes.length === 0 ? (
+          <EmptyState
+            title="No graph data yet"
+            description="Create tasks, habits, or projects to see them connected here"
+          />
+        ) : (
+          <ForceGraph2D
+            ref={graphRef}
+            graphData={graphData}
+            width={dimensions.width}
+            height={dimensions.height}
+            nodeCanvasObject={nodeCanvasObject}
+            linkCanvasObject={linkCanvasObject}
+            linkDirectionalArrowLength={0}
+            linkDirectionalArrowRelPos={0.5}
+            onNodeClick={handleNodeClick}
+            onNodeHover={handleNodeHover}
+            onNodeDrag={trackNodePosition}
+            onEngineStop={snapshotPositions}
+            nodeRelSize={6}
+            d3AlphaDecay={0.02}
+            d3VelocityDecay={0.3}
+            cooldownTicks={100}
+            warmupTicks={40}
+            backgroundColor="transparent"
+          />
+        )}
       </div>
 
       {/* Filter panel */}
@@ -391,6 +454,19 @@ function GraphPage() {
               </div>
               <p className="text-sm text-muted-foreground">ID: {selectedNode.id}</p>
               <Separator />
+              {NODE_TYPE_ROUTES[selectedNode.type] ? (
+                <Button
+                  className="w-full"
+                  onClick={() => handleOpenEntity(selectedNode)}
+                >
+                  Open {selectedNode.type.charAt(0).toUpperCase() + selectedNode.type.slice(1)}
+                </Button>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No detail page for {selectedNode.type}
+                </p>
+              )}
+              <Separator />
               <h4 className="text-sm font-semibold">Connected nodes</h4>
               <div className="space-y-1">
                 {displayEdges
@@ -401,7 +477,22 @@ function GraphPage() {
                     return connected ? (
                       <div key={i} className="flex items-center gap-2 text-sm py-1">
                         <div className="w-2 h-2 rounded-full" style={{ backgroundColor: connected.color }} />
-                        <span className="truncate flex-1">{connected.label}</span>
+                        {NODE_TYPE_ROUTES[connected.type] ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEntity(connected)}
+                            className="truncate flex-1 text-left hover:underline"
+                          >
+                            {connected.label}
+                          </button>
+                        ) : (
+                          <>
+                            <span className="truncate flex-1">{connected.label}</span>
+                            <span className="shrink-0 text-[10px] text-muted-foreground">
+                              No detail page for {connected.type}
+                            </span>
+                          </>
+                        )}
                         <Badge variant="outline" className="text-[10px]">{e.type.replace(/_/g, " ")}</Badge>
                       </div>
                     ) : null;

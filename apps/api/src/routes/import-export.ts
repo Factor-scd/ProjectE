@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { db, tasks, habits, projects, notes, tags as tagsTable, agents, webhooks } from "@project-e/db";
-import { eq, isNull } from "drizzle-orm";
-import { requireAuth, createErrorResponse, AuthError } from "../middleware/auth";
+import { db, tasks, habits, projects, notes, tags as tagsTable, agents, webhooks, taskTags, habitTags, projectTags, noteTags } from "@project-e/db";
+import { and, eq, inArray, isNull } from "drizzle-orm";
+import { requireAuth, requireWorkspaceAccess, resolveActiveDomain, createErrorResponse, AuthError } from "../middleware/auth";
 import { z } from "zod";
 
 export const importExportRoutes = new Hono();
@@ -22,6 +22,11 @@ importExportRoutes.post("/import", async (c) => {
       return c.json({ error: { code: "INVALID_DATA", message: "Missing version field" } }, 400);
     }
 
+    // Every imported entity is forced into a single target domain that the
+    // current user owns. Payload-supplied domain ids are never trusted.
+    const targetDomain = body.domain || body.domain_id || (await resolveActiveDomain(user)).id;
+    await requireWorkspaceAccess(c, targetDomain);
+
     const results: Array<{ collection: string; imported: number; failed: number; errors: string[] }> = [];
     let totalImported = 0;
     let totalFailed = 0;
@@ -38,25 +43,25 @@ importExportRoutes.post("/import", async (c) => {
           // Map to the right table
           switch (collection) {
             case 'tasks':
-              await db.insert(tasks).values({ ...data, domainId: data.domain_id || data.domainId });
+              await db.insert(tasks).values({ ...data, domainId: targetDomain });
               break;
             case 'habits':
-              await db.insert(habits).values({ ...data, domainId: data.domain_id || data.domainId });
+              await db.insert(habits).values({ ...data, domainId: targetDomain });
               break;
             case 'projects':
-              await db.insert(projects).values({ ...data, domainId: data.domain_id || data.domainId });
+              await db.insert(projects).values({ ...data, domainId: targetDomain });
               break;
             case 'notes':
-              await db.insert(notes).values({ ...data, domainId: data.domain_id || data.domainId });
+              await db.insert(notes).values({ ...data, domainId: targetDomain });
               break;
             case 'tags':
               await db.insert(tagsTable).values(data);
               break;
             case 'agents':
-              await db.insert(agents).values({ ...data, domainId: data.domain_id || data.domainId });
+              await db.insert(agents).values({ ...data, domainId: targetDomain });
               break;
             case 'webhooks':
-              await db.insert(webhooks).values({ ...data, workspaceId: data.workspace_id || data.workspaceId || data.domain_id || data.domainId });
+              await db.insert(webhooks).values({ ...data, workspaceId: targetDomain });
               break;
           }
           result.imported++;
@@ -101,8 +106,14 @@ importExportRoutes.get("/export", async (c) => {
 importExportRoutes.post("/export", async (c) => {
   try {
     const user = await requireAuth(c);
-    let body: { collections?: string[] } = {};
+    let body: { collections?: string[]; domain?: string } = {};
     try { body = await c.req.json(); } catch { /* empty body is fine */ }
+
+    // Scope the entire export to one domain owned by the current user.
+    // An optional `domain` in the body can override the active domain, but it
+    // must still pass the ownership check.
+    const domainId = body.domain || (await resolveActiveDomain(user)).id;
+    await requireWorkspaceAccess(c, domainId);
 
     const requestedCollections = body.collections && body.collections.length > 0
       ? body.collections.filter(c => COLLECTIONS.includes(c as typeof COLLECTIONS[number]))
@@ -117,13 +128,33 @@ importExportRoutes.post("/export", async (c) => {
       try {
         let items: any[] = [];
         switch (collection) {
-          case 'tasks': items = await db.select().from(tasks).where(isNull(tasks.deletedAt)); break;
-          case 'habits': items = await db.select().from(habits).where(isNull(habits.deletedAt)); break;
-          case 'projects': items = await db.select().from(projects).where(isNull(projects.deletedAt)); break;
-          case 'notes': items = await db.select().from(notes).where(isNull(notes.deletedAt)); break;
-          case 'tags': items = await db.select().from(tagsTable); break;
-          case 'agents': items = await db.select().from(agents); break;
-          case 'webhooks': items = await db.select().from(webhooks); break;
+          case 'tasks': items = await db.select().from(tasks).where(and(eq(tasks.domainId, domainId), isNull(tasks.deletedAt))); break;
+          case 'habits': items = await db.select().from(habits).where(and(eq(habits.domainId, domainId), isNull(habits.deletedAt))); break;
+          case 'projects': items = await db.select().from(projects).where(and(eq(projects.domainId, domainId), isNull(projects.deletedAt))); break;
+          case 'notes': items = await db.select().from(notes).where(and(eq(notes.domainId, domainId), isNull(notes.deletedAt))); break;
+          case 'tags': {
+            // Tags are global (no domain_id); export only tags actually used by
+            // this domain's entities via the four junction tables.
+            const [taskTagIds, habitTagIds, projectTagIds, noteTagIds] = await Promise.all([
+              db.select({ tagId: taskTags.tagId }).from(taskTags)
+                .innerJoin(tasks, eq(taskTags.taskId, tasks.id))
+                .where(and(eq(tasks.domainId, domainId), isNull(tasks.deletedAt))),
+              db.select({ tagId: habitTags.tagId }).from(habitTags)
+                .innerJoin(habits, eq(habitTags.habitId, habits.id))
+                .where(and(eq(habits.domainId, domainId), isNull(habits.deletedAt))),
+              db.select({ tagId: projectTags.tagId }).from(projectTags)
+                .innerJoin(projects, eq(projectTags.projectId, projects.id))
+                .where(and(eq(projects.domainId, domainId), isNull(projects.deletedAt))),
+              db.select({ tagId: noteTags.tagId }).from(noteTags)
+                .innerJoin(notes, eq(noteTags.noteId, notes.id))
+                .where(and(eq(notes.domainId, domainId), isNull(notes.deletedAt))),
+            ]);
+            const tagIds = [...new Set([...taskTagIds, ...habitTagIds, ...projectTagIds, ...noteTagIds].map(r => r.tagId))];
+            items = tagIds.length > 0 ? await db.select().from(tagsTable).where(inArray(tagsTable.id, tagIds)) : [];
+            break;
+          }
+          case 'agents': items = await db.select().from(agents).where(eq(agents.domainId, domainId)); break;
+          case 'webhooks': items = await db.select().from(webhooks).where(eq(webhooks.workspaceId, domainId)); break;
         }
         exportData[collection] = items;
       } catch (error) {

@@ -3,11 +3,12 @@ import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
-import { DndContext, DragOverlay, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
+import { DndContext, DragOverlay, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, useDroppable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Plus, GripVertical, Trash2, Calendar, Clock, ListTodo, Layout as LayoutIcon, Search, Filter, MoreHorizontal } from "lucide-react";
+import { Plus, GripVertical, Pencil, Trash2, Calendar, Clock, ListTodo, Layout as LayoutIcon, Search, Filter, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -23,24 +24,20 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { EntityDetailPanel } from "@/components/entities/entity-detail-panel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { LoadingState, EmptyState, ErrorState } from "@/components/state";
+import { CustomFieldInputs } from "@/components/custom-fields/custom-field-inputs";
+import { TASK_STATUS, PRIORITY } from "@/lib/status-colors";
 import type { Task, PaginatedResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const STATUS_COLUMNS = [
-  { id: "todo", label: "Todo", color: "bg-slate-500" },
-  { id: "in_progress", label: "In Progress", color: "bg-blue-500" },
-  { id: "done", label: "Done", color: "bg-green-500" },
-  { id: "cancelled", label: "Cancelled", color: "bg-red-500" },
+  { id: "todo", label: "Todo" },
+  { id: "in_progress", label: "In Progress" },
+  { id: "done", label: "Done" },
+  { id: "cancelled", label: "Cancelled" },
 ];
 
-const PRIORITY_COLORS: Record<string, string> = {
-  urgent: "text-red-500 bg-red-500/10",
-  high: "text-orange-500 bg-orange-500/10",
-  medium: "text-blue-500 bg-blue-500/10",
-  low: "text-slate-500 bg-slate-500/10",
-};
-
-function SortableTaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
+function SortableTaskCard({ task, onClick, onEdit }: { task: Task; onClick: () => void; onEdit?: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
 
   const style = {
@@ -64,8 +61,8 @@ function SortableTaskCard({ task, onClick }: { task: Task; onClick: () => void }
                     {new Date(task.dueDate).toLocaleDateString()}
                   </Badge>
                 )}
-                <Badge variant="secondary" className={cn("text-[10px]", PRIORITY_COLORS[task.priority])}>
-                  {task.priority}
+                <Badge variant="secondary" className={cn("text-[10px]", PRIORITY[task.priority]?.badge)}>
+                  {PRIORITY[task.priority]?.label ?? task.priority}
                 </Badge>
                 {task.tags?.slice(0, 2).map((tag) => (
                   <Badge key={tag.id} variant="outline" className="text-[10px]" style={{ borderColor: tag.color || undefined }}>
@@ -74,9 +71,29 @@ function SortableTaskCard({ task, onClick }: { task: Task; onClick: () => void }
                 ))}
               </div>
             </div>
+            {onEdit && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 -mt-1 -mr-1 shrink-0"
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                aria-label={"Edit " + task.title}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ColumnDroppable({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} className={cn(className, isOver && "ring-2 ring-primary/40 bg-primary/10")}>
+      {children}
     </div>
   );
 }
@@ -88,6 +105,7 @@ function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
   const [status, setStatus] = useState(task?.status || "todo");
   const [priority, setPriority] = useState(task?.priority || "medium");
   const [dueDate, setDueDate] = useState(task?.dueDate ? task.dueDate.slice(0, 10) : "");
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>(() => ({ ...(task?.customFields ?? {}) }));
 
   const createMutation = useMutation({
     mutationFn: (data: any) => api.post<Task>("/tasks", data),
@@ -110,6 +128,8 @@ function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
     if (!title.trim()) return;
     const data: any = { title: title.trim(), description: description || null, status, priority };
     if (dueDate) data.dueDate = new Date(dueDate).toISOString();
+    const customFields = { ...customFieldValues };
+    if (Object.keys(customFields).length > 0) data.customFields = customFields;
     if (task) {
       updateMutation.mutate(data);
     } else {
@@ -130,7 +150,7 @@ function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="status">Status</Label>
-          <Select value={status} onValueChange={setStatus}>
+          <Select value={status} onValueChange={(v) => setStatus(v as "todo" | "in_progress" | "done" | "cancelled")}>
             <SelectTrigger id="status"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="todo">Todo</SelectItem>
@@ -142,7 +162,7 @@ function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
         </div>
         <div>
           <Label htmlFor="priority">Priority</Label>
-          <Select value={priority} onValueChange={setPriority}>
+          <Select value={priority} onValueChange={(v) => setPriority(v as "low" | "medium" | "high" | "urgent")}>
             <SelectTrigger id="priority"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="low">Low</SelectItem>
@@ -157,6 +177,7 @@ function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
         <Label htmlFor="dueDate">Due Date</Label>
         <Input id="dueDate" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
       </div>
+      <CustomFieldInputs entityType="tasks" values={customFieldValues} onChange={setCustomFieldValues} />
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
         <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
@@ -180,9 +201,11 @@ function TasksPage() {
 
   useRealtime({ enabled: true });
 
-  const { data: tasksData, isLoading } = useApiQuery<PaginatedResponse<Task>>(
-    ["tasks", search, statusFilter],
-    "/tasks?" + new URLSearchParams({ limit: "200", ...(search ? { search } : {}), ...(statusFilter ? { status: statusFilter } : {}) }).toString()
+  const activeDomainId = useApiDomain();
+
+  const { data: tasksData, isLoading, isError, refetch } = useApiQuery<PaginatedResponse<Task>>(
+    ["tasks", activeDomainId, search, statusFilter],
+    "/tasks?" + new URLSearchParams({ limit: "200", ...(activeDomainId ? { domain: activeDomainId } : {}), ...(search ? { search } : {}), ...(statusFilter ? { status: statusFilter } : {}) }).toString()
   );
 
   const tasks = tasksData?.items || [];
@@ -191,6 +214,20 @@ function TasksPage() {
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       api.post("/tasks/" + id + "/status", { status }),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+  });
+
+  const reorderMutation = useMutation({
+    mutationFn: ({ orderedIds }: { orderedIds: string[] }) =>
+      api.post("/tasks/reorder", { orderedIds }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+    onError: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
   });
@@ -218,14 +255,78 @@ function TasksPage() {
     if (!over) return;
 
     const taskId = active.id as string;
-    const targetColumn = over.id as string;
+    const overId = over.id as string;
 
-    if (STATUS_COLUMNS.some((c) => c.id === targetColumn)) {
+    const draggedTask = tasks.find((t) => t.id === taskId);
+    if (!draggedTask) return;
+
+    // Tasks of a column in persisted order
+    const columnTasks = (status: string) =>
+      tasks
+        .filter((t) => t.status === status)
+        .sort((a, b) => a.order - b.order);
+
+    // Decide the target column and insertion index:
+    // - over a column id  => drop at the end of that column (handles empty columns)
+    // - over a task id    => drop at that task's position within its column
+    let targetColumn: string;
+    let insertIndex: number;
+    if (STATUS_COLUMNS.some((c) => c.id === overId)) {
+      targetColumn = overId;
+      insertIndex = -1;
+    } else {
+      const overTask = tasks.find((t) => t.id === overId);
+      if (!overTask) return;
+      targetColumn = overTask.status;
+      const overIndex = columnTasks(targetColumn).findIndex((t) => t.id === overId);
+      insertIndex = overIndex === -1 ? -1 : overIndex;
+    }
+
+    // Build the new ordered id list for the target column
+    const targetIds = columnTasks(targetColumn)
+      .map((t) => t.id)
+      .filter((id) => id !== taskId);
+    if (insertIndex === -1) {
+      targetIds.push(taskId);
+    } else {
+      targetIds.splice(Math.min(insertIndex, targetIds.length), 0, taskId);
+    }
+
+    // No-op when the task is already in that exact spot
+    const currentIds = columnTasks(targetColumn).map((t) => t.id);
+    const unchanged =
+      currentIds.length === targetIds.length &&
+      currentIds.every((id, i) => id === targetIds[i]);
+    if (unchanged) return;
+
+    // Optimistic local update so the board reorders immediately
+    const statusChanged = draggedTask.status !== targetColumn;
+    const orderById = new Map(targetIds.map((id, i) => [id, i]));
+    queryClient.setQueryData<PaginatedResponse<Task>>(["tasks", activeDomainId, search, statusFilter], (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        items: old.items.map((t) => {
+          if (t.id === taskId && statusChanged) {
+            return { ...t, status: targetColumn as Task["status"], order: orderById.get(t.id) ?? t.order };
+          }
+          const order = orderById.get(t.id);
+          return order !== undefined ? { ...t, order } : t;
+        }),
+      };
+    });
+
+    if (statusChanged) {
       statusMutation.mutate({ id: taskId, status: targetColumn });
     }
+    reorderMutation.mutate({ orderedIds: targetIds });
   };
 
   const openTaskDetail = (task: Task) => {
+    navigate({ to: "/tasks/$id", params: { id: task.id } });
+  };
+
+  const openTaskPanel = (task: Task) => {
     setSelectedTask(task);
     setPanelOpen(true);
   };
@@ -233,7 +334,10 @@ function TasksPage() {
   const columns = useMemo(() => {
     return STATUS_COLUMNS.map((col) => ({
       ...col,
-      tasks: tasks.filter((t) => t.status === col.id),
+      color: TASK_STATUS[col.id].dot,
+      tasks: tasks
+        .filter((t) => t.status === col.id)
+        .sort((a, b) => a.order - b.order),
     }));
   }, [tasks]);
 
@@ -280,12 +384,14 @@ function TasksPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">Loading tasks...</div>
+        <LoadingState label="Loading tasks..." />
+      ) : isError ? (
+        <ErrorState message="Failed to load tasks." onRetry={() => refetch()} />
       ) : view === "board" ? (
         <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {columns.map((col) => (
-              <div key={col.id} className="bg-muted/50 rounded-lg p-3">
+              <ColumnDroppable key={col.id} id={col.id} className="bg-muted/50 rounded-lg p-3">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <div className={cn("w-2 h-2 rounded-full", col.color)} />
@@ -296,14 +402,14 @@ function TasksPage() {
                 <SortableContext items={col.tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
                   <div className="space-y-2 min-h-[100px]">
                     {col.tasks.map((task) => (
-                      <SortableTaskCard key={task.id} task={task} onClick={() => openTaskDetail(task)} />
+                      <SortableTaskCard key={task.id} task={task} onClick={() => openTaskDetail(task)} onEdit={() => openTaskPanel(task)} />
                     ))}
                     {col.tasks.length === 0 && (
                       <p className="text-xs text-muted-foreground text-center py-4">No tasks</p>
                     )}
                   </div>
                 </SortableContext>
-              </div>
+              </ColumnDroppable>
             ))}
           </div>
           <DragOverlay>
@@ -325,16 +431,18 @@ function TasksPage() {
             <TableBody>
               {tasks.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">No tasks found</TableCell>
+                  <TableCell colSpan={5}>
+                    <EmptyState title="No tasks found" />
+                  </TableCell>
                 </TableRow>
               ) : tasks.map((task) => (
                 <TableRow key={task.id} className="cursor-pointer" onClick={() => openTaskDetail(task)}>
                   <TableCell className="font-medium">{task.title}</TableCell>
                   <TableCell>
-                    <Badge variant="secondary" className="text-[10px]">{task.status.replace("_", " ")}</Badge>
+                    <Badge className={cn("text-[10px]", TASK_STATUS[task.status]?.badge)}>{task.status.replace("_", " ")}</Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline" className={cn("text-[10px]", PRIORITY_COLORS[task.priority])}>{task.priority}</Badge>
+                    <Badge variant="outline" className={cn("text-[10px]", PRIORITY[task.priority]?.badge)}>{task.priority}</Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "-"}
@@ -345,7 +453,7 @@ function TasksPage() {
                         <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openTaskDetail(task)}>Edit</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openTaskPanel(task)}>Edit</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate(task.id)}>Delete</DropdownMenuItem>
                       </DropdownMenuContent>

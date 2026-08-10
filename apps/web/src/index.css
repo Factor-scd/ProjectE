@@ -1,9 +1,18 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
+    /* Typography — Inter via Google Fonts @import above; falls back to system-ui */
+    --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, sans-serif;
+
+    /* Density — scales content spacing (see the density utilities below and the
+       calc() padding on <main> in the app layout). 1 = comfortable. */
+    --density-scale: 1;
+
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
@@ -25,6 +34,17 @@
     --ring: 222.2 84% 4.9%;
     --radius: 0.5rem;
     --accent-hsl: 217 91% 60%;
+  }
+
+  /* Density modes: toggled on <html> by the settings page (and applied from
+     localStorage on app load). They only flip --density-scale, which the
+     layout padding and the space-y utilities below multiply by. */
+  .density-compact {
+    --density-scale: 0.85;
+  }
+
+  .density-spacious {
+    --density-scale: 1.15;
   }
 
   .dark {
@@ -57,5 +77,55 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+/* Real reduced-motion support: the settings page toggles `.reduce-motion` on
+   <html>. This standard override collapses animation/transition durations so
+   users who enable it get an effectively static UI. */
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.001s !important;
+  transition-duration: 0.001s !important;
+  animation-iteration-count: 1 !important;
+}
+
+@layer utilities {
+  /* Density: multiply the vertical rhythm between stacked sections inside page
+     content. Mirrors Tailwind's own `.space-y-*` selector shape and is scoped
+     to <main> so the sidebar and topbar stay fixed. Combined with the calc()
+     padding on <main> in the app layout, the Density setting now visibly
+     changes spacing (0.85x compact, 1.15x spacious). */
+  .density-compact main .space-y-1 > :not([hidden]) ~ :not([hidden]),
+  .density-spacious main .space-y-1 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: calc(0.25rem * var(--density-scale));
+  }
+  .density-compact main .space-y-2 > :not([hidden]) ~ :not([hidden]),
+  .density-spacious main .space-y-2 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: calc(0.5rem * var(--density-scale));
+  }
+  .density-compact main .space-y-3 > :not([hidden]) ~ :not([hidden]),
+  .density-spacious main .space-y-3 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: calc(0.75rem * var(--density-scale));
+  }
+  .density-compact main .space-y-4 > :not([hidden]) ~ :not([hidden]),
+  .density-spacious main .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: calc(1rem * var(--density-scale));
+  }
+  .density-compact main .space-y-5 > :not([hidden]) ~ :not([hidden]),
+  .density-spacious main .space-y-5 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: calc(1.25rem * var(--density-scale));
+  }
+  .density-compact main .space-y-6 > :not([hidden]) ~ :not([hidden]),
+  .density-spacious main .space-y-6 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: calc(1.5rem * var(--density-scale));
+  }
+  .density-compact main .space-y-8 > :not([hidden]) ~ :not([hidden]),
+  .density-spacious main .space-y-8 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: calc(2rem * var(--density-scale));
   }
 }

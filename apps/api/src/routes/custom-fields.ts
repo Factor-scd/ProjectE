@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, customFields } from "@project-e/db";
 import { and, asc, eq } from "drizzle-orm";
-import { requireAuth, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { z } from "zod";
 
@@ -37,6 +37,7 @@ customFieldRoutes.get("/", async (c) => {
       const active = await resolveActiveDomain(user);
       domainId = active.id;
     }
+    await requireWorkspaceAccess(c, domainId);
 
     const conditions: any[] = [eq(customFields.domainId, domainId)];
     if (entityType) {
@@ -65,6 +66,8 @@ customFieldRoutes.post("/", async (c) => {
       ...body,
       domain: body.domain || (await resolveActiveDomain(user)).id,
     });
+
+    await requireWorkspaceAccess(c, data.domain);
 
     const [field] = await db.insert(customFields).values({
       name: data.name,
@@ -102,6 +105,8 @@ customFieldRoutes.patch("/:id", async (c) => {
     const [existing] = await db.select().from(customFields).where(eq(customFields.id, id)).limit(1);
     if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Custom field not found" } }, 404);
 
+    await requireWorkspaceAccess(c, existing.domainId);
+
     const updateValues: Record<string, unknown> = {};
     if (data.name !== undefined) updateValues.name = data.name;
     if (data.type !== undefined) updateValues.type = data.type;
@@ -134,6 +139,8 @@ customFieldRoutes.delete("/:id", async (c) => {
     const id = c.req.param("id");
     const [existing] = await db.select().from(customFields).where(eq(customFields.id, id)).limit(1);
     if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Custom field not found" } }, 404);
+
+    await requireWorkspaceAccess(c, existing.domainId);
 
     await db.delete(customFields).where(eq(customFields.id, id));
 

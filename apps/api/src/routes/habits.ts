@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { db, habits, habitCompletions, habitTags, tags as tagsTable } from "@project-e/db";
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, sql } from "drizzle-orm";
-import { requireAuth, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, lte, sql } from "drizzle-orm";
+import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
+import { enqueueWebhooks } from "../middleware/webhook-queue";
 import { z } from "zod";
 
 export const habitRoutes = new Hono();
@@ -96,6 +97,7 @@ habitRoutes.get("/", async (c) => {
     const active = url.searchParams.get("active");
     const frequency = url.searchParams.get("frequency");
     const difficulty = url.searchParams.get("difficulty");
+    const tag = url.searchParams.get("tag");
     const search = url.searchParams.get("search");
     const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 200);
     const offset = parseInt(url.searchParams.get("offset") || "0");
@@ -106,6 +108,8 @@ habitRoutes.get("/", async (c) => {
       const active = await resolveActiveDomain(user);
       domainId = active.id;
     }
+
+    await requireWorkspaceAccess(c, domainId);
 
     const conditions: any[] = [
       eq(habits.domainId, domainId),
@@ -118,6 +122,20 @@ habitRoutes.get("/", async (c) => {
     if (difficulty) conditions.push(eq(habits.difficulty, difficulty as any));
     if (search) conditions.push(ilike(habits.name, `%${search}%`));
     if (filter) conditions.push(ilike(habits.name, `%${filter}%`));
+    // Tag filter applied in SQL (EXISTS on the junction table) so it runs over
+    // the full dataset before pagination.
+    if (tag) {
+      const tagIds = tag.split(",").map((t) => t.trim()).filter(Boolean);
+      if (tagIds.length > 0) {
+        conditions.push(
+          exists(
+            db.select({ one: sql`1` })
+              .from(habitTags)
+              .where(and(eq(habitTags.habitId, habits.id), inArray(habitTags.tagId, tagIds)))
+          )
+        );
+      }
+    }
 
     const sortDir = sort.startsWith("-") ? "desc" : "asc";
     const sortField = sort.replace(/^-/, "");
@@ -202,6 +220,8 @@ habitRoutes.post("/", async (c) => {
       domain: body.domain || (await resolveActiveDomain(user)).id,
     });
 
+    await requireWorkspaceAccess(c, data.domain);
+
     const [habit] = await db.insert(habits).values({
       name: data.name,
       description: data.description ?? null,
@@ -231,6 +251,8 @@ habitRoutes.post("/", async (c) => {
       workspaceId: data.domain,
     });
 
+    await enqueueWebhooks({ workspaceId: data.domain, event: "habit.created", entityType: "habit", entityId: habit.id, data: { name: habit.name } });
+
     return c.json(habit, 201);
   } catch (error) {
     if (error instanceof AuthError) {
@@ -258,6 +280,8 @@ habitRoutes.get("/:id", async (c) => {
     if (!habit) {
       return c.json({ error: { code: "NOT_FOUND", message: "Habit not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, habit.domainId);
 
     // Fetch recent completions (last 30 days)
     const thirtyDaysAgo = new Date();
@@ -312,6 +336,8 @@ habitRoutes.patch("/:id", async (c) => {
       return c.json({ error: { code: "NOT_FOUND", message: "Habit not found" } }, 404);
     }
 
+    await requireWorkspaceAccess(c, existing.domainId);
+
     const updateValues: Record<string, unknown> = {};
     if (data.name !== undefined) updateValues.name = data.name;
     if (data.description !== undefined) updateValues.description = data.description;
@@ -338,6 +364,8 @@ habitRoutes.patch("/:id", async (c) => {
       changes: { ...data, previousName: existing.name },
       workspaceId: existing.domainId,
     });
+
+    await enqueueWebhooks({ workspaceId: existing.domainId, event: "habit.updated", entityType: "habit", entityId: id, data: { ...data, previousName: existing.name } });
 
     return c.json(updated);
   } catch (error) {
@@ -367,6 +395,8 @@ habitRoutes.delete("/:id", async (c) => {
       return c.json({ error: { code: "NOT_FOUND", message: "Habit not found" } }, 404);
     }
 
+    await requireWorkspaceAccess(c, existing.domainId);
+
     await db.update(habits)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(eq(habits.id, id));
@@ -380,6 +410,8 @@ habitRoutes.delete("/:id", async (c) => {
       workspaceId: existing.domainId,
     });
 
+    await enqueueWebhooks({ workspaceId: existing.domainId, event: "habit.deleted", entityType: "habit", entityId: id, data: { name: existing.name } });
+
     return c.body(null, 204);
   } catch (error) {
     if (error instanceof AuthError) {
@@ -387,6 +419,96 @@ habitRoutes.delete("/:id", async (c) => {
     }
     console.error("[habits] DELETE error:", error);
     return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to delete habit" } }, 500);
+  }
+});
+
+// POST /api/habits/:id/tags — Assign a tag to a habit
+habitRoutes.post("/:id/tags", async (c) => {
+  try {
+    const user = await requireAuth(c);
+    const id = c.req.param("id");
+    const body = await c.req.json();
+    const { tagId } = z.object({ tagId: z.string().uuid("Invalid tag id") }).parse(body);
+
+    const [habit] = await db.select({ id: habits.id, domainId: habits.domainId })
+      .from(habits)
+      .where(and(eq(habits.id, id), isNull(habits.deletedAt)))
+      .limit(1);
+    if (!habit) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Habit not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, habit.domainId);
+
+    const [tag] = await db.select({ id: tagsTable.id, name: tagsTable.name })
+      .from(tagsTable)
+      .where(eq(tagsTable.id, tagId))
+      .limit(1);
+    if (!tag) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Tag not found" } }, 404);
+    }
+
+    // Junction table has a composite PK — ignore re-assigns instead of erroring
+    await db.insert(habitTags).values({ habitId: id, tagId }).onConflictDoNothing();
+
+    await recordActivity({
+      actor: user.name,
+      action: "tagged",
+      entityType: "habit",
+      entityId: id,
+      changes: { tagId, tagName: tag.name },
+      workspaceId: habit.domainId,
+    });
+
+    return c.json({ success: true }, 201);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    }
+    if (error instanceof z.ZodError) {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid input", details: error.issues } }, 400);
+    }
+    console.error("[habits] POST /:id/tags error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to assign tag" } }, 500);
+  }
+});
+
+// DELETE /api/habits/:id/tags/:tagId — Remove a tag from a habit
+habitRoutes.delete("/:id/tags/:tagId", async (c) => {
+  try {
+    const user = await requireAuth(c);
+    const id = c.req.param("id");
+    const tagId = c.req.param("tagId");
+
+    const [habit] = await db.select({ id: habits.id, domainId: habits.domainId })
+      .from(habits)
+      .where(and(eq(habits.id, id), isNull(habits.deletedAt)))
+      .limit(1);
+    if (!habit) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Habit not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, habit.domainId);
+
+    // Junction tables have no deleted_at — hard delete is correct here
+    await db.delete(habitTags).where(and(eq(habitTags.habitId, id), eq(habitTags.tagId, tagId)));
+
+    await recordActivity({
+      actor: user.name,
+      action: "untagged",
+      entityType: "habit",
+      entityId: id,
+      changes: { tagId },
+      workspaceId: habit.domainId,
+    });
+
+    return c.body(null, 204);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    }
+    console.error("[habits] DELETE /:id/tags/:tagId error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to remove tag" } }, 500);
   }
 });
 
@@ -406,6 +528,8 @@ habitRoutes.post("/:id/complete", async (c) => {
     if (!habit) {
       return c.json({ error: { code: "NOT_FOUND", message: "Habit not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, habit.domainId);
 
     const [completion] = await db.insert(habitCompletions).values({
       habitId: id,
@@ -465,7 +589,7 @@ habitRoutes.get("/:id/completions", async (c) => {
     const id = c.req.param("id");
     const url = new URL(c.req.url);
 
-    const [habit] = await db.select({ id: habits.id })
+    const [habit] = await db.select({ id: habits.id, domainId: habits.domainId })
       .from(habits)
       .where(and(eq(habits.id, id), isNull(habits.deletedAt)))
       .limit(1);
@@ -473,6 +597,8 @@ habitRoutes.get("/:id/completions", async (c) => {
     if (!habit) {
       return c.json({ error: { code: "NOT_FOUND", message: "Habit not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, habit.domainId);
 
     const from = url.searchParams.get("from");
     const to = url.searchParams.get("to");

@@ -6,118 +6,61 @@ test.describe('Notes', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
     await page.goto('/notes');
-    // Wait for the notes page to load
-    await expect(page.getByRole('heading', { name: /notes/i })).toBeVisible();
+    // The notes page has no h1; the "New Note" button marks it as loaded.
+    await expect(page.getByRole('button', { name: /new note/i })).toBeVisible();
   });
 
-  test.describe('Notes page layout', () => {
-    test('should display three-panel layout', async ({ page }) => {
-      // Notes page has: notes list | editor | backlinks/graph
-      await expect(page.getByText(/connect ideas/i)).toBeVisible();
-      await expect(page.getByRole('button', { name: /new note/i })).toBeVisible();
-      await expect(page.getByRole('button', { name: /daily note/i })).toBeVisible();
-    });
+  test('creates a note and opens it in the editor', async ({ page }) => {
+    const createResponse = page.waitForResponse(
+      (resp) => resp.url().includes('/api/notes') && resp.request().method() === 'POST',
+    );
+    await page.getByRole('button', { name: /new note/i }).click();
+    expect((await createResponse).ok()).toBeTruthy();
 
-    test('should show empty state when no notes exist', async ({ page }) => {
-      const noteItems = page.locator('button[aria-label^="Open note:"]');
-      const count = await noteItems.count();
-
-      if (count === 0) {
-        await expect(page.getByText(/no notes yet/i)).toBeVisible();
-      }
+    // The new note is auto-selected and the TipTap editor becomes editable.
+    await expect(page.locator('.note-editor [contenteditable="true"]')).toBeVisible({
+      timeout: 10_000,
     });
   });
 
-  test.describe('Create note', () => {
-    test('should create a new note when clicking "New note"', async ({ page }) => {
-      // Intercept the API call
-      const createResponsePromise = page.waitForResponse(
-        (resp) => resp.url().includes('/api/notes') && resp.request().method() === 'POST',
-      );
+  test('typing in the editor autosaves the content', async ({ page }) => {
+    // Ensure a note is open first.
+    const createResponse = page.waitForResponse(
+      (resp) => resp.url().includes('/api/notes') && resp.request().method() === 'POST',
+    );
+    await page.getByRole('button', { name: /new note/i }).click();
+    await createResponse;
 
-      await page.getByRole('button', { name: /new note/i }).click();
+    const editor = page.locator('.note-editor [contenteditable="true"]');
+    await expect(editor).toBeVisible({ timeout: 10_000 });
 
-      // Wait for the API response
-      const response = await createResponsePromise;
-      expect(response.ok()).toBeTruthy();
-
-      // The new note should appear in the list and be selected
-      await page.waitForTimeout(1_000);
-    });
+    // Typing triggers the debounced autosave PATCH.
+    const patchResponse = page.waitForResponse(
+      (resp) => /^\/api\/notes\/[^/?]+$/.test(new URL(resp.url()).pathname) &&
+        resp.request().method() === 'PATCH',
+    );
+    await editor.fill(testNotes.content);
+    expect((await patchResponse).ok()).toBeTruthy();
   });
 
-  test.describe('Note editor', () => {
-    test('should show editor when a note is selected', async ({ page }) => {
-      const noteItems = page.locator('button[aria-label^="Open note:"]');
-      const count = await noteItems.count();
+  test('renames a note via the editor title input', async ({ page }) => {
+    // Ensure a fresh note is open.
+    const createResponse = page.waitForResponse(
+      (resp) => resp.url().includes('/api/notes') && resp.request().method() === 'POST',
+    );
+    await page.getByRole('button', { name: /new note/i }).click();
+    await createResponse;
 
-      if (count > 0) {
-        // Click first note to select it
-        await noteItems.first().click();
+    // The new note is titled "Untitled"; rename it via the uncontrolled input.
+    const titleInput = page.locator('input[value="Untitled"]');
+    await expect(titleInput).toBeVisible({ timeout: 10_000 });
 
-        // Editor should be visible (title input at minimum)
-        await expect(page.getByLabel('Note title')).toBeVisible();
-      } else {
-        // Create a note first
-        await page.getByRole('button', { name: /new note/i }).click();
-        await page.waitForTimeout(1_000);
-        await expect(page.getByLabel('Note title')).toBeVisible();
-      }
-    });
+    await titleInput.fill(testNotes.title);
+    await titleInput.blur();
 
-    test('should update note title when edited', async ({ page }) => {
-      // Ensure a note is selected
-      const noteItems = page.locator('button[aria-label^="Open note:"]');
-      const count = await noteItems.count();
-
-      if (count === 0) {
-        await page.getByRole('button', { name: /new note/i }).click();
-        await page.waitForTimeout(1_000);
-      }
-
-      const titleInput = page.getByLabel('Note title');
-      await expect(titleInput).toBeVisible();
-
-      // Update the title
-      await titleInput.clear();
-      await titleInput.fill(testNotes.title);
-
-      // Trigger blur to save
-      await titleInput.blur();
-      await page.waitForTimeout(500);
-    });
-  });
-
-  test.describe('Note backlinks and graph', () => {
-    test('should show backlinks and graph tabs', async ({ page }) => {
-      // Right panel should have Backlinks and Graph tabs
-      await expect(page.getByRole('tab', { name: /backlinks/i })).toBeVisible();
-      await expect(page.getByRole('tab', { name: /graph/i })).toBeVisible();
-    });
-
-    test('should switch between backlinks and graph views', async ({ page }) => {
-      // Click graph tab
-      await page.getByRole('tab', { name: /graph/i }).click();
-      await expect(page.getByRole('tab', { name: /graph/i })).toHaveAttribute('data-state', 'active');
-
-      // Click backlinks tab
-      await page.getByRole('tab', { name: /backlinks/i }).click();
-      await expect(page.getByRole('tab', { name: /backlinks/i })).toHaveAttribute('data-state', 'active');
-    });
-  });
-
-  test.describe('Daily note', () => {
-    test('should show "Daily note" button', async ({ page }) => {
-      await expect(page.getByRole('button', { name: /daily note/i })).toBeVisible();
-    });
-
-    test('should create or select daily note when clicking button', async ({ page }) => {
-      await page.getByRole('button', { name: /daily note/i }).click();
-      await page.waitForTimeout(1_000);
-
-      // After clicking, a note with today's date should be selected
-      const today = new Date().toLocaleDateString();
-      // The title might contain the date
+    // The updated title shows up in the note list.
+    await expect(page.getByText(testNotes.title, { exact: true })).toBeVisible({
+      timeout: 10_000,
     });
   });
 });

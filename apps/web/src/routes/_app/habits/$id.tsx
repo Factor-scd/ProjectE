@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Flame, Calendar } from "lucide-react";
+import { TagManager } from "@/components/entities/tag-manager";
+import { ArrowLeft, Flame, Calendar, Clock } from "lucide-react";
 import type { Habit, HabitCompletion } from "@/lib/types";
 import { format, parseISO } from "date-fns";
 
@@ -33,6 +34,10 @@ function HabitDetail() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Created {format(parseISO(habit.createdAt), "MMM d, yyyy HH:mm")}</span>
+            <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Updated {format(parseISO(habit.updatedAt), "MMM d, yyyy HH:mm")}</span>
+          </div>
           {habit.description && (
             <div>
               <h3 className="text-sm font-semibold text-muted-foreground mb-1">Description</h3>
@@ -54,6 +59,8 @@ function HabitDetail() {
               <p className="text-xs text-muted-foreground">Frequency</p>
             </div>
           </div>
+          <Separator />
+          <TagManager entityType="habit" entityId={habit.id} tags={habit.tags || []} />
           <Separator />
           <div>
             <h3 className="text-sm font-semibold text-muted-foreground mb-2">Recent Completions</h3>

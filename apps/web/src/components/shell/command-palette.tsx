@@ -73,9 +73,9 @@ export function CommandPalette() {
   const { mode, setMode, accent, setAccent } = useThemeStore();
   const [open, setOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<
-    Array<{ type: string; items: Array<{ id: string; title: string }> }>
+    Array<{ type: string; items: Array<{ id: string; title: string; link?: string }> }>
   >([]);
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -178,7 +178,7 @@ export function CommandPalette() {
             setSearchResults([
               {
                 type: "Agents",
-                items: (data.agents || data.results || []).map((a: { id: string; name: string }) => ({
+                items: (data.items || []).map((a: { id: string; name: string }) => ({
                   id: a.id,
                   title: a.name,
                 })),
@@ -311,17 +311,17 @@ export function CommandPalette() {
                   <CommandItem
                     key={item.id}
                     onSelect={() => {
-                      const typeRoute =
-                        group.type === "tasks"
-                          ? "/tasks"
-                          : group.type === "habits"
-                          ? "/habits"
-                          : group.type === "projects"
-                          ? "/projects"
-                          : group.type === "notes"
-                          ? "/notes"
-                          : "/search";
-                      runCommand(() => navigate({ to: `${typeRoute}/${item.id}` }));
+                      // The search API returns singular types ("task", "note", ...)
+                      // and each result carries a ready-made detail link (e.g.
+                      // "/tasks/{id}"). Domains have no detail route, so land on the
+                      // dashboard (the domain-scoped home). Agent mentions have no
+                      // detail page either, so just dismiss the palette.
+                      if (group.type === "Agents") {
+                        runCommand(() => {});
+                        return;
+                      }
+                      const link = group.type === "domain" ? "/" : item.link!;
+                      runCommand(() => navigate({ to: link }));
                     }}
                   >
                     <Search className="mr-2 h-4 w-4" />

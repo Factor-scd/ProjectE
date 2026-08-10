@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, dashboardWidgets } from "@project-e/db";
 import { and, asc, eq } from "drizzle-orm";
-import { requireAuth, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { z } from "zod";
 
@@ -70,6 +70,8 @@ dashboardRoutes.post("/widgets", async (c) => {
       domain: body.domain || (await resolveActiveDomain(user)).id,
     });
 
+    await requireWorkspaceAccess(c, data.domain!);
+
     const [widget] = await db.insert(dashboardWidgets).values({
       userId: user.id,
       type: data.type,
@@ -117,6 +119,8 @@ dashboardRoutes.patch("/widgets/:id", async (c) => {
     if (!existing) {
       return c.json({ error: { code: "NOT_FOUND", message: "Widget not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, existing.domainId);
 
     const updateValues: Record<string, unknown> = {};
     if (data.type !== undefined) updateValues.type = data.type;
@@ -166,6 +170,8 @@ dashboardRoutes.delete("/widgets/:id", async (c) => {
     if (!existing) {
       return c.json({ error: { code: "NOT_FOUND", message: "Widget not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, existing.domainId);
 
     await db.delete(dashboardWidgets).where(eq(dashboardWidgets.id, id));
 

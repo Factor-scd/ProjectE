@@ -20,6 +20,18 @@ const SEARCH_TYPES = [
   { id: "domain", label: "Domains", color: "bg-indigo-500" },
 ];
 
+// Sanitize snippet HTML before it hits dangerouslySetInnerHTML. The API's
+// ts_headline output is safe text with matches wrapped in <mark>...</mark>.
+// Allow ONLY <mark> open/close tags (and only without event handler / href /
+// src attributes) so no other element, script, or attribute can be injected.
+const sanitizeSnippet = (html: string) =>
+  html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
+    .replace(/<\/?([a-zA-Z][a-zA-Z0-9-]*)(\s[^<>]*)?>/g, (full, tag) => {
+      if (tag.toLowerCase() === "mark" && !/<[^>]*(?:on\w+=|href=|src=)/i.test(full)) return full;
+      return "";
+    });
+
 function SearchPage() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
@@ -161,7 +173,7 @@ function SearchPage() {
                           {result.snippet && (
                             <p
                               className="text-xs text-muted-foreground mt-0.5 line-clamp-2"
-                              dangerouslySetInnerHTML={{ __html: result.snippet }}
+                              dangerouslySetInnerHTML={{ __html: sanitizeSnippet(result.snippet) }}
                             />
                           )}
                         </div>

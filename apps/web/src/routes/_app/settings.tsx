@@ -4,6 +4,7 @@ import { Route as appRoute } from "../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
 import { Plus, Trash2, Pencil, Palette, Sun, Moon, Monitor, Type, Maximize, Sidebar, Eye, Globe, Tag, List, Key, Bot, Webhook, Upload, Download, AlertCircle, Check, X, RefreshCw, TestTube } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,7 +14,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -62,8 +62,21 @@ function AppearanceTab() {
   const [reducedMotion, setReducedMotion] = useState(localStorage.getItem("reduced-motion") === "true");
 
   useEffect(() => { localStorage.setItem("font-size", fontSize); document.documentElement.style.fontSize = fontSize === "large" ? "18px" : fontSize === "small" ? "13px" : "16px"; }, [fontSize]);
-  useEffect(() => { localStorage.setItem("density", density); }, [density]);
-  useEffect(() => { localStorage.setItem("sidebar-position", sidebarPos); }, [sidebarPos]);
+  // Density actually changes spacing now: toggle the density-* classes on <html>
+  // (see the density utilities + --density-scale in index.css) and persist.
+  useEffect(() => {
+    localStorage.setItem("density", density);
+    const root = document.documentElement;
+    root.classList.remove("density-compact", "density-spacious");
+    if (density === "compact") root.classList.add("density-compact");
+    if (density === "spacious") root.classList.add("density-spacious");
+  }, [density]);
+  // sidebarPos actually repositions the sidebar now: persist it and tell the
+  // app shell (sidebar.tsx) to re-read it without a reload.
+  useEffect(() => {
+    localStorage.setItem("sidebar-position", sidebarPos);
+    window.dispatchEvent(new CustomEvent("sidebar-position-change", { detail: sidebarPos }));
+  }, [sidebarPos]);
   useEffect(() => { localStorage.setItem("reduced-motion", String(reducedMotion)); document.documentElement.classList.toggle("reduce-motion", reducedMotion); }, [reducedMotion]);
 
   return (
@@ -420,15 +433,62 @@ function AgentsTab() {
   const agents = data?.items || [];
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", permissionTier: "read_only" });
+  const [editAgent, setEditAgent] = useState<Agent | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    description: "",
+    status: "active",
+    permissionTier: "read_only",
+    customPermissions: "",
+  });
 
   const createMutation = useMutation({
     mutationFn: (d: any) => api.post<Agent>("/agents", d),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["agents"] }); setCreateOpen(false); },
   });
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data: d }: { id: string; data: any }) => api.patch<Agent>("/agents/" + id, d),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["agents"] }); setEditAgent(null); },
+  });
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete("/agents/" + id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["agents"] }),
   });
+
+  const openEdit = (a: Agent) => {
+    setEditAgent(a);
+    setEditForm({
+      name: a.name,
+      description: a.description || "",
+      status: a.status,
+      permissionTier: a.permissionTier,
+      customPermissions: (a.customPermissions || []).join(", "),
+    });
+  };
+
+  const handleSaveEdit = () => {
+    if (!editAgent) return;
+    const data: any = {
+      name: editForm.name.trim(),
+      description: editForm.description || null,
+      status: editForm.status,
+      permissionTier: editForm.permissionTier,
+    };
+    // customPermissions only apply to the "custom" tier; clear them otherwise so
+    // a downgrade doesn't leave stale permissions in the database.
+    data.customPermissions = editForm.permissionTier === "custom"
+      ? editForm.customPermissions.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
+    updateMutation.mutate({ id: editAgent.id, data });
+  };
+
+  const permissionLabels: Record<string, string> = {
+    full_access: "Full Access",
+    read_only: "Read Only",
+    content_creator: "Content Creator",
+    task_manager: "Task Manager",
+    custom: "Custom",
+  };
 
   return (
     <div className="space-y-4">
@@ -444,11 +504,9 @@ function AgentsTab() {
               <div><Label>Permission Tier</Label><Select value={form.permissionTier} onValueChange={(v) => setForm({ ...form, permissionTier: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="full_access">Full Access</SelectItem>
-                  <SelectItem value="read_only">Read Only</SelectItem>
-                  <SelectItem value="content_creator">Content Creator</SelectItem>
-                  <SelectItem value="task_manager">Task Manager</SelectItem>
-                  <SelectItem value="custom">Custom</SelectItem>
+                  {Object.entries(permissionLabels).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select></div>
               <Button onClick={() => createMutation.mutate(form)} disabled={!form.name.trim() || createMutation.isPending}>Create</Button>
@@ -459,20 +517,73 @@ function AgentsTab() {
       <div className="space-y-2">
         {agents.map((a) => (
           <div key={a.id} className="flex items-center justify-between p-3 rounded-lg border">
-            <div>
-              <p className="font-medium">{a.name}</p>
-              <p className="text-xs text-muted-foreground">{a.permissionTier.replace(/_/g, " ")} &middot; {a.status}</p>
+            <div className="min-w-0">
+              <p className="font-medium truncate">{a.name}</p>
+              {a.description && <p className="text-xs text-muted-foreground truncate">{a.description}</p>}
+              <p className="text-xs text-muted-foreground">
+                {permissionLabels[a.permissionTier] || a.permissionTier} &middot; {a.status}
+              </p>
+              {a.permissionTier === "custom" && a.customPermissions.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {a.customPermissions.map((p) => <Badge key={p} variant="secondary" className="text-[10px]">{p}</Badge>)}
+                </div>
+              )}
             </div>
-            <AlertDialog>
-              <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="text-destructive"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader><AlertDialogTitle>Delete Agent</AlertDialogTitle><AlertDialogDescription>Are you sure?</AlertDialogDescription></AlertDialogHeader>
-                <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => deleteMutation.mutate(a.id)} className="bg-destructive">Delete</AlertDialogAction></AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <div className="flex gap-1 shrink-0">
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(a)} aria-label={"Edit " + a.name}><Pencil className="h-4 w-4" /></Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader><AlertDialogTitle>Delete Agent</AlertDialogTitle><AlertDialogDescription>Are you sure?</AlertDialogDescription></AlertDialogHeader>
+                  <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => deleteMutation.mutate(a.id)} className="bg-destructive">Delete</AlertDialogAction></AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           </div>
         ))}
       </div>
+      {editAgent && (
+        <Dialog open={!!editAgent} onOpenChange={(o) => { if (!o) setEditAgent(null); }}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Edit Agent</DialogTitle></DialogHeader>
+            <div className="space-y-4">
+              <div><Label>Name</Label><Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} /></div>
+              <div><Label>Description</Label><Textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} /></div>
+              <div><Label>Status</Label><Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="disabled">Disabled</SelectItem>
+                </SelectContent>
+              </Select></div>
+              <div><Label>Permission Tier</Label><Select value={editForm.permissionTier} onValueChange={(v) => setEditForm({ ...editForm, permissionTier: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(permissionLabels).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select></div>
+              {editForm.permissionTier === "custom" && (
+                <div><Label>Custom Permissions (comma-separated)</Label><Input value={editForm.customPermissions} onChange={(e) => setEditForm({ ...editForm, customPermissions: e.target.value })} placeholder="tasks.write, notes.read, ..." /></div>
+              )}
+              {editAgent.apiKey && (
+                <div>
+                  <Label>API Key</Label>
+                  <div className="flex items-center gap-2">
+                    <Input value={editAgent.apiKey} readOnly className="font-mono text-xs" aria-label="Agent API key" />
+                    <Button variant="outline" size="sm" className="h-9 shrink-0" onClick={() => { navigator.clipboard.writeText(editAgent.apiKey as string); toast.success("API key copied"); }}>
+                      Copy
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Shown only here — store it securely before rotating.</p>
+                </div>
+              )}
+              <Button onClick={handleSaveEdit} disabled={!editForm.name.trim() || updateMutation.isPending}>Save</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -487,7 +598,7 @@ function WebhooksTab() {
   const [form, setForm] = useState({ name: "", url: "", events: "task.created,note.created" });
 
   const createMutation = useMutation({
-    mutationFn: (d: any) => api.post<Webhook>("/webhooks", d),
+    mutationFn: (d: any) => api.post<WebhookType>("/webhooks", d),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["webhooks"] }); setCreateOpen(false); },
   });
   const deleteMutation = useMutation({
@@ -546,6 +657,46 @@ function WebhooksTab() {
 
 // ─── Import & Export Tab ─────────────────────────────────────────────────
 
+// CSV export helpers. The export API always returns JSON; when the user picks
+// CSV we convert each collection client-side. Nested values (tags arrays,
+// customFields objects, etc.) are JSON-stringified into a single cell.
+
+/** Escape a single CSV field per RFC 4180: wrap in quotes when needed, double inner quotes. */
+function csvEscape(value: string): string {
+  if (/[",\n\r]/.test(value)) {
+    return '"' + value.replace(/"/g, '""') + '"';
+  }
+  return value;
+}
+
+/** Render one cell: null/undefined → empty, scalars pass through, objects/arrays get JSON-stringified. */
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return csvEscape(value);
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return csvEscape(JSON.stringify(value));
+}
+
+/** Build a CSV document (header + one row per object) from an array of flat rows. */
+function rowsToCSV(rows: Record<string, unknown>[]): string {
+  if (rows.length === 0) return "";
+  const columns = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+  const header = columns.map(csvEscape).join(",");
+  const body = rows.map((r) => columns.map((c) => csvCell(r[c])).join(","));
+  return [header, ...body].join("\r\n") + "\r\n";
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function ImportExportTab() {
   const queryClient = useQueryClient();
   const [importData, setImportData] = useState("");
@@ -554,22 +705,76 @@ function ImportExportTab() {
   const [exportCollections, setExportCollections] = useState<string[]>(["tasks", "habits", "projects", "notes"]);
 
   const importMutation = useMutation({
-    mutationFn: (data: any) => api.post("/import", data),
-    onSuccess: (res) => { setImportResult(res); queryClient.invalidateQueries(); },
+    mutationFn: (data: any) => api.post<any>("/import", data),
+    onSuccess: (res) => {
+      setImportResult(res);
+      queryClient.invalidateQueries();
+      if (res.success) {
+        toast.success("Imported " + res.imported + " items");
+      } else {
+        toast.error("Imported " + (res.imported ?? 0) + " items, " + (res.failed ?? 0) + " failed");
+      }
+    },
+    onError: (err) => {
+      const message = err.message || "Import failed";
+      setImportResult({ success: false, error: message });
+      toast.error(message);
+    },
   });
+
+  const handleImport = () => {
+    let parsed: any;
+    try {
+      parsed = JSON.parse(importData);
+    } catch {
+      const message = "Invalid JSON in import data";
+      setImportResult({ success: false, error: message });
+      toast.error(message);
+      return;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      const message = "Invalid format: expected an object with a version field";
+      setImportResult({ success: false, error: message });
+      toast.error(message);
+      return;
+    }
+    if (!parsed.version) {
+      const message = "Invalid format: missing version";
+      setImportResult({ success: false, error: message });
+      toast.error(message);
+      return;
+    }
+    importMutation.mutate(parsed);
+  };
 
   const handleExport = async () => {
     try {
       const data = await api.post<any>("/export", { collections: exportCollections });
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "project-e-export.json";
-      a.click();
-      URL.revokeObjectURL(url);
+
+      if (exportFormat === "csv") {
+        // One CSV file per selected collection; empty collections are skipped.
+        let exported = 0;
+        for (const collection of exportCollections) {
+          const rows = Array.isArray(data[collection]) ? data[collection] : [];
+          if (rows.length === 0) continue;
+          const csv = rowsToCSV(rows);
+          downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), "project-e-export-" + collection + ".csv");
+          exported++;
+        }
+        if (exported === 0) {
+          toast.error("No data to export for the selected collections");
+        } else {
+          toast.success("Exported " + exported + " CSV file" + (exported === 1 ? "" : "s"));
+        }
+        return;
+      }
+
+      // JSON export — unchanged.
+      downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), "project-e-export.json");
     } catch (e) {
+      const message = e instanceof Error ? e.message : "Export failed";
       console.error("Export failed", e);
+      toast.error(message);
     }
   };
 
@@ -583,12 +788,16 @@ function ImportExportTab() {
         <h3 className="text-lg font-semibold mb-3">Import</h3>
         <p className="text-sm text-muted-foreground mb-3">Paste JSON data to import. Format: {"{"} "version": "1.0", "tasks": [...], "habits": [...], "projects": [...], "notes": [...] {"}"}</p>
         <Textarea value={importData} onChange={(e) => setImportData(e.target.value)} placeholder='{"version": "1.0", "tasks": [...]}' rows={6} className="font-mono text-sm" />
-        <Button className="mt-2" onClick={() => { try { importMutation.mutate(JSON.parse(importData)); } catch { setImportResult({ success: false, error: "Invalid JSON" }); } }} disabled={!importData.trim() || importMutation.isPending}>
+        <Button className="mt-2" onClick={handleImport} disabled={!importData.trim() || importMutation.isPending}>
           <Upload className="h-4 w-4 mr-2" />Import
         </Button>
         {importResult && (
           <div className={cn("mt-3 p-3 rounded-lg text-sm", importResult.success ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600")}>
-            {importResult.success ? "Imported " + importResult.imported + " items" : "Import failed: " + (importResult.error || "Unknown error")}
+            {importResult.success
+              ? "Imported " + importResult.imported + " items"
+              : importResult.error
+                ? "Import failed: " + importResult.error
+                : "Imported " + (importResult.imported ?? 0) + " items, " + (importResult.failed ?? 0) + " failed"}
           </div>
         )}
       </div>
@@ -691,9 +900,9 @@ function SettingsPage() {
   const [activeTab, setActiveTab] = useState("appearance");
 
   return (
-    <div className="flex gap-6 h-[calc(100vh-5rem)]">
-      {/* Sidebar tabs */}
-      <div className="w-56 shrink-0 space-y-1">
+    <div className="flex flex-col md:flex-row gap-2 md:gap-6 h-auto md:h-[calc(100vh-5rem)]">
+      {/* Tab bar - horizontal scrollable on mobile, vertical sidebar on md+ */}
+      <div className="flex md:flex-col gap-1 md:gap-0 overflow-x-auto md:overflow-visible pb-1 md:pb-0 md:w-56 md:shrink-0 md:space-y-1 shrink-0">
         {SETTINGS_TABS.map((tab) => {
           const Icon = tab.icon;
           return (
@@ -701,7 +910,8 @@ function SettingsPage() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left",
+                "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left whitespace-nowrap shrink-0",
+                "md:w-full",
                 activeTab === tab.id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
               )}
             >
@@ -711,7 +921,8 @@ function SettingsPage() {
           );
         })}
       </div>
-      <Separator orientation="vertical" />
+      <Separator className="md:hidden" />
+      <Separator orientation="vertical" className="hidden md:block" />
       {/* Content */}
       <div className="flex-1 overflow-auto">
         <ScrollArea className="h-full pr-4">

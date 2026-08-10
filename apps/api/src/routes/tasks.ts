@@ -1,9 +1,11 @@
 import { Hono } from "hono";
-import { db, tasks, taskTags, tags as tagsTable, taskDependencies, activityFeed } from "@project-e/db";
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
-import { requireAuth, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { db, tasks, taskTags, tags as tagsTable, taskDependencies, activityFeed, scheduledJobs } from "@project-e/db";
+import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
+import { enqueueWebhooks } from "../middleware/webhook-queue";
 import { z } from "zod";
+import { RRule } from "rrule";
 
 export const taskRoutes = new Hono();
 
@@ -42,6 +44,38 @@ const updateTaskSchema = z.object({
   recurrenceRule: z.string().optional().nullable(),
 });
 
+// ── Recurring tasks ────────────────────────────────────────────────────────────────
+// Keeps scheduled_jobs in sync with a task's recurrence_rule so the worker's
+// recurring_spawn handler has work to do. A malformed rule must never fail the
+// create/update — fall back to +1 day and log.
+
+function computeNextOccurrenceAt(recurrenceRule: string): Date {
+  try {
+    const rule = RRule.fromString(recurrenceRule);
+    const next = rule.after(new Date());
+    if (next) return next;
+  } catch {
+    // fall through to fallback
+  }
+  return new Date(Date.now() + 24 * 60 * 60 * 1000);
+}
+
+async function syncScheduledJob(taskId: string, recurrenceRule: string | null): Promise<void> {
+  try {
+    await db.delete(scheduledJobs).where(and(eq(scheduledJobs.entityType, "task"), eq(scheduledJobs.entityId, taskId)));
+    if (recurrenceRule) {
+      await db.insert(scheduledJobs).values({
+        entityType: "task",
+        entityId: taskId,
+        recurrenceRule,
+        nextOccurrenceAt: computeNextOccurrenceAt(recurrenceRule),
+      });
+    }
+  } catch (error) {
+    console.error(`[tasks] Failed to sync scheduled job for task ${taskId}:`, error);
+  }
+}
+
 // GET /api/tasks — List tasks with filtering, sorting, pagination
 taskRoutes.get("/", async (c) => {
   try {
@@ -67,6 +101,8 @@ taskRoutes.get("/", async (c) => {
       const active = await resolveActiveDomain(user);
       domainId = active.id;
     }
+
+    await requireWorkspaceAccess(c, domainId);
 
     // Build conditions
     const conditions: any[] = [
@@ -104,6 +140,21 @@ taskRoutes.get("/", async (c) => {
     if (sectionId) {
       conditions.push(eq(tasks.sectionId, sectionId));
     }
+    // Tag filter applied in SQL (EXISTS on the junction table) so it runs over
+    // the full dataset before pagination — filtering in-memory after fetching a
+    // page would miss tasks beyond the limit and report a wrong totalItems.
+    if (tag) {
+      const tagIds = tag.split(",").map((t) => t.trim()).filter(Boolean);
+      if (tagIds.length > 0) {
+        conditions.push(
+          exists(
+            db.select({ one: sql`1` })
+              .from(taskTags)
+              .where(and(eq(taskTags.taskId, tasks.id), inArray(taskTags.tagId, tagIds)))
+          )
+        );
+      }
+    }
 
     // Build order
     const orderFn = order === "desc" ? desc : asc;
@@ -138,21 +189,10 @@ taskRoutes.get("/", async (c) => {
 
     const totalItems = Number(countResult[0]?.count || 0);
 
-    // If tag filter is specified, filter in-memory
-    let filteredItems = items;
-    if (tag) {
-      const tagIds = tag.split(",");
-      const taskTagRows = await db.select({ taskId: taskTags.taskId })
-        .from(taskTags)
-        .where(inArray(taskTags.tagId, tagIds));
-      const matchingTaskIds = new Set(taskTagRows.map(r => r.taskId));
-      filteredItems = items.filter(t => matchingTaskIds.has(t.id));
-    }
-
     // Fetch tags for all tasks
     let taskTagMap = new Map<string, { id: string; name: string; color: string | null }[]>();
-    if (filteredItems.length > 0) {
-      const taskIds = filteredItems.map(t => t.id);
+    if (items.length > 0) {
+      const taskIds = items.map(t => t.id);
       const tagRows = await db.select({
         taskId: taskTags.taskId,
         id: tagsTable.id,
@@ -169,7 +209,7 @@ taskRoutes.get("/", async (c) => {
       }
     }
 
-    const itemsWithTags = filteredItems.map(t => ({
+    const itemsWithTags = items.map(t => ({
       ...t,
       tags: taskTagMap.get(t.id) || [],
     }));
@@ -201,6 +241,8 @@ taskRoutes.post("/", async (c) => {
       ...body,
       domain: body.domain || (await resolveActiveDomain(user)).id,
     });
+
+    await requireWorkspaceAccess(c, data.domain);
 
     // Cycle detection for parentId (subtask)
     if (data.parentId) {
@@ -244,6 +286,12 @@ taskRoutes.post("/", async (c) => {
       workspaceId: data.domain,
     });
 
+    await enqueueWebhooks({ workspaceId: data.domain, event: "task.created", entityType: "task", entityId: task.id, data: { title: task.title } });
+
+    if (data.recurrenceRule) {
+      await syncScheduledJob(task.id, data.recurrenceRule);
+    }
+
     return c.json(task, 201);
   } catch (error) {
     if (error instanceof AuthError) {
@@ -254,6 +302,71 @@ taskRoutes.post("/", async (c) => {
     }
     console.error("[tasks] POST error:", error);
     return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to create task" } }, 500);
+  }
+});
+
+const reorderTasksSchema = z.object({
+  orderedIds: z.array(z.string().uuid()).min(1, "orderedIds is required"),
+  domain: z.string().uuid().optional(),
+});
+
+// POST /api/tasks/reorder — Persist Kanban board column ordering
+taskRoutes.post("/reorder", async (c) => {
+  try {
+    const user = await requireAuth(c);
+    const body = await c.req.json();
+    const { orderedIds, domain } = reorderTasksSchema.parse(body);
+
+    // Resolve the workspace: explicit domain, or the first task's domain
+    let workspaceId = domain;
+    if (!workspaceId) {
+      const [firstTask] = await db.select({ domainId: tasks.domainId })
+        .from(tasks)
+        .where(eq(tasks.id, orderedIds[0]))
+        .limit(1);
+      if (!firstTask) {
+        return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
+      }
+      workspaceId = firstTask.domainId;
+    }
+    await requireWorkspaceAccess(c, workspaceId);
+
+    // Verify every task exists in this workspace and is not soft-deleted
+    const existing = await db.select({ id: tasks.id })
+      .from(tasks)
+      .where(and(inArray(tasks.id, orderedIds), eq(tasks.domainId, workspaceId), isNull(tasks.deletedAt)));
+    if (existing.length !== orderedIds.length) {
+      return c.json({ error: { code: "NOT_FOUND", message: "One or more tasks not found" } }, 404);
+    }
+
+    // Update each task's order to its index in a transaction
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < orderedIds.length; i++) {
+        await tx.update(tasks)
+          .set({ order: i, updatedAt: new Date() })
+          .where(eq(tasks.id, orderedIds[i]));
+      }
+    });
+
+    await recordActivity({
+      actor: user.name,
+      action: "reordered",
+      entityType: "task",
+      entityId: orderedIds[0],
+      changes: { orderedIds },
+      workspaceId,
+    });
+
+    return c.json({ success: true, orderedIds });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    }
+    if (error instanceof z.ZodError) {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid input", details: error.issues } }, 400);
+    }
+    console.error("[tasks] POST /reorder error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to reorder tasks" } }, 500);
   }
 });
 
@@ -271,6 +384,8 @@ taskRoutes.get("/:id", async (c) => {
     if (!task) {
       return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, task.domainId);
 
     // Fetch subtasks
     const subtasks = await db.select()
@@ -341,6 +456,8 @@ taskRoutes.patch("/:id", async (c) => {
       return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
     }
 
+    await requireWorkspaceAccess(c, existing.domainId);
+
     // Cycle detection for parentId
     if (data.parentId && data.parentId === id) {
       return c.json({ error: { code: "VALIDATION_ERROR", message: "A task cannot be its own parent" } }, 400);
@@ -390,6 +507,12 @@ taskRoutes.patch("/:id", async (c) => {
       workspaceId: existing.domainId,
     });
 
+    await enqueueWebhooks({ workspaceId: existing.domainId, event: "task.updated", entityType: "task", entityId: id, data: { ...data, previousStatus: existing.status } });
+
+    if (data.recurrenceRule !== undefined) {
+      await syncScheduledJob(id, data.recurrenceRule);
+    }
+
     return c.json(updated);
   } catch (error) {
     if (error instanceof AuthError) {
@@ -418,6 +541,8 @@ taskRoutes.delete("/:id", async (c) => {
       return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
     }
 
+    await requireWorkspaceAccess(c, existing.domainId);
+
     await db.update(tasks)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(eq(tasks.id, id));
@@ -431,6 +556,11 @@ taskRoutes.delete("/:id", async (c) => {
       workspaceId: existing.domainId,
     });
 
+    await enqueueWebhooks({ workspaceId: existing.domainId, event: "task.deleted", entityType: "task", entityId: id, data: { title: existing.title } });
+
+    // Stop recurring spawns for a deleted task
+    await syncScheduledJob(id, null);
+
     return c.body(null, 204);
   } catch (error) {
     if (error instanceof AuthError) {
@@ -438,6 +568,96 @@ taskRoutes.delete("/:id", async (c) => {
     }
     console.error("[tasks] DELETE error:", error);
     return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to delete task" } }, 500);
+  }
+});
+
+// POST /api/tasks/:id/tags — Assign a tag to a task
+taskRoutes.post("/:id/tags", async (c) => {
+  try {
+    const user = await requireAuth(c);
+    const id = c.req.param("id");
+    const body = await c.req.json();
+    const { tagId } = z.object({ tagId: z.string().uuid("Invalid tag id") }).parse(body);
+
+    const [task] = await db.select({ id: tasks.id, domainId: tasks.domainId })
+      .from(tasks)
+      .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
+      .limit(1);
+    if (!task) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, task.domainId);
+
+    const [tag] = await db.select({ id: tagsTable.id, name: tagsTable.name })
+      .from(tagsTable)
+      .where(eq(tagsTable.id, tagId))
+      .limit(1);
+    if (!tag) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Tag not found" } }, 404);
+    }
+
+    // Junction table has a composite PK — ignore re-assigns instead of erroring
+    await db.insert(taskTags).values({ taskId: id, tagId }).onConflictDoNothing();
+
+    await recordActivity({
+      actor: user.name,
+      action: "tagged",
+      entityType: "task",
+      entityId: id,
+      changes: { tagId, tagName: tag.name },
+      workspaceId: task.domainId,
+    });
+
+    return c.json({ success: true }, 201);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    }
+    if (error instanceof z.ZodError) {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid input", details: error.issues } }, 400);
+    }
+    console.error("[tasks] POST /:id/tags error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to assign tag" } }, 500);
+  }
+});
+
+// DELETE /api/tasks/:id/tags/:tagId — Remove a tag from a task
+taskRoutes.delete("/:id/tags/:tagId", async (c) => {
+  try {
+    const user = await requireAuth(c);
+    const id = c.req.param("id");
+    const tagId = c.req.param("tagId");
+
+    const [task] = await db.select({ id: tasks.id, domainId: tasks.domainId })
+      .from(tasks)
+      .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
+      .limit(1);
+    if (!task) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, task.domainId);
+
+    // Junction tables have no deleted_at — hard delete is correct here
+    await db.delete(taskTags).where(and(eq(taskTags.taskId, id), eq(taskTags.tagId, tagId)));
+
+    await recordActivity({
+      actor: user.name,
+      action: "untagged",
+      entityType: "task",
+      entityId: id,
+      changes: { tagId },
+      workspaceId: task.domainId,
+    });
+
+    return c.body(null, 204);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    }
+    console.error("[tasks] DELETE /:id/tags/:tagId error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to remove tag" } }, 500);
   }
 });
 
@@ -459,6 +679,8 @@ taskRoutes.post("/:id/status", async (c) => {
     if (!existing) {
       return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
     }
+
+    await requireWorkspaceAccess(c, existing.domainId);
 
     const updateValues: Record<string, unknown> = {
       status: newStatus,
@@ -501,11 +723,23 @@ taskRoutes.get("/:id/history", async (c) => {
     const user = await requireAuth(c);
     const id = c.req.param("id");
 
+    const [task] = await db.select({ id: tasks.id, domainId: tasks.domainId })
+      .from(tasks)
+      .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
+      .limit(1);
+
+    if (!task) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, task.domainId);
+
     const history = await db.select()
       .from(activityFeed)
       .where(and(
         eq(activityFeed.entityId, id),
         eq(activityFeed.entityType, "task"),
+        eq(activityFeed.workspaceId, task.domainId),
       ))
       .orderBy(desc(activityFeed.createdAt))
       .limit(100);
@@ -526,11 +760,23 @@ taskRoutes.get("/:id/comments", async (c) => {
     const user = await requireAuth(c);
     const id = c.req.param("id");
 
+    const [task] = await db.select({ id: tasks.id, domainId: tasks.domainId })
+      .from(tasks)
+      .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
+      .limit(1);
+
+    if (!task) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, task.domainId);
+
     const comments = await db.select()
       .from(activityFeed)
       .where(and(
         eq(activityFeed.entityId, id),
         eq(activityFeed.entityType, "comment"),
+        eq(activityFeed.workspaceId, task.domainId),
       ))
       .orderBy(asc(activityFeed.createdAt));
 
@@ -564,6 +810,8 @@ taskRoutes.post("/:id/comments", async (c) => {
       return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
     }
 
+    await requireWorkspaceAccess(c, task.domainId);
+
     await recordActivity({
       actor: user.name,
       action: "commented",
@@ -592,12 +840,24 @@ taskRoutes.get("/:id/attachments", async (c) => {
     const user = await requireAuth(c);
     const id = c.req.param("id");
 
+    const [task] = await db.select({ id: tasks.id, domainId: tasks.domainId })
+      .from(tasks)
+      .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
+      .limit(1);
+
+    if (!task) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, task.domainId);
+
     // Attachments are stored in activity feed with entityType=attachment
     const attachments = await db.select()
       .from(activityFeed)
       .where(and(
         eq(activityFeed.entityId, id),
         eq(activityFeed.entityType, "attachment"),
+        eq(activityFeed.workspaceId, task.domainId),
       ))
       .orderBy(desc(activityFeed.createdAt));
 

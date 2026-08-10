@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, dailyNotes } from "@project-e/db";
 import { and, desc, eq } from "drizzle-orm";
-import { requireAuth, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { z } from "zod";
 
@@ -33,6 +33,7 @@ dailyNoteRoutes.get("/", async (c) => {
       const active = await resolveActiveDomain(user);
       domainId = active.id;
     }
+    await requireWorkspaceAccess(c, domainId);
 
     if (dateStr) {
       const startOfDay = new Date(dateStr + "T00:00:00.000Z");
@@ -70,6 +71,8 @@ dailyNoteRoutes.post("/", async (c) => {
       domain: body.domain || (await resolveActiveDomain(user)).id,
     });
 
+    await requireWorkspaceAccess(c, data.domain);
+
     const [note] = await db.insert(dailyNotes).values({
       date: new Date(data.date + "T00:00:00.000Z"),
       content: data.content ?? null,
@@ -104,6 +107,8 @@ dailyNoteRoutes.patch("/:id", async (c) => {
     const [existing] = await db.select().from(dailyNotes).where(eq(dailyNotes.id, id)).limit(1);
     if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Daily note not found" } }, 404);
 
+    await requireWorkspaceAccess(c, existing.domainId);
+
     const updateValues: Record<string, unknown> = {};
     if (data.content !== undefined) updateValues.content = data.content;
     if (data.mood !== undefined) updateValues.mood = data.mood;
@@ -124,5 +129,32 @@ dailyNoteRoutes.patch("/:id", async (c) => {
     if (error instanceof z.ZodError) return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid input", details: error.issues } }, 400);
     console.error("[daily-notes] PATCH error:", error);
     return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to update daily note" } }, 500);
+  }
+});
+
+// DELETE /api/daily-notes/:id — Delete a note
+dailyNoteRoutes.delete("/:id", async (c) => {
+  try {
+    const user = await requireAuth(c);
+    const id = c.req.param("id");
+
+    const [existing] = await db.select().from(dailyNotes).where(eq(dailyNotes.id, id)).limit(1);
+    if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Daily note not found" } }, 404);
+
+    await requireWorkspaceAccess(c, existing.domainId);
+
+    // daily_notes has no deleted_at column, so this is a hard delete.
+    await db.delete(dailyNotes).where(eq(dailyNotes.id, id));
+
+    await recordActivity({
+      actor: user.name, action: "deleted", entityType: "daily_note", entityId: id,
+      changes: { date: existing.date.toISOString() }, workspaceId: existing.domainId,
+    });
+
+    return c.body(null, 204);
+  } catch (error) {
+    if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    console.error("[daily-notes] DELETE error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to delete daily note" } }, 500);
   }
 });

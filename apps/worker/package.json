@@ -11,7 +11,8 @@
   "dependencies": {
     "@project-e/db": "^0.1.0",
     "drizzle-orm": "^0.45.2",
-    "postgres": "^3.4.9"
+    "postgres": "^3.4.9",
+    "rrule": "^2.8.1"
   },
   "devDependencies": {
     "@types/node": "^22.19.0",

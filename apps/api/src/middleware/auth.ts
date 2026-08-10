@@ -2,8 +2,8 @@ import { createMiddleware } from "hono/factory";
 import type { Context, Next } from "hono";
 import { jwtVerify, SignJWT } from "jose";
 import { createHash } from "node:crypto";
-import { db, users, apiKeys } from "@project-e/db";
-import { and, eq } from "drizzle-orm";
+import { db, users, apiKeys, domains } from "@project-e/db";
+import { and, asc, eq } from "drizzle-orm";
 
 const AUTH_SECRET = new TextEncoder().encode(process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "fallback-secret-change-me");
 const COOKIE_NAME = "session";
@@ -101,10 +101,44 @@ export async function requireAuth(c: Context): Promise<AuthUser> {
   return user;
 }
 
-export async function resolveActiveDomain(user: { id: string; email: string; name?: string | null }): Promise<{ id: string; name: string; created: boolean }> {
-  const { domains } = await import("@project-e/db");
-  const { asc } = await import("drizzle-orm");
+/**
+ * Require access to a workspace (domain). Verifies the workspace exists and,
+ * when a user is present on the context, that the user owns it.
+ *
+ * Ownership fallback: domain rows created before the ownership model was
+ * introduced may have a NULL ownerId. For those rows we fall back to the
+ * existence check only, so legacy data isn't locked out.
+ *
+ * @returns the domain row so callers can reuse it (id, name, slug, ownerId, …)
+ * @throws AuthError 403 FORBIDDEN when workspaceId is missing/empty or not owned
+ * @throws AuthError 404 NOT_FOUND when no such workspace exists
+ */
+export async function requireWorkspaceAccess(c: Context, workspaceId: string): Promise<typeof domains.$inferSelect> {
+  if (!workspaceId || workspaceId.trim() === "") {
+    throw new AuthError("Workspace ID is required", 403, "FORBIDDEN");
+  }
 
+  const [domain] = await db
+    .select()
+    .from(domains)
+    .where(eq(domains.id, workspaceId))
+    .limit(1);
+
+  if (!domain) {
+    throw new AuthError("Workspace not found", 404, "NOT_FOUND");
+  }
+
+  const user = c.get("user");
+  // Single-user/personal app: ownership is enforced when a user is known.
+  // Rows with NULL ownerId (legacy) are allowed through the existence check above.
+  if (user && domain.ownerId !== null && domain.ownerId !== user.id) {
+    throw new AuthError("You do not have access to this workspace", 403, "FORBIDDEN");
+  }
+
+  return domain;
+}
+
+export async function resolveActiveDomain(user: { id: string; email: string; name?: string | null }): Promise<{ id: string; name: string; created: boolean }> {
   const [existing] = await db
     .select({ id: domains.id, name: domains.name })
     .from(domains)

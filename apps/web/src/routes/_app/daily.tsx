@@ -3,17 +3,18 @@ import { createRoute } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
-import { Calendar, ChevronLeft, ChevronRight, Plus, Save, Smile, Zap } from "lucide-react";
+import { Calendar, ChevronLeft, ChevronRight, Plus, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { DailyNote } from "@/lib/types";
-import { format, parseISO, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isToday, addMonths, subMonths } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isToday, addMonths, subMonths } from "date-fns";
 
 // ─── Calendar Sidebar ────────────────────────────────────────────────────
 
@@ -27,7 +28,12 @@ function CalendarSidebar({ selectedDate, onSelectDate }: { selectedDate: Date; o
   // Check which dates have notes
   const { data } = useApiQuery<{ items: DailyNote[]; totalItems: number }>(["daily-notes-list"], "/daily-notes");
   const notes = data?.items || [];
-  const noteDates = new Set(notes.map((n) => format(parseISO(n.date), "yyyy-MM-dd")));
+  // The API stores daily notes at UTC midnight (YYYY-MM-DDT00:00:00.000Z).
+  // Slicing off the time portion yields the calendar date the note belongs to
+  // regardless of the browser's timezone. parseISO + format would re-render the
+  // UTC instant in the local zone and shift the marker to the previous day for
+  // users west of UTC.
+  const noteDates = new Set(notes.map((n) => n.date.slice(0, 10)));
 
   return (
     <div className="w-64 shrink-0">
@@ -88,8 +94,16 @@ function DailyNoteEditor({ date }: { date: Date }) {
   const [energy, setEnergy] = useState<number | null>(null);
   const [noteId, setNoteId] = useState<string | null>(null);
   const [isNew, setIsNew] = useState(false);
-  const [saveTimer, setSaveTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const noteIdRef = useRef<string | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevDateStrRef = useRef(dateStr);
+
+  // Mirror noteId into a ref so a pending autosave timer can always read the
+  // latest id. Without this, a timer scheduled while no note existed yet would
+  // fire with a stale null and double-create the note once createMutation
+  // resolves (noteId is set asynchronously in onSuccess).
+  noteIdRef.current = noteId;
 
   const { data: note, isLoading } = useApiQuery<DailyNote | null>(
     ["daily-note", dateStr],
@@ -97,6 +111,17 @@ function DailyNoteEditor({ date }: { date: Date }) {
   );
 
   useEffect(() => {
+    // Switching days must cancel any pending autosave so it can't fire against
+    // the newly loaded note (or with the previous day's closure state). The
+    // guard on prevDateStrRef keeps refetches of the same day from wiping a
+    // debounce that is still in flight.
+    if (prevDateStrRef.current !== dateStr) {
+      prevDateStrRef.current = dateStr;
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    }
     if (note) {
       setContent(note.content || "");
       setMood(note.mood);
@@ -111,6 +136,17 @@ function DailyNoteEditor({ date }: { date: Date }) {
       setIsNew(true);
     }
   }, [note, isLoading, dateStr]);
+
+  // Clear any pending autosave when the editor unmounts so a stale timer can't
+  // fire after navigation away from the page.
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const createMutation = useMutation({
     mutationFn: (data: any) => api.post<DailyNote>("/daily-notes", data),
@@ -131,16 +167,17 @@ function DailyNoteEditor({ date }: { date: Date }) {
   });
 
   const autoSave = useCallback((newContent: string, newMood: number | null, newEnergy: number | null) => {
-    if (saveTimer) clearTimeout(saveTimer);
-    const timer = setTimeout(() => {
-      if (noteId) {
-        updateMutation.mutate({ id: noteId, data: { content: newContent, mood: newMood, energy: newEnergy } });
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      const id = noteIdRef.current;
+      if (id) {
+        updateMutation.mutate({ id, data: { content: newContent, mood: newMood, energy: newEnergy } });
       } else if (newContent.trim()) {
         createMutation.mutate({ date: dateStr, content: newContent, mood: newMood, energy: newEnergy });
       }
     }, 1500);
-    setSaveTimer(timer);
-  }, [noteId, dateStr, saveTimer]);
+  }, [dateStr, updateMutation, createMutation]);
 
   const handleContentChange = (value: string) => {
     setContent(value);
@@ -151,6 +188,10 @@ function DailyNoteEditor({ date }: { date: Date }) {
     setMood(value);
     if (noteId) {
       updateMutation.mutate({ id: noteId, data: { mood: value } });
+    } else if (isNew && !createMutation.isPending) {
+      // No note exists for this day yet — create it so the mood is recorded
+      // even before any content is typed.
+      createMutation.mutate({ date: dateStr, content: content, mood: value, energy: energy });
     }
   };
 
@@ -158,7 +199,38 @@ function DailyNoteEditor({ date }: { date: Date }) {
     setEnergy(value);
     if (noteId) {
       updateMutation.mutate({ id: noteId, data: { energy: value } });
+    } else if (isNew && !createMutation.isPending) {
+      // No note exists for this day yet — create it so the energy is recorded
+      // even before any content is typed.
+      createMutation.mutate({ date: dateStr, content: content, mood: mood, energy: value });
     }
+  };
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      try {
+        await api.delete("/daily-notes/" + id);
+      } catch (error) {
+        // The API responds 204 No Content, which has no JSON body, so api.delete
+        // (which resolves res.json()) rejects with a SyntaxError on the empty
+        // body even though the server-side delete succeeded. Re-throw anything
+        // else (real HTTP/network failures).
+        if (!(error instanceof SyntaxError)) throw error;
+      }
+    },
+    onSuccess: () => {
+      setContent("");
+      setMood(null);
+      setEnergy(null);
+      setNoteId(null);
+      setIsNew(true);
+      queryClient.invalidateQueries({ queryKey: ["daily-note", dateStr] });
+      queryClient.invalidateQueries({ queryKey: ["daily-notes-list"] });
+    },
+  });
+
+  const handleDelete = () => {
+    if (noteId) deleteMutation.mutate(noteId);
   };
 
   return (
@@ -167,9 +239,28 @@ function DailyNoteEditor({ date }: { date: Date }) {
         <h2 className="text-xl font-bold">{format(date, "EEEE, MMMM d, yyyy")}</h2>
         <div className="flex items-center gap-2">
           {noteId && (
-            <Badge variant="secondary" className="text-[10px]">
-              <Save className="h-3 w-3 mr-1" />Saved
-            </Badge>
+            <>
+              <Badge variant="secondary" className="text-[10px]">
+                <Save className="h-3 w-3 mr-1" />Saved
+              </Badge>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" aria-label="Delete daily note">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete Daily Note</AlertDialogTitle>
+                    <AlertDialogDescription>Are you sure you want to delete this daily note? This cannot be undone.</AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
           )}
         </div>
       </div>
@@ -178,10 +269,13 @@ function DailyNoteEditor({ date }: { date: Date }) {
       <div className="flex gap-6">
         <div>
           <p className="text-xs text-muted-foreground mb-1">Mood</p>
-          <div className="flex gap-1">
+          <div role="radiogroup" aria-label="Mood" className="flex gap-1">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => (
               <button
                 key={v}
+                role="radio"
+                aria-checked={mood === v}
+                aria-label={`Mood ${v}`}
                 onClick={() => handleMoodChange(v)}
                 className={cn(
                   "w-6 h-6 rounded text-[10px] font-medium transition-colors",
@@ -195,10 +289,13 @@ function DailyNoteEditor({ date }: { date: Date }) {
         </div>
         <div>
           <p className="text-xs text-muted-foreground mb-1">Energy</p>
-          <div className="flex gap-1">
+          <div role="radiogroup" aria-label="Energy" className="flex gap-1">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => (
               <button
                 key={v}
+                role="radio"
+                aria-checked={energy === v}
+                aria-label={`Energy ${v}`}
                 onClick={() => handleEnergyChange(v)}
                 className={cn(
                   "w-6 h-6 rounded text-[10px] font-medium transition-colors",
