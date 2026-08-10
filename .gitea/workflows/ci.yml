@@ -52,6 +52,9 @@ jobs:
 
       - name: Docker compose build
         shell: bash
+        env:
+          POSTGRES_PASSWORD: ci-placeholder
+          AUTH_SECRET: ci-placeholder
         run: docker compose build
 
   e2e:
