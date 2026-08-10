@@ -40,6 +40,9 @@ export function TagManager({ entityType, entityId, tags }: TagManagerProps) {
   const availableTags = allTags.filter((t) => !assignedIds.has(t.id));
 
   const refreshEntity = () => {
+    // Refresh the list view (["tasks", ...], ["habits", ...], ["notes", ...])
+    // and the detail view (["task", id], ...) so badges stay in sync in both.
+    queryClient.invalidateQueries({ queryKey: [plural] });
     queryClient.invalidateQueries({ queryKey: [entityType, entityId] });
   };
 

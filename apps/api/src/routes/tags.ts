@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, tags as tagsTable } from "@project-e/db";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { requireAuth, AuthError } from "../middleware/auth";
+import { requireAuth, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { z } from "zod";
 
@@ -79,6 +79,9 @@ tagRoutes.get("/:id", async (c) => {
   try {
     await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const [tag] = await db.select().from(tagsTable).where(eq(tagsTable.id, id)).limit(1);
     if (!tag) return c.json({ error: { code: "NOT_FOUND", message: "Tag not found" } }, 404);
     return c.json(tag);
@@ -94,6 +97,9 @@ tagRoutes.patch("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const data = updateTagSchema.parse(body);
 
@@ -121,6 +127,9 @@ tagRoutes.delete("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const [existing] = await db.select().from(tagsTable).where(eq(tagsTable.id, id)).limit(1);
     if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Tag not found" } }, 404);
 

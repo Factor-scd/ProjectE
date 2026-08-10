@@ -12,15 +12,18 @@ import { extractLinkTargets } from "./wikilink-parser";
 
 /**
  * Resolve a single link target to its entity ID.
+ *
+ * scoped to the source note's workspace so [[Title]] links never resolve to an
+ * entity in a different domain of the same user.
  */
-async function resolveTarget(entityType: string, title: string): Promise<{ entityId: string; entityType: string } | null> {
+async function resolveTarget(entityType: string, title: string, domainId: string): Promise<{ entityId: string; entityType: string } | null> {
   const trimmedTitle = title.trim();
 
   if (!entityType) {
     const [note] = await db
       .select({ id: notes.id })
       .from(notes)
-      .where(and(eq(notes.title, trimmedTitle), isNull(notes.deletedAt)))
+      .where(and(eq(notes.title, trimmedTitle), eq(notes.domainId, domainId), isNull(notes.deletedAt)))
       .limit(1);
     if (note) return { entityId: note.id, entityType: "note" };
     return null;
@@ -31,7 +34,7 @@ async function resolveTarget(entityType: string, title: string): Promise<{ entit
       const [note] = await db
         .select({ id: notes.id })
         .from(notes)
-        .where(and(eq(notes.title, trimmedTitle), isNull(notes.deletedAt)))
+        .where(and(eq(notes.title, trimmedTitle), eq(notes.domainId, domainId), isNull(notes.deletedAt)))
         .limit(1);
       if (note) return { entityId: note.id, entityType: "note" };
       return null;
@@ -40,7 +43,7 @@ async function resolveTarget(entityType: string, title: string): Promise<{ entit
       const [task] = await db
         .select({ id: tasks.id })
         .from(tasks)
-        .where(and(eq(tasks.title, trimmedTitle), isNull(tasks.deletedAt)))
+        .where(and(eq(tasks.title, trimmedTitle), eq(tasks.domainId, domainId), isNull(tasks.deletedAt)))
         .limit(1);
       if (task) return { entityId: task.id, entityType: "task" };
       return null;
@@ -49,7 +52,7 @@ async function resolveTarget(entityType: string, title: string): Promise<{ entit
       const [habit] = await db
         .select({ id: habits.id })
         .from(habits)
-        .where(and(eq(habits.name, trimmedTitle), isNull(habits.deletedAt)))
+        .where(and(eq(habits.name, trimmedTitle), eq(habits.domainId, domainId), isNull(habits.deletedAt)))
         .limit(1);
       if (habit) return { entityId: habit.id, entityType: "habit" };
       return null;
@@ -58,7 +61,7 @@ async function resolveTarget(entityType: string, title: string): Promise<{ entit
       const [project] = await db
         .select({ id: projects.id })
         .from(projects)
-        .where(and(eq(projects.name, trimmedTitle), isNull(projects.deletedAt)))
+        .where(and(eq(projects.name, trimmedTitle), eq(projects.domainId, domainId), isNull(projects.deletedAt)))
         .limit(1);
       if (project) return { entityId: project.id, entityType: "project" };
       return null;
@@ -89,12 +92,12 @@ async function resolveTarget(entityType: string, title: string): Promise<{ entit
 /**
  * Sync wikilinks for a note: parse content, resolve targets, diff existing links.
  */
-export async function syncNoteLinks(noteId: string, content: string): Promise<void> {
+export async function syncNoteLinks(noteId: string, content: string, domainId: string): Promise<void> {
   const targets = extractLinkTargets(content);
 
   const resolvedTargets: { entityType: string; entityId: string }[] = [];
   for (const target of targets) {
-    const resolved = await resolveTarget(target.entityType, target.title);
+    const resolved = await resolveTarget(target.entityType, target.title, domainId);
     if (resolved) {
       resolvedTargets.push(resolved);
     }

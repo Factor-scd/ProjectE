@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import { useSidebarStore } from "@/lib/stores/use-sidebar-store";
+import { useAuthStore } from "@/lib/stores/use-auth-store";
 import {
   LayoutDashboard,
   ListTodo,
@@ -46,6 +47,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { DomainPicker } from "@/components/shell/domain-picker";
 
 interface NavItem {
   href: string;
@@ -75,7 +77,11 @@ const bottomItems: NavItem[] = [
 
 export function Sidebar() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebarStore();
+  const user = useAuthStore((s) => s.user);
+  const userName = user?.name || user?.email?.split("@")[0] || "User";
+  const userInitials = (user?.name || user?.email || "U").slice(0, 2).toUpperCase();
 
   // Sidebar position (left/right) is set in Settings. Read once on mount and
   // update live via the "sidebar-position-change" custom event dispatched by
@@ -204,12 +210,12 @@ export function Sidebar() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-10 w-10">
                   <Avatar className="h-8 w-8">
-                    <AvatarFallback className="text-xs">U</AvatarFallback>
+                    <AvatarFallback className="text-xs">{userInitials}</AvatarFallback>
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent side={sidebarPos === "right" ? "left" : "right"} align="start" className="w-48">
-                <DropdownMenuItem onClick={() => {}}>
+                <DropdownMenuItem onClick={() => navigate({ to: "/settings" })}>
                   <User className="mr-2 h-4 w-4" />
                   Profile
                 </DropdownMenuItem>
@@ -229,13 +235,13 @@ export function Sidebar() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="w-full justify-start gap-3 px-3">
                   <Avatar className="h-8 w-8">
-                    <AvatarFallback className="text-xs">U</AvatarFallback>
+                    <AvatarFallback className="text-xs">{userInitials}</AvatarFallback>
                   </Avatar>
-                  <span className="text-sm font-medium">User</span>
+                  <span className="text-sm font-medium truncate">{userName}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent side={sidebarPos === "right" ? "left" : "right"} align="start" className="w-48">
-                <DropdownMenuItem onClick={() => {}}>
+                <DropdownMenuItem onClick={() => navigate({ to: "/settings" })}>
                   <User className="mr-2 h-4 w-4" />
                   Profile
                 </DropdownMenuItem>
@@ -261,6 +267,9 @@ export function Sidebar() {
             <SheetTitle>Project E</SheetTitle>
             <SheetDescription>Navigate your workspace.</SheetDescription>
           </SheetHeader>
+          <div className="border-b p-4">
+            <DomainPicker />
+          </div>
           {navigation(false, () => setMobileOpen(false))}
         </SheetContent>
       </Sheet>

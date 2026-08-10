@@ -2,7 +2,9 @@ import { Search, Bell, Plus, Menu, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSidebarStore } from "@/lib/stores/use-sidebar-store";
 import { useApiDomain } from "@/lib/stores/use-active-domain-store";
+import { useAuthStore } from "@/lib/stores/use-auth-store";
 import { useApiQuery } from "@/lib/api";
+import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { DomainPicker } from "@/components/shell/domain-picker";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -38,7 +40,12 @@ function readableEntityType(entityType: string): string {
 export function Topbar() {
   const { setMobileOpen } = useSidebarStore();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const domainId = useApiDomain();
+  const user = useAuthStore((s) => s.user);
+  const userName = user?.name || "User";
+  const userEmail = user?.email || "";
+  const userInitials = (user?.name || user?.email || "U").slice(0, 2).toUpperCase();
 
   const openPalette = () => {
     document.dispatchEvent(new CustomEvent("open-command-palette"));
@@ -179,15 +186,15 @@ export function Topbar() {
           <DropdownMenuContent align="end" className="w-56">
             <div className="flex items-center gap-2 px-2 py-1.5 text-sm">
               <Avatar className="h-8 w-8">
-                <AvatarFallback className="text-xs">U</AvatarFallback>
+                <AvatarFallback className="text-xs">{userInitials}</AvatarFallback>
               </Avatar>
               <div className="flex flex-col">
-                <span className="font-medium">User</span>
-                <span className="text-xs text-muted-foreground">user@projecte.app</span>
+                <span className="font-medium truncate">{userName}</span>
+                <span className="text-xs text-muted-foreground truncate">{userEmail}</span>
               </div>
             </div>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => {}}>
+            <DropdownMenuItem onClick={() => navigate({ to: "/settings" })}>
               Profile
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => {

@@ -3,6 +3,7 @@ import { createRoute } from "@tanstack/react-router";
 import { Route as appRoute } from "../../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { Bot, Filter, Calendar, RefreshCw, ExternalLink, Clock, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadingState, EmptyState } from "@/components/state";
@@ -32,52 +33,76 @@ function AgentActivityPage() {
   const [dateTo, setDateTo] = useState("");
   const [liveActivities, setLiveActivities] = useState<AgentActivity[]>([]);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const activeDomainId = useApiDomain();
+
+  // Keep latest filters reachable from the SSE effect without reconnecting.
+  const filtersRef = useRef({ agentFilter, actionFilter, dateFrom, dateTo });
+  filtersRef.current = { agentFilter, actionFilter, dateFrom, dateTo };
+
+  // Live entries are transient and never filtered server-side, so clear them
+  // whenever the user changes any filter.
+  useEffect(() => {
+    setLiveActivities([]);
+  }, [agentFilter, actionFilter, dateFrom, dateTo]);
 
   // Fetch agents for filter dropdown
-  const { data: agentsData } = useApiQuery<PaginatedResponse<Agent>>(["agents-list"], "/agents");
+  const { data: agentsData } = useApiQuery<PaginatedResponse<Agent>>(["agents-list", activeDomainId], "/agents" + (activeDomainId ? "?domain=" + activeDomainId : ""));
   const agents = agentsData?.items || [];
 
   // Build query params
   const params = new URLSearchParams({ limit: "100" });
-  if (agentFilter) params.set("agentId", agentFilter);
-  if (actionFilter) params.set("action", actionFilter);
+  if (activeDomainId) params.set("domain", activeDomainId);
+  if (agentFilter && agentFilter !== "all") params.set("agentId", agentFilter);
+  if (actionFilter && actionFilter !== "all") params.set("action", actionFilter);
   if (dateFrom) params.set("from", dateFrom);
   if (dateTo) params.set("to", dateTo);
 
   const { data: activityData, isLoading } = useApiQuery<{ items: AgentActivity[]; totalItems: number }>(
     ["agent-activity", agentFilter, actionFilter, dateFrom, dateTo],
-    "/agents/" + (agentFilter || "_all") + "/activity?" + params.toString()
+    "/agents/" + (agentFilter && agentFilter !== "all" ? agentFilter : "_all") + "/activity?" + params.toString()
   );
 
   const activities = [...liveActivities, ...(activityData?.items || [])];
 
   // SSE for live updates
   useEffect(() => {
-    const es = new EventSource("/api/realtime");
+    const params = new URLSearchParams();
+    if (activeDomainId) params.set("workspace_id", activeDomainId);
+    const es = new EventSource("/api/realtime" + (params.toString() ? "?" + params.toString() : ""));
     eventSourceRef.current = es;
     es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         // Realtime events are flat: { type: entityType, action, id, workspace_id }.
-        // Match only agent events so unrelated task/habit/etc. activity doesn't leak in.
-        if (data.type === "agent") {
-          const entry: AgentActivity = {
-            id: `${data.id}-live-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            agentId: data.id,
-            action: data.action,
-            description: `Live update: ${data.action}`,
-            entityType: "agent",
-            entityId: data.id,
-            metadata: null,
-            createdAt: new Date().toISOString(),
-          };
-          setLiveActivities((prev) => [entry, ...prev].slice(0, 5));
-        }
+        // Match only agent events for the active workspace so unrelated task/habit
+        // etc. activity (or another workspace's events) doesn't leak in.
+        if (data.type !== "agent") return;
+        if (activeDomainId && data.workspace_id !== activeDomainId) return;
+
+        const { agentFilter, actionFilter, dateFrom, dateTo } = filtersRef.current;
+        if (agentFilter && agentFilter !== "all" && data.id !== agentFilter) return;
+        if (actionFilter && actionFilter !== "all" && data.action !== actionFilter) return;
+        const now = new Date();
+        const nowKey = now.toISOString().slice(0, 10);
+        if (dateFrom && nowKey < dateFrom) return;
+        if (dateTo && nowKey > dateTo) return;
+
+        const entry: AgentActivity = {
+          id: `${data.id}-live-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          agentId: data.id,
+          action: data.action,
+          description: `Live update: ${data.action}`,
+          entityType: "agent",
+          entityId: data.id,
+          metadata: null,
+          createdAt: now.toISOString(),
+        };
+        setLiveActivities((prev) => [entry, ...prev].slice(0, 5));
       } catch {}
     };
     es.onerror = () => {};
     return () => { es.close(); };
-  }, []);
+  }, [activeDomainId]);
 
   const getActionColor = (action: string) => {
     const found = ACTION_TYPES.find((a) => a.id === action);
@@ -106,7 +131,7 @@ function AgentActivityPage() {
             <SelectValue placeholder="All agents" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value=" ">All agents</SelectItem>
+            <SelectItem value="all">All agents</SelectItem>
             {agents.map((a) => (
               <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
             ))}
@@ -118,7 +143,7 @@ function AgentActivityPage() {
             <SelectValue placeholder="All actions" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value=" ">All actions</SelectItem>
+            <SelectItem value="all">All actions</SelectItem>
             {ACTION_TYPES.map((a) => (
               <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>
             ))}
@@ -153,6 +178,10 @@ function AgentActivityPage() {
                   <Badge variant="outline" className="text-[10px]">{a.entityType}</Badge>
                 </div>
                 {a.description && <p className="text-sm text-muted-foreground mt-0.5">{a.description}</p>}
+                {!a.description && a.details && Object.keys(a.details).length > 0 && (
+                  <p className="text-sm text-muted-foreground mt-0.5">{JSON.stringify(a.details)}</p>
+                )}
+                {a.errorMessage && <p className="text-sm text-destructive mt-0.5">{a.errorMessage}</p>}
                 <div className="flex items-center gap-2 mt-1">
                   <Clock className="h-3 w-3 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">{format(parseISO(a.createdAt), "MMM d, HH:mm:ss")}</span>

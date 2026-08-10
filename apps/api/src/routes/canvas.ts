@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, canvases, canvasCards, canvasConnections } from "@project-e/db";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
+import { and, asc, desc, eq, notInArray, or, sql } from "drizzle-orm";
+import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { z } from "zod";
 
@@ -137,6 +137,9 @@ canvasRoutes.get("/:id", async (c) => {
   try {
     await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const [canvas] = await db.select().from(canvases).where(eq(canvases.id, id)).limit(1);
     if (!canvas) return c.json({ error: { code: "NOT_FOUND", message: "Canvas not found" } }, 404);
 
@@ -160,6 +163,9 @@ canvasRoutes.patch("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const data = updateCanvasSchema.parse(body);
 
@@ -199,6 +205,9 @@ canvasRoutes.delete("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const [existing] = await db.select().from(canvases).where(eq(canvases.id, id)).limit(1);
     if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Canvas not found" } }, 404);
 
@@ -224,6 +233,9 @@ canvasRoutes.post("/:id/cards", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const data = createCardSchema.parse(body);
 
@@ -272,6 +284,9 @@ canvasRoutes.put("/:id/cards", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const data = bulkSaveCardsSchema.parse(body);
 
@@ -282,8 +297,15 @@ canvasRoutes.put("/:id/cards", async (c) => {
 
     const cards = await db.transaction(async (tx) => {
       await tx.delete(canvasCards).where(eq(canvasCards.canvasId, id));
-      if (data.cards.length === 0) return [];
-      return tx.insert(canvasCards).values(
+      if (data.cards.length === 0) {
+        // No cards left — drop every connection on this canvas.
+        await tx.delete(canvasConnections).where(or(
+          eq(canvasConnections.sourceCardId, id),
+          eq(canvasConnections.targetCardId, id),
+        ));
+        return [];
+      }
+      const inserted = await tx.insert(canvasCards).values(
         data.cards.map((card, i) => ({
           ...(card.id ? { id: card.id } : {}),
           canvasId: id,
@@ -299,6 +321,15 @@ canvasRoutes.put("/:id/cards", async (c) => {
           zIndex: card.zIndex ?? i,
         }))
       ).returning();
+      // Connections to cards that no longer exist must not linger. Cards that
+      // were re-inserted with their original id keep their connections; any
+      // connection whose endpoint is missing is dropped.
+      const keptIds = inserted.map((c) => c.id);
+      await tx.delete(canvasConnections).where(or(
+        notInArray(canvasConnections.sourceCardId, keptIds),
+        notInArray(canvasConnections.targetCardId, keptIds),
+      ));
+      return inserted;
     });
 
     await recordActivity({

@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
 import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
+import { useOpenCreateDialog } from "@/hooks/use-open-create-dialog";
 import { Plus, Flame, Trash2, Check, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ import type { Habit, HabitCompletion, PaginatedResponse } from "@/lib/types";
 
 function HabitForm({ habit, onClose }: { habit?: Habit; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const activeDomainId = useApiDomain();
   const [name, setName] = useState(habit?.name || "");
   const [description, setDescription] = useState(habit?.description || "");
   const [frequency, setFrequency] = useState(habit?.frequency || "daily");
@@ -44,7 +46,7 @@ function HabitForm({ habit, onClose }: { habit?: Habit; onClose: () => void }) {
     if (!name.trim()) return;
     const data = { name: name.trim(), description: description || null, frequency, difficulty, goalPerPeriod };
     if (habit) updateMutation.mutate(data);
-    else createMutation.mutate(data);
+    else createMutation.mutate({ ...data, ...(activeDomainId ? { domain: activeDomainId } : {}) });
   };
 
   return (
@@ -124,14 +126,35 @@ function HabitsPage() {
 
   useRealtime({ enabled: true });
 
+  useOpenCreateDialog("habit", () => setCreateOpen(true));
+
   const activeDomainId = useApiDomain();
+
+  const habitQueryUrl = () => "/habits?limit=200" + (activeDomainId ? "&domain=" + activeDomainId : "");
 
   const { data: habitsData, isLoading, isError, refetch } = useApiQuery<PaginatedResponse<Habit>>(
     ["habits", activeDomainId],
-    "/habits?limit=200" + (activeDomainId ? "&domain=" + activeDomainId : "")
+    habitQueryUrl()
   );
 
   const habits = habitsData?.items || [];
+  const hasMoreHabits = habits.length < (habitsData?.totalItems || 0);
+  const [loadingMoreHabits, setLoadingMoreHabits] = useState(false);
+
+  const loadMoreHabits = async () => {
+    if (!hasMoreHabits || loadingMoreHabits) return;
+    setLoadingMoreHabits(true);
+    try {
+      const next = await api.get<PaginatedResponse<Habit>>(habitQueryUrl() + "&offset=" + habits.length);
+      queryClient.setQueryData<PaginatedResponse<Habit>>(["habits", activeDomainId], (old) => {
+        if (!old) return old;
+        const seen = new Set(old.items.map((h) => h.id));
+        return { ...old, items: [...old.items, ...next.items.filter((h) => !seen.has(h.id))] };
+      });
+    } finally {
+      setLoadingMoreHabits(false);
+    }
+  };
 
   const completeMutation = useMutation({
     mutationFn: (id: string) => api.post("/habits/" + id + "/complete", {}),
@@ -203,6 +226,11 @@ function HabitsPage() {
                     <Button
                       size="sm"
                       variant="outline"
+                      disabled={(habit.recentCompletions || []).some((c) => {
+                        const d = new Date(c.date);
+                        const t = new Date();
+                        return d.getUTCFullYear() === t.getUTCFullYear() && d.getUTCMonth() === t.getUTCMonth() && d.getUTCDate() === t.getUTCDate();
+                      })}
                       onClick={(e) => { e.stopPropagation(); completeMutation.mutate(habit.id); }}
                       aria-label={"Mark " + habit.name + " complete"}
                     >
@@ -225,7 +253,15 @@ function HabitsPage() {
         </div>
       )}
 
-      <EntityDetailPanel open={panelOpen} onOpenChange={setPanelOpen} title={selectedHabit?.name || "Habit Details"}>
+      {hasMoreHabits && (
+        <div className="flex justify-center pt-2">
+          <Button variant="outline" size="sm" onClick={loadMoreHabits} disabled={loadingMoreHabits}>
+            {loadingMoreHabits ? "Loading..." : "Load more habits"}
+          </Button>
+        </div>
+      )}
+
+      <EntityDetailPanel open={panelOpen} onOpenChange={(o) => { setPanelOpen(o); if (!o) setDetailTab("overview"); }} title={selectedHabit?.name || "Habit Details"}>
         {selectedHabit && (
           <div className="space-y-4">
             <Tabs value={detailTab} onValueChange={setDetailTab}>

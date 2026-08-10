@@ -15,6 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import type { Canvas, CanvasCard, PaginatedResponse } from "@/lib/types";
 
 const BLOCK_TYPES = [
@@ -382,12 +383,13 @@ function CanvasList() {
   const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
+  const activeDomainId = useApiDomain();
 
-  const { data, isLoading } = useApiQuery<PaginatedResponse<Canvas>>(["canvas"], "/canvas");
+  const { data, isLoading } = useApiQuery<PaginatedResponse<Canvas>>(["canvas", activeDomainId], "/canvas" + (activeDomainId ? "?domain=" + activeDomainId : ""));
   const canvases = data?.items || [];
 
   const createMutation = useMutation({
-    mutationFn: (name: string) => api.post<Canvas>("/canvas", { name }),
+    mutationFn: (name: string) => api.post<Canvas>("/canvas", { name, ...(activeDomainId ? { domain: activeDomainId } : {}) }),
     onSuccess: (canvas) => {
       queryClient.invalidateQueries({ queryKey: ["canvas"] });
       setCreateOpen(false);
@@ -429,9 +431,34 @@ function CanvasList() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {canvases.map((c) => (
-            <Card key={c.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate({ to: "/canvas/$id", params: { id: c.id } })}>
+            <Card key={c.id} className="cursor-pointer hover:shadow-md transition-shadow group" onClick={() => navigate({ to: "/canvas/$id", params: { id: c.id } })}>
               <CardHeader className="p-4 pb-2">
-                <CardTitle className="text-sm font-semibold truncate">{c.name}</CardTitle>
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="text-sm font-semibold truncate">{c.name}</CardTitle>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 text-destructive"
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={"Delete canvas " + c.name}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Canvas</AlertDialogTitle>
+                        <AlertDialogDescription>Are you sure you want to delete "{c.name}"? All blocks in it will be removed. This cannot be undone.</AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(c.id); }} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               </CardHeader>
               <CardContent className="p-4 pt-0">
                 <div className="flex items-center gap-2">

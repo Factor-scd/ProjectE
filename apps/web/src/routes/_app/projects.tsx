@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
 import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
+import { useOpenCreateDialog } from "@/hooks/use-open-create-dialog";
 import { Plus, Pencil, Trash2, FolderKanban, Users, Calendar, ListTodo, GripVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,7 @@ import type { Project, Section, Task, PaginatedResponse } from "@/lib/types";
 
 function ProjectForm({ project, onClose }: { project?: Project; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const activeDomainId = useApiDomain();
   const [name, setName] = useState(project?.name || "");
   const [description, setDescription] = useState(project?.description || "");
   const [status, setStatus] = useState(project?.status || "active");
@@ -48,7 +50,7 @@ function ProjectForm({ project, onClose }: { project?: Project; onClose: () => v
     const data: any = { name: name.trim(), description: description || null, status, color };
     if (targetDate) data.targetDate = new Date(targetDate).toISOString();
     if (project) updateMutation.mutate(data);
-    else createMutation.mutate(data);
+    else createMutation.mutate({ ...data, ...(activeDomainId ? { domain: activeDomainId } : {}) });
   };
 
   return (
@@ -103,14 +105,35 @@ function ProjectsPage() {
 
   useRealtime({ enabled: true });
 
+  useOpenCreateDialog("project", () => setCreateOpen(true));
+
   const activeDomainId = useApiDomain();
+
+  const projectQueryUrl = () => "/projects?limit=200" + (activeDomainId ? "&domain=" + activeDomainId : "");
 
   const { data: projectsData, isLoading, isError, refetch } = useApiQuery<PaginatedResponse<Project>>(
     ["projects", activeDomainId],
-    "/projects?limit=200" + (activeDomainId ? "&domain=" + activeDomainId : "")
+    projectQueryUrl()
   );
 
   const projects = projectsData?.items || [];
+  const hasMoreProjects = projects.length < (projectsData?.totalItems || 0);
+  const [loadingMoreProjects, setLoadingMoreProjects] = useState(false);
+
+  const loadMoreProjects = async () => {
+    if (!hasMoreProjects || loadingMoreProjects) return;
+    setLoadingMoreProjects(true);
+    try {
+      const next = await api.get<PaginatedResponse<Project>>(projectQueryUrl() + "&offset=" + projects.length);
+      queryClient.setQueryData<PaginatedResponse<Project>>(["projects", activeDomainId], (old) => {
+        if (!old) return old;
+        const seen = new Set(old.items.map((p) => p.id));
+        return { ...old, items: [...old.items, ...next.items.filter((p) => !seen.has(p.id))] };
+      });
+    } finally {
+      setLoadingMoreProjects(false);
+    }
+  };
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete("/projects/" + id),
@@ -188,6 +211,14 @@ function ProjectsPage() {
               </CardContent>
             </Card>
           ))}
+        </div>
+      )}
+
+      {hasMoreProjects && (
+        <div className="flex justify-center pt-2">
+          <Button variant="outline" size="sm" onClick={loadMoreProjects} disabled={loadingMoreProjects}>
+            {loadingMoreProjects ? "Loading..." : "Load more projects"}
+          </Button>
         </div>
       )}
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import type { RealtimeEvent } from "@/lib/types";
 
 const API_BASE = "/api";
@@ -10,7 +11,11 @@ interface UseRealtimeOptions {
 }
 
 export function useRealtime(options: UseRealtimeOptions = {}) {
-  const { workspaceId, enabled = true } = options;
+  const { workspaceId: explicitWorkspace, enabled = true } = options;
+  // Default to the user's active domain so clients never receive (or act on)
+  // events from other workspaces. Callers can still pin a specific workspace.
+  const activeDomainId = useApiDomain();
+  const workspaceId = explicitWorkspace || activeDomainId || undefined;
   const queryClient = useQueryClient();
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -23,13 +28,13 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
 
       switch (entityType) {
         case "task":
-          queryKeys.push(["tasks"], ["tasks-due"], ["stats"], ["productivity-chart"]);
+          queryKeys.push(["tasks"], ["tasks-due"], ["stats"], ["productivity-chart"], ["analytics-daily"], ["analytics-projects"]);
           break;
         case "habit":
-          queryKeys.push(["habits"], ["habits-today"], ["streaks"]);
+          queryKeys.push(["habits"], ["habits-today"], ["streaks"], ["analytics-habits"]);
           break;
         case "project":
-          queryKeys.push(["projects"], ["active-projects"]);
+          queryKeys.push(["projects"], ["active-projects"], ["analytics-projects"]);
           break;
         case "note":
           queryKeys.push(["notes"], ["recent-notes"]);
@@ -39,6 +44,29 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
           break;
         case "dashboard_widget":
           queryKeys.push(["dashboard-widgets"]);
+          break;
+        case "daily_note":
+          queryKeys.push(["daily-notes-list"], ["daily-note"]);
+          break;
+        case "agent":
+          queryKeys.push(["agents"], ["agents-list"], ["agent-activity"]);
+          break;
+        case "canvas":
+          queryKeys.push(["canvas"]);
+          break;
+        case "webhook":
+          queryKeys.push(["webhooks"]);
+          break;
+        case "custom_field":
+          queryKeys.push(["custom-fields"]);
+          break;
+        case "section":
+        case "member":
+          queryKeys.push(["projects"]);
+          break;
+        case "comment":
+        case "attachment":
+          queryKeys.push(["tasks"], ["task"]);
           break;
         case "graph_edge":
           queryKeys.push(["graph"]);

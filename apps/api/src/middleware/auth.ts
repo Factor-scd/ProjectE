@@ -168,6 +168,17 @@ export class AuthError extends Error {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * True when a value looks like a UUID. Route params that are entity ids should
+ * be validated with this before hitting the DB so a malformed id returns 404
+ * instead of a Postgres "invalid input syntax for type uuid" 500.
+ */
+export function isUuid(value: string | undefined | null): boolean {
+  return typeof value === "string" && UUID_REGEX.test(value);
+}
+
 export function createErrorResponse(code: string, message: string, status: number = 400, details?: unknown) {
   return {
     error: {

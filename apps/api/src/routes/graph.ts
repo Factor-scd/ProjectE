@@ -218,9 +218,15 @@ graphRoutes.delete("/edges/:id", async (c) => {
       .returning();
 
     if (result.length === 0) {
-      // Try task_dependencies
-      await db.delete(taskDependencies)
-        .where(and(eq(taskDependencies.taskId, sourceId), eq(taskDependencies.dependsOnTaskId, targetId)));
+      // Try note_entity_links (note → entity edges)
+      const entityResult = await db.delete(noteEntityLinks)
+        .where(and(eq(noteEntityLinks.noteId, sourceId), eq(noteEntityLinks.entityId, targetId)))
+        .returning();
+      if (entityResult.length === 0) {
+        // Try task_dependencies
+        await db.delete(taskDependencies)
+          .where(and(eq(taskDependencies.taskId, sourceId), eq(taskDependencies.dependsOnTaskId, targetId)));
+      }
     }
 
     if (!workspaceId) {

@@ -165,6 +165,10 @@ const tools: ToolDefinition[] = [
       required: ["task_id"],
     },
     handler: async (params, auth) => {
+      const [existing] = await db.select().from(tasks).where(and(eq(tasks.id, params.task_id as string), isNull(tasks.deletedAt))).limit(1);
+      if (!existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Task not found");
+      await verifyDomainAccess(existing.domainId, auth.userId);
+
       const updateData: Record<string, unknown> = {};
       if (params.title !== undefined) updateData.title = params.title;
       if (params.description !== undefined) updateData.description = params.description;
@@ -177,8 +181,6 @@ const tools: ToolDefinition[] = [
         .set(updateData)
         .where(and(eq(tasks.id, params.task_id as string), isNull(tasks.deletedAt)))
         .returning();
-
-      if (!task) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Task not found");
 
       await recordActivity({
         actor: auth.userName,
@@ -201,12 +203,14 @@ const tools: ToolDefinition[] = [
       required: ["task_id"],
     },
     handler: async (params, auth) => {
+      const [existing] = await db.select().from(tasks).where(and(eq(tasks.id, params.task_id as string), isNull(tasks.deletedAt))).limit(1);
+      if (!existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Task not found");
+      await verifyDomainAccess(existing.domainId, auth.userId);
+
       const [task] = await db.update(tasks)
         .set({ deletedAt: new Date(), updatedAt: new Date() })
         .where(and(eq(tasks.id, params.task_id as string), isNull(tasks.deletedAt)))
         .returning();
-
-      if (!task) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Task not found");
 
       await recordActivity({
         actor: auth.userName,
@@ -228,12 +232,14 @@ const tools: ToolDefinition[] = [
       required: ["task_id"],
     },
     handler: async (params, auth) => {
+      const [existing] = await db.select().from(tasks).where(and(eq(tasks.id, params.task_id as string), isNull(tasks.deletedAt))).limit(1);
+      if (!existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Task not found");
+      await verifyDomainAccess(existing.domainId, auth.userId);
+
       const [task] = await db.update(tasks)
         .set({ status: "done", completedAt: new Date(), updatedAt: new Date() })
         .where(and(eq(tasks.id, params.task_id as string), isNull(tasks.deletedAt)))
         .returning();
-
-      if (!task) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Task not found");
 
       await recordActivity({
         actor: auth.userName,
@@ -313,6 +319,7 @@ const tools: ToolDefinition[] = [
     handler: async (params, auth) => {
       const [habit] = await db.select().from(habits).where(and(eq(habits.id, params.habit_id as string), isNull(habits.deletedAt))).limit(1);
       if (!habit) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Habit not found");
+      await verifyDomainAccess(habit.domainId, auth.userId);
 
       const [completion] = await db.insert(habitCompletions).values({
         habitId: params.habit_id as string,
@@ -444,6 +451,10 @@ const tools: ToolDefinition[] = [
       required: ["note_id"],
     },
     handler: async (params, auth) => {
+      const [existing] = await db.select().from(notes).where(and(eq(notes.id, params.note_id as string), isNull(notes.deletedAt))).limit(1);
+      if (!existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Note not found");
+      await verifyDomainAccess(existing.domainId, auth.userId);
+
       const updateData: Record<string, unknown> = { updatedAt: new Date() };
       if (params.title !== undefined) updateData.title = params.title;
       if (params.content !== undefined) updateData.content = params.content;
@@ -452,8 +463,6 @@ const tools: ToolDefinition[] = [
         .set(updateData)
         .where(and(eq(notes.id, params.note_id as string), isNull(notes.deletedAt)))
         .returning();
-
-      if (!note) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Note not found");
 
       await recordActivity({
         actor: auth.userName,

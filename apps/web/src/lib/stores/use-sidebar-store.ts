@@ -22,6 +22,9 @@ export const useSidebarStore = create<SidebarState>()(
     }),
     {
       name: "project-e-sidebar",
+      // Never persist the transient mobile drawer state — restoring it on the
+      // next load would reopen the Sheet (and its dark overlay) on desktop.
+      partialize: (state) => ({ collapsed: state.collapsed }) as SidebarState,
     }
   )
 );

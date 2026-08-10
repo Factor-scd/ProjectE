@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useThemeStore, ACCENT_PALETTE, type ThemeMode, type AccentColor } from "@/lib/stores/use-theme-store";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import type { Domain, CustomField, Webhook as WebhookType, ErrorLog, Agent, PaginatedResponse } from "@/lib/types";
 
 const SETTINGS_TABS = [
@@ -40,15 +41,19 @@ const ACCENT_COLORS = Object.entries(ACCENT_PALETTE).map(([key, val]) => ({
 
 const SHORTCUTS_MAP: Record<string, string> = {
   "Cmd+K": "Command palette",
+  "Cmd+N": "New task",
   "g+t": "Go to Tasks",
   "g+h": "Go to Habits",
   "g+p": "Go to Projects",
   "g+n": "Go to Notes",
   "g+c": "Go to Calendar",
+  "g+g": "Go to Graph",
   "g+d": "Go to Dashboard",
   "g+s": "Go to Settings",
-  "g+a": "Go to Analytics",
-  "n": "New task / note (context dependent)",
+  "n+t": "New task",
+  "n+h": "New habit",
+  "n+p": "New project",
+  "n+n": "New note",
   "?": "Show keyboard shortcuts help",
 };
 
@@ -204,7 +209,7 @@ function DomainsTab() {
                 <Button variant="ghost" size="icon" className="text-destructive"><Trash2 className="h-4 w-4" /></Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
-                <AlertDialogHeader><AlertDialogTitle>Delete Domain</AlertDialogTitle><AlertDialogDescription>Are you sure? This cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+                <AlertDialogHeader><AlertDialogTitle>Delete Domain</AlertDialogTitle><AlertDialogDescription>Are you sure? This permanently deletes this workspace and <span className="font-semibold">all</span> of its tasks, habits, projects, notes, calendar events, and settings. This cannot be undone.</AlertDialogDescription></AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction onClick={() => deleteMutation.mutate(d.id)} className="bg-destructive">Delete</AlertDialogAction>
@@ -279,8 +284,9 @@ function TagsTab() {
 
 function CustomFieldsTab() {
   const queryClient = useQueryClient();
+  const activeDomainId = useApiDomain();
   const [entityFilter, setEntityFilter] = useState("");
-  const { data } = useApiQuery<PaginatedResponse<CustomField>>(["custom-fields", entityFilter], "/custom-fields" + (entityFilter ? "?entity=" + entityFilter : ""));
+  const { data } = useApiQuery<PaginatedResponse<CustomField>>(["custom-fields", entityFilter, activeDomainId], "/custom-fields" + (activeDomainId ? "?domain=" + activeDomainId : "") + (entityFilter && entityFilter !== "all" ? "&entity=" + entityFilter : ""));
   const fields = data?.items || [];
   const [createOpen, setCreateOpen] = useState(false);
   const [editField, setEditField] = useState<CustomField | null>(null);
@@ -303,7 +309,7 @@ function CustomFieldsTab() {
     const data: any = { name: form.name, type: form.type, entityType: form.entityType, required: form.required };
     if (form.type === "select" || form.type === "multi_select") data.options = form.options.split(",").map((s) => s.trim()).filter(Boolean);
     if (editField) updateMutation.mutate({ id: editField.id, data });
-    else createMutation.mutate(data);
+    else createMutation.mutate({ ...data, ...(activeDomainId ? { domain: activeDomainId } : {}) });
   };
 
   return (
@@ -314,7 +320,7 @@ function CustomFieldsTab() {
           <Select value={entityFilter} onValueChange={setEntityFilter}>
             <SelectTrigger className="w-36"><SelectValue placeholder="All entities" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value=" ">All entities</SelectItem>
+              <SelectItem value="all">All entities</SelectItem>
               <SelectItem value="tasks">Tasks</SelectItem>
               <SelectItem value="habits">Habits</SelectItem>
               <SelectItem value="projects">Projects</SelectItem>
@@ -429,7 +435,8 @@ function ShortcutsTab() {
 
 function AgentsTab() {
   const queryClient = useQueryClient();
-  const { data } = useApiQuery<PaginatedResponse<Agent>>(["agents"], "/agents");
+  const activeDomainId = useApiDomain();
+  const { data } = useApiQuery<PaginatedResponse<Agent>>(["agents", activeDomainId], "/agents" + (activeDomainId ? "?domain=" + activeDomainId : ""));
   const agents = data?.items || [];
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", permissionTier: "read_only" });
@@ -509,7 +516,7 @@ function AgentsTab() {
                   ))}
                 </SelectContent>
               </Select></div>
-              <Button onClick={() => createMutation.mutate(form)} disabled={!form.name.trim() || createMutation.isPending}>Create</Button>
+              <Button onClick={() => createMutation.mutate({ ...form, ...(activeDomainId ? { domain: activeDomainId } : {}) })} disabled={!form.name.trim() || createMutation.isPending}>Create</Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -592,7 +599,8 @@ function AgentsTab() {
 
 function WebhooksTab() {
   const queryClient = useQueryClient();
-  const { data } = useApiQuery<PaginatedResponse<WebhookType>>(["webhooks"], "/webhooks");
+  const activeDomainId = useApiDomain();
+  const { data } = useApiQuery<PaginatedResponse<WebhookType>>(["webhooks", activeDomainId], "/webhooks" + (activeDomainId ? "?domain=" + activeDomainId : ""));
   const webhooks = data?.items || [];
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ name: "", url: "", events: "task.created,note.created" });
@@ -607,6 +615,8 @@ function WebhooksTab() {
   });
   const testMutation = useMutation({
     mutationFn: (id: string) => api.post("/webhooks/" + id + "/test", {}),
+    onSuccess: () => toast.success("Test webhook queued"),
+    onError: (err) => toast.error(err.message || "Failed to queue test webhook"),
   });
 
   return (
@@ -621,7 +631,7 @@ function WebhooksTab() {
               <div><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
               <div><Label>URL</Label><Input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://example.com/webhook" /></div>
               <div><Label>Events (comma-separated)</Label><Input value={form.events} onChange={(e) => setForm({ ...form, events: e.target.value })} /></div>
-              <Button onClick={() => createMutation.mutate({ name: form.name, url: form.url, events: form.events.split(",").map((s) => s.trim()) })} disabled={!form.name.trim() || !form.url.trim() || createMutation.isPending}>Create</Button>
+              <Button onClick={() => createMutation.mutate({ name: form.name, url: form.url, events: form.events.split(",").map((s) => s.trim()), ...(activeDomainId ? { domain: activeDomainId } : {}) })} disabled={!form.name.trim() || !form.url.trim() || createMutation.isPending}>Create</Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -699,6 +709,7 @@ function downloadBlob(blob: Blob, filename: string) {
 
 function ImportExportTab() {
   const queryClient = useQueryClient();
+  const activeDomainId = useApiDomain();
   const [importData, setImportData] = useState("");
   const [importResult, setImportResult] = useState<any>(null);
   const [exportFormat, setExportFormat] = useState("json");
@@ -749,7 +760,7 @@ function ImportExportTab() {
 
   const handleExport = async () => {
     try {
-      const data = await api.post<any>("/export", { collections: exportCollections });
+      const data = await api.post<any>("/export", { collections: exportCollections, ...(activeDomainId ? { domain: activeDomainId } : {}) });
 
       if (exportFormat === "csv") {
         // One CSV file per selected collection; empty collections are skipped.
@@ -837,7 +848,7 @@ function ImportExportTab() {
 
 function ErrorLogTab() {
   const [level, setLevel] = useState("");
-  const { data } = useApiQuery<PaginatedResponse<ErrorLog>>(["error-log", level], "/error-log" + (level ? "?level=" + level : ""));
+  const { data } = useApiQuery<PaginatedResponse<ErrorLog>>(["error-log", level], "/error-log" + (level && level !== "all" ? "?level=" + level : ""));
   const errors = data?.items || [];
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -855,7 +866,7 @@ function ErrorLogTab() {
           <Select value={level} onValueChange={setLevel}>
             <SelectTrigger className="w-32"><SelectValue placeholder="All levels" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value=" ">All levels</SelectItem>
+              <SelectItem value="all">All levels</SelectItem>
               <SelectItem value="error">Error</SelectItem>
               <SelectItem value="warn">Warning</SelectItem>
               <SelectItem value="info">Info</SelectItem>
@@ -882,8 +893,9 @@ function ErrorLogTab() {
               {expanded === e.id && (
                 <div className="px-3 pb-3 space-y-2">
                   <Separator />
-                  {e.stack && <pre className="text-xs text-muted-foreground bg-muted/50 p-2 rounded overflow-auto max-h-40">{e.stack}</pre>}
-                  {e.context && <pre className="text-xs text-muted-foreground bg-muted/50 p-2 rounded overflow-auto max-h-40">{JSON.stringify(e.context, null, 2)}</pre>}
+                  {e.source && <pre className="text-xs text-muted-foreground bg-muted/50 p-2 rounded overflow-auto max-h-40">{e.source}</pre>}
+                  {e.stackTrace && <pre className="text-xs text-muted-foreground bg-muted/50 p-2 rounded overflow-auto max-h-40">{e.stackTrace}</pre>}
+                  {e.metadata && <pre className="text-xs text-muted-foreground bg-muted/50 p-2 rounded overflow-auto max-h-40">{JSON.stringify(e.metadata, null, 2)}</pre>}
                 </div>
               )}
             </div>

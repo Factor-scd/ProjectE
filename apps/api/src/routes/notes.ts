@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, notes, noteTags, tags as tagsTable, activityFeed } from "@project-e/db";
 import { and, asc, desc, eq, exists, ilike, inArray, isNull, sql } from "drizzle-orm";
-import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { enqueueWebhooks } from "../middleware/webhook-queue";
 import { syncNoteLinks, getBacklinks, getOutgoingLinks } from "./note-link-service";
@@ -172,7 +172,7 @@ noteRoutes.post("/", async (c) => {
 
     // Sync wikilinks from content
     if (data.content) {
-      await syncNoteLinks(note.id, data.content);
+      await syncNoteLinks(note.id, data.content, data.domain);
     }
 
     await recordActivity({
@@ -204,6 +204,9 @@ noteRoutes.get("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [note] = await db.select()
       .from(notes)
@@ -252,6 +255,9 @@ noteRoutes.patch("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const data = updateNoteSchema.parse(body);
 
@@ -281,7 +287,7 @@ noteRoutes.patch("/:id", async (c) => {
     // Re-sync wikilinks if content changed
     const content = data.content ?? existing.content;
     if (content) {
-      await syncNoteLinks(id, content);
+      await syncNoteLinks(id, content, existing.domainId);
     }
 
     await recordActivity({
@@ -313,6 +319,9 @@ noteRoutes.delete("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [existing] = await db.select()
       .from(notes)
@@ -355,6 +364,9 @@ noteRoutes.post("/:id/tags", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const { tagId } = z.object({ tagId: z.string().uuid("Invalid tag id") }).parse(body);
 
@@ -406,6 +418,9 @@ noteRoutes.delete("/:id/tags/:tagId", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const tagId = c.req.param("tagId");
 
     const [note] = await db.select({ id: notes.id, domainId: notes.domainId })
@@ -445,6 +460,9 @@ noteRoutes.get("/:id/backlinks", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [note] = await db.select({ id: notes.id, domainId: notes.domainId })
       .from(notes)
@@ -477,6 +495,9 @@ noteRoutes.get("/:id/versions", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [note] = await db.select({ id: notes.id, domainId: notes.domainId })
       .from(notes)

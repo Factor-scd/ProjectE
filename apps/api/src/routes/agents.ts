@@ -7,6 +7,25 @@ import { z } from "zod";
 
 export const agentRoutes = new Hono();
 
+// Record an entry in the agent_activity feed. The Agent Activity page reads
+// this table, so every lifecycle event (create/update) is captured here in
+// addition to the global activity_feed. Delete events can't be persisted
+// because agent_activity cascades on the owning agent's removal.
+async function recordAgentActivity(agent: { id: string; name: string }, action: string, entityType = "agent", details: Record<string, unknown> = {}) {
+  try {
+    await db.insert(agentActivity).values({
+      agentId: agent.id,
+      action,
+      entityType,
+      entityId: agent.id,
+      details,
+      success: true,
+    });
+  } catch (error) {
+    console.error("[agents] recordAgentActivity error:", error);
+  }
+}
+
 const createAgentSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional().nullable(),
@@ -123,6 +142,8 @@ agentRoutes.post("/", async (c) => {
       changes: { name: agent.name }, workspaceId: data.domain,
     });
 
+    await recordAgentActivity(agent, "created", "agent", { name: agent.name, permissionTier: agent.permissionTier });
+
     return c.json(agent, 201);
   } catch (error) {
     if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
@@ -218,6 +239,8 @@ agentRoutes.patch("/:id", async (c) => {
       actor: user.name, action: "updated", entityType: "agent", entityId: id,
       changes: { name: updated.name }, workspaceId: existing.domainId,
     });
+
+    await recordAgentActivity(updated, "updated", "agent", { name: updated.name, permissionTier: updated.permissionTier });
 
     return c.json(updated);
   } catch (error) {

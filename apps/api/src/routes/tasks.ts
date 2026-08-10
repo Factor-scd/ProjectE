@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { db, tasks, taskTags, tags as tagsTable, taskDependencies, activityFeed, scheduledJobs } from "@project-e/db";
+import { db, tasks, taskTags, tags as tagsTable, taskDependencies, activityFeed, scheduledJobs, projects, sections } from "@project-e/db";
 import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, sql } from "drizzle-orm";
-import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { enqueueWebhooks } from "../middleware/webhook-queue";
 import { z } from "zod";
@@ -246,12 +246,50 @@ taskRoutes.post("/", async (c) => {
 
     // Cycle detection for parentId (subtask)
     if (data.parentId) {
-      const [parent] = await db.select({ id: tasks.id })
+      const [parent] = await db.select({ id: tasks.id, domainId: tasks.domainId })
         .from(tasks)
         .where(and(eq(tasks.id, data.parentId), isNull(tasks.deletedAt)))
         .limit(1);
       if (!parent) {
         return c.json({ error: { code: "NOT_FOUND", message: "Parent task not found" } }, 404);
+      }
+      if (parent.domainId !== data.domain) {
+        return c.json({ error: { code: "FORBIDDEN", message: "Parent task does not belong to this workspace" } }, 403);
+      }
+    }
+
+    // A task's project/section must belong to the same workspace; otherwise a
+    // task can be linked into another domain's project and leak across workspaces.
+    if (data.projectId) {
+      const [project] = await db.select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.id, data.projectId), isNull(projects.deletedAt)))
+        .limit(1);
+      if (!project) {
+        return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
+      }
+      const [projectDomain] = await db.select({ domainId: projects.domainId }).from(projects).where(eq(projects.id, data.projectId)).limit(1);
+      if (!projectDomain || projectDomain.domainId !== data.domain) {
+        return c.json({ error: { code: "FORBIDDEN", message: "Project does not belong to this workspace" } }, 403);
+      }
+    }
+
+    if (data.sectionId) {
+      const [section] = await db.select({ id: sections.id, projectId: sections.projectId })
+        .from(sections)
+        .where(eq(sections.id, data.sectionId))
+        .limit(1);
+      if (!section) {
+        return c.json({ error: { code: "NOT_FOUND", message: "Section not found" } }, 404);
+      }
+      if (data.projectId && section.projectId !== data.projectId) {
+        return c.json({ error: { code: "VALIDATION_ERROR", message: "Section does not belong to the selected project" } }, 400);
+      }
+      if (section.projectId) {
+        const [sectionProject] = await db.select({ domainId: projects.domainId }).from(projects).where(eq(projects.id, section.projectId)).limit(1);
+        if (!sectionProject || sectionProject.domainId !== data.domain) {
+          return c.json({ error: { code: "FORBIDDEN", message: "Section does not belong to this workspace" } }, 403);
+        }
       }
     }
 
@@ -375,6 +413,9 @@ taskRoutes.get("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [task] = await db.select()
       .from(tasks)
@@ -444,6 +485,9 @@ taskRoutes.patch("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const data = updateTaskSchema.parse(body);
 
@@ -531,6 +575,9 @@ taskRoutes.delete("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [existing] = await db.select()
       .from(tasks)
@@ -576,6 +623,9 @@ taskRoutes.post("/:id/tags", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const { tagId } = z.object({ tagId: z.string().uuid("Invalid tag id") }).parse(body);
 
@@ -627,6 +677,9 @@ taskRoutes.delete("/:id/tags/:tagId", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const tagId = c.req.param("tagId");
 
     const [task] = await db.select({ id: tasks.id, domainId: tasks.domainId })
@@ -666,6 +719,9 @@ taskRoutes.post("/:id/status", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const { status: newStatus } = z.object({
       status: taskStatusEnum,
@@ -722,6 +778,9 @@ taskRoutes.get("/:id/history", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [task] = await db.select({ id: tasks.id, domainId: tasks.domainId })
       .from(tasks)
@@ -759,6 +818,9 @@ taskRoutes.get("/:id/comments", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [task] = await db.select({ id: tasks.id, domainId: tasks.domainId })
       .from(tasks)
@@ -795,6 +857,9 @@ taskRoutes.post("/:id/comments", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const { content } = z.object({
       content: z.string().min(1, "Content is required"),
@@ -839,6 +904,9 @@ taskRoutes.get("/:id/attachments", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [task] = await db.select({ id: tasks.id, domainId: tasks.domainId })
       .from(tasks)

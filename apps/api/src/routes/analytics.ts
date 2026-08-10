@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, tasks, habits, habitCompletions, projects } from "@project-e/db";
 import { and, eq, gte, inArray, isNull, or } from "drizzle-orm";
-import { requireAuth, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
 
 export const analyticsRoutes = new Hono();
 
@@ -16,6 +16,8 @@ analyticsRoutes.get("/productivity", async (c) => {
       const active = await resolveActiveDomain(user);
       domainId = active.id;
     }
+
+    await requireWorkspaceAccess(c, domainId);
 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - range);
@@ -57,6 +59,8 @@ analyticsRoutes.get("/habits", async (c) => {
       const active = await resolveActiveDomain(user);
       domainId = active.id;
     }
+
+    await requireWorkspaceAccess(c, domainId);
 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - range);
@@ -112,6 +116,8 @@ analyticsRoutes.get("/projects", async (c) => {
       const active = await resolveActiveDomain(user);
       domainId = active.id;
     }
+
+    await requireWorkspaceAccess(c, domainId);
 
     const allProjects = await db.select()
       .from(projects)
@@ -177,6 +183,8 @@ analyticsRoutes.get("/daily", async (c) => {
       const active = await resolveActiveDomain(user);
       domainId = active.id;
     }
+
+    await requireWorkspaceAccess(c, domainId);
 
     // Buckets cover the last `range` days ending today, matching the frontend's expectation.
     const firstDay = new Date();

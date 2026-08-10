@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useKeyboardShortcutsStore } from "@/lib/stores/use-keyboard-shortcuts-store";
+import { useCreateDialogStore } from "@/lib/stores/use-create-dialog-store";
 import { install, uninstall } from "@github/hotkey";
 
 export function useKeyboardShortcuts() {
@@ -49,16 +50,18 @@ export function useKeyboardShortcuts() {
       });
     }
 
-    // n+letter new-entity sequences
-    const newMap: Record<string, string> = {
-      "n t": "/tasks",
-      "n h": "/habits",
-      "n p": "/projects",
-      "n n": "/notes",
+    // n+letter new-entity sequences — navigate AND open the create dialog on
+    // the target page (the page's effect consumes the store request).
+    const newMap: Record<string, { path: string; type: "task" | "habit" | "project" | "note" }> = {
+      "n t": { path: "/tasks", type: "task" },
+      "n h": { path: "/habits", type: "habit" },
+      "n p": { path: "/projects", type: "project" },
+      "n n": { path: "/notes", type: "note" },
     };
 
-    for (const [seq, path] of Object.entries(newMap)) {
+    for (const [seq, { path, type }] of Object.entries(newMap)) {
       addHotkey(seq, () => {
+        useCreateDialogStore.getState().openCreate(type);
         navigate({ to: path });
       });
     }
@@ -81,6 +84,14 @@ export function useKeyboardShortcuts() {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         document.dispatchEvent(new CustomEvent("open-command-palette"));
+        return;
+      }
+
+      // Cmd+N / Ctrl+N — new task
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        useCreateDialogStore.getState().openCreate("task");
+        navigate({ to: "/tasks" });
         return;
       }
 

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import type { SearchResult } from "@/lib/types";
 
 const SEARCH_TYPES = [
@@ -54,9 +55,11 @@ function SearchPage() {
     if (inputRef.current) inputRef.current.focus();
   }, []);
 
+  const activeDomainId = useApiDomain();
+
   const { data: searchData, isLoading } = useApiQuery<{ results: SearchResult[]; totalCount: number }>(
-    ["search", debouncedQuery, ...Array.from(selectedTypes)],
-    "/search?q=" + encodeURIComponent(debouncedQuery) + "&types=" + Array.from(selectedTypes).join(",") + "&limit=50"
+    ["search", activeDomainId, debouncedQuery, ...Array.from(selectedTypes)],
+    "/search?q=" + encodeURIComponent(debouncedQuery) + "&types=" + Array.from(selectedTypes).join(",") + "&limit=50" + (activeDomainId ? "&domain=" + activeDomainId : "")
   );
 
   const results = searchData?.results || [];
@@ -166,7 +169,7 @@ function SearchPage() {
                       <div
                         key={result.id + result.type}
                         className="flex items-center justify-between p-3 rounded-lg hover:bg-accent cursor-pointer transition-colors"
-                        onClick={() => navigate({ to: result.link as any })}
+                        onClick={() => navigate({ to: result.type === "domain" ? "/settings" : (result.link as any) })}
                       >
                         <div className="min-w-0 flex-1">
                           <p className="font-medium text-sm truncate">{result.title}</p>

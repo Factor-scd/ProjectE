@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, webhooks } from "@project-e/db";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
+import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { enqueueWebhookDelivery } from "../middleware/webhook-queue";
 import { z } from "zod";
@@ -105,6 +105,9 @@ webhookRoutes.patch("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const data = updateWebhookSchema.parse(body);
 
@@ -142,6 +145,9 @@ webhookRoutes.delete("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const [existing] = await db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1);
     if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Webhook not found" } }, 404);
 
@@ -167,6 +173,9 @@ webhookRoutes.post("/:id/test", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const [webhook] = await db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1);
     if (!webhook) return c.json({ error: { code: "NOT_FOUND", message: "Webhook not found" } }, 404);
 

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db, sql } from "@project-e/db";
-import { requireAuth, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
 
 export const searchRoutes = new Hono();
 
@@ -32,8 +32,13 @@ searchRoutes.get("/", async (c) => {
     }
 
     // Scope all searches to the user's active domain so users can never see
-    // another workspace's data.
-    const userDomain = await resolveActiveDomain(user);
+    // another workspace's data. The frontend passes the selected domain; the
+    // param is validated so a foreign workspace id is rejected.
+    let userDomain = await resolveActiveDomain(user);
+    if (url.searchParams.get("domain")) {
+      await requireWorkspaceAccess(c, url.searchParams.get("domain")!);
+      userDomain = { ...userDomain, id: url.searchParams.get("domain")! };
+    }
     const userDomainId = userDomain.id;
 
     const results: Array<{ id: string; type: string; title: string; snippet: string; score: number; workspaceId: string; link: string }> = [];

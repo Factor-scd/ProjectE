@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Sparkles } from "lucide-react";
+import { useAuthStore } from "@/lib/stores/use-auth-store";
 
 function LoginPage() {
   const navigate = useNavigate();
@@ -30,6 +31,8 @@ function LoginPage() {
         setError(data.error?.message || data.message || "Login failed");
         return;
       }
+      const data = await res.json().catch(() => ({}));
+      if (data?.user) useAuthStore.getState().setUser(data.user);
       navigate({ to: "/" });
     } catch {
       setError("Network error");

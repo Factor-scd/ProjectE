@@ -28,14 +28,15 @@ const shortcutGroups = [
       { keys: "n then h", description: "New habit" },
       { keys: "n then p", description: "New project" },
       { keys: "n then n", description: "New note" },
-      { keys: "c", description: "Focus create in palette" },
+      { keys: "⌘N / Ctrl+N", description: "New task" },
     ],
   },
   {
     heading: "General",
     shortcuts: [
       { keys: "⌘K / Ctrl+K", description: "Open command palette" },
-      { keys: "/", description: "Focus search" },
+      { keys: "/", description: "Open command palette" },
+      { keys: "c", description: "Open command palette" },
       { keys: "?", description: "Show this help" },
       { keys: "Esc", description: "Close dialogs / panels" },
     ],

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, domains as domainsTable } from "@project-e/db";
 import { and, asc, desc, eq, ilike, or, sql } from "drizzle-orm";
-import { requireAuth, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { requireAuth, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 
 export const domainRoutes = new Hono();
 
@@ -131,6 +131,9 @@ domainRoutes.get("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [domain] = await db
       .select()
@@ -157,11 +160,23 @@ domainRoutes.patch("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
+
+    // Whitelist editable fields so a client can never overwrite ownership,
+    // the slug, or sort order via an open-ended body spread.
+    const updateValues: Record<string, unknown> = { updatedAt: new Date() };
+    if (body.name !== undefined && typeof body.name === "string") updateValues.name = body.name;
+    if (body.color !== undefined) updateValues.color = body.color ?? null;
+    if (body.icon !== undefined) updateValues.icon = body.icon ?? null;
+    if (body.parentId !== undefined) updateValues.parentId = body.parentId ?? null;
+    if (body.sortOrder !== undefined && typeof body.sortOrder === "number") updateValues.sortOrder = body.sortOrder;
 
     const [domain] = await db
       .update(domainsTable)
-      .set({ ...body, updatedAt: new Date() })
+      .set(updateValues)
       .where(and(eq(domainsTable.id, id), eq(domainsTable.ownerId, user.id)))
       .returning();
 
@@ -184,6 +199,9 @@ domainRoutes.delete("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [domain] = await db
       .delete(domainsTable)

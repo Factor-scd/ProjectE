@@ -7,6 +7,13 @@ import { z } from "zod";
 export const importExportRoutes = new Hono();
 
 const COLLECTIONS = ['tasks', 'habits', 'projects', 'notes', 'tags', 'agents', 'webhooks'] as const;
+const JUNCTION_COLLECTIONS = ['task_tags', 'habit_tags', 'project_tags', 'note_tags'] as const;
+const JUNCTION_PARENT: Record<string, string> = {
+  task_tags: 'tasks',
+  habit_tags: 'habits',
+  project_tags: 'projects',
+  note_tags: 'notes',
+};
 
 // POST /api/import — Import data from JSON
 importExportRoutes.post("/import", async (c) => {
@@ -31,38 +38,50 @@ importExportRoutes.post("/import", async (c) => {
     let totalImported = 0;
     let totalFailed = 0;
 
-    for (const collection of COLLECTIONS) {
-      const items = body[collection];
-      if (!Array.isArray(items) || items.length === 0) continue;
-
+    const runCollection = async (collection: string, items: any[]) => {
       const result = { collection, imported: 0, failed: 0, errors: [] as string[] };
-
       for (const item of items) {
         try {
-          const { id: _id, created: _created, updated: _updated, ...data } = item;
-          // Map to the right table
+          // Preserve the source id so cross-references (projectId, parentId,
+          // sectionId, junction rows) survive the round-trip. Domain is always
+          // forced to the target workspace.
+          const { id, domain, domainId, workspaceId, created: _created, updated: _updated, ...data } = item;
           switch (collection) {
             case 'tasks':
-              await db.insert(tasks).values({ ...data, domainId: targetDomain });
+              await db.insert(tasks).values({ ...data, id, domainId: targetDomain });
               break;
             case 'habits':
-              await db.insert(habits).values({ ...data, domainId: targetDomain });
+              await db.insert(habits).values({ ...data, id, domainId: targetDomain });
               break;
             case 'projects':
-              await db.insert(projects).values({ ...data, domainId: targetDomain });
+              await db.insert(projects).values({ ...data, id, domainId: targetDomain });
               break;
             case 'notes':
-              await db.insert(notes).values({ ...data, domainId: targetDomain });
+              await db.insert(notes).values({ ...data, id, domainId: targetDomain });
               break;
             case 'tags':
-              await db.insert(tagsTable).values(data);
+              await db.insert(tagsTable).values({ ...data, id });
               break;
             case 'agents':
-              await db.insert(agents).values({ ...data, domainId: targetDomain });
+              await db.insert(agents).values({ ...data, id, domainId: targetDomain });
               break;
             case 'webhooks':
-              await db.insert(webhooks).values({ ...data, workspaceId: targetDomain });
+              await db.insert(webhooks).values({ ...data, id, workspaceId: targetDomain });
               break;
+            case 'task_tags':
+              await db.insert(taskTags).values({ taskId: item.taskId, tagId: item.tagId }).onConflictDoNothing();
+              break;
+            case 'habit_tags':
+              await db.insert(habitTags).values({ habitId: item.habitId, tagId: item.tagId }).onConflictDoNothing();
+              break;
+            case 'project_tags':
+              await db.insert(projectTags).values({ projectId: item.projectId, tagId: item.tagId }).onConflictDoNothing();
+              break;
+            case 'note_tags':
+              await db.insert(noteTags).values({ noteId: item.noteId, tagId: item.tagId }).onConflictDoNothing();
+              break;
+            default:
+              continue;
           }
           result.imported++;
         } catch (error) {
@@ -71,10 +90,21 @@ importExportRoutes.post("/import", async (c) => {
           if (result.errors.length < 5) result.errors.push(message);
         }
       }
-
       results.push(result);
       totalImported += result.imported;
       totalFailed += result.failed;
+    };
+
+    // Entities first (tags too), then junctions so the FK targets exist.
+    for (const collection of COLLECTIONS) {
+      const items = body[collection];
+      if (!Array.isArray(items) || items.length === 0) continue;
+      await runCollection(collection, items);
+    }
+    for (const collection of JUNCTION_COLLECTIONS) {
+      const items = body[collection];
+      if (!Array.isArray(items) || items.length === 0) continue;
+      await runCollection(collection, items);
     }
 
     return c.json({ success: totalFailed === 0, imported: totalImported, failed: totalFailed, results });
@@ -160,6 +190,42 @@ importExportRoutes.post("/export", async (c) => {
       } catch (error) {
         console.error("Failed to export collection " + collection + ":", error);
         exportData[collection] = [];
+      }
+    }
+
+    // Tag assignments ride along with their parent entity collection so an
+    // export → import round-trip preserves all tag links.
+    for (const junction of JUNCTION_COLLECTIONS) {
+      const parent = JUNCTION_PARENT[junction];
+      if (!requestedCollections.includes(parent as typeof COLLECTIONS[number])) continue;
+      try {
+        let items: any[] = [];
+        switch (junction) {
+          case 'task_tags':
+            items = await db.select({ taskId: taskTags.taskId, tagId: taskTags.tagId }).from(taskTags)
+              .innerJoin(tasks, eq(taskTags.taskId, tasks.id))
+              .where(and(eq(tasks.domainId, domainId), isNull(tasks.deletedAt)));
+            break;
+          case 'habit_tags':
+            items = await db.select({ habitId: habitTags.habitId, tagId: habitTags.tagId }).from(habitTags)
+              .innerJoin(habits, eq(habitTags.habitId, habits.id))
+              .where(and(eq(habits.domainId, domainId), isNull(habits.deletedAt)));
+            break;
+          case 'project_tags':
+            items = await db.select({ projectId: projectTags.projectId, tagId: projectTags.tagId }).from(projectTags)
+              .innerJoin(projects, eq(projectTags.projectId, projects.id))
+              .where(and(eq(projects.domainId, domainId), isNull(projects.deletedAt)));
+            break;
+          case 'note_tags':
+            items = await db.select({ noteId: noteTags.noteId, tagId: noteTags.tagId }).from(noteTags)
+              .innerJoin(notes, eq(noteTags.noteId, notes.id))
+              .where(and(eq(notes.domainId, domainId), isNull(notes.deletedAt)));
+            break;
+        }
+        exportData[junction] = items;
+      } catch (error) {
+        console.error("Failed to export collection " + junction + ":", error);
+        exportData[junction] = [];
       }
     }
 

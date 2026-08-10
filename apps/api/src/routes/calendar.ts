@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, calendarEvents } from "@project-e/db";
 import { and, asc, desc, eq, gte, lte, isNull } from "drizzle-orm";
-import { requireAuth, createErrorResponse, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
+import { requireAuth, createErrorResponse, resolveActiveDomain, requireWorkspaceAccess, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { z } from "zod";
 
@@ -52,10 +52,14 @@ calendarRoutes.get("/events", async (c) => {
     if (from) conditions.push(gte(calendarEvents.startTime, new Date(from)));
     if (to) conditions.push(lte(calendarEvents.startTime, new Date(to)));
 
-    const items = await db.select()
+    const limitParam = parseInt(url.searchParams.get("limit") || "", 10);
+    const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(limitParam, 500)) : null;
+
+    const query = db.select()
       .from(calendarEvents)
       .where(and(...conditions))
       .orderBy(asc(calendarEvents.startTime));
+    const items = limit !== null ? await query.limit(limit) : await query;
 
     return c.json({ items, totalItems: items.length });
   } catch (error) {
@@ -120,6 +124,9 @@ calendarRoutes.patch("/events/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const data = updateEventSchema.parse(body);
 
@@ -179,6 +186,9 @@ calendarRoutes.delete("/events/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [existing] = await db.select()
       .from(calendarEvents)

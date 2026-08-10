@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, projects, tasks, sections, projectTags, tags as tagsTable, activityFeed } from "@project-e/db";
 import { and, asc, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
-import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { enqueueWebhooks } from "../middleware/webhook-queue";
 import { z } from "zod";
@@ -239,6 +239,9 @@ projectRoutes.get("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [project] = await db.select()
       .from(projects)
@@ -300,6 +303,9 @@ projectRoutes.patch("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const data = updateProjectSchema.parse(body);
 
@@ -357,6 +363,9 @@ projectRoutes.delete("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [existing] = await db.select()
       .from(projects)
@@ -651,6 +660,9 @@ projectRoutes.get("/:id/members", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [project] = await db.select({ id: projects.id, domainId: projects.domainId })
       .from(projects)
@@ -687,6 +699,9 @@ projectRoutes.post("/:id/members", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const { userId, role } = z.object({
       userId: z.string().uuid(),
@@ -731,6 +746,9 @@ projectRoutes.delete("/:id/members/:uid", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const userId = c.req.param("uid");
 
     const [project] = await db.select({ id: projects.id, name: projects.name, domainId: projects.domainId })

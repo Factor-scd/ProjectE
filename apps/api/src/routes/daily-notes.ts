@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, dailyNotes } from "@project-e/db";
 import { and, desc, eq } from "drizzle-orm";
-import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
+import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { z } from "zod";
 
@@ -101,6 +101,9 @@ dailyNoteRoutes.patch("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const data = updateDailyNoteSchema.parse(body);
 
@@ -137,6 +140,9 @@ dailyNoteRoutes.delete("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [existing] = await db.select().from(dailyNotes).where(eq(dailyNotes.id, id)).limit(1);
     if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Daily note not found" } }, 404);

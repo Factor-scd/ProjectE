@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useLocation } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   ListTodo,
@@ -28,6 +28,8 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { useThemeStore, type AccentColor, ACCENT_PALETTE } from "@/lib/stores/use-theme-store";
+import { useCreateDialogStore } from "@/lib/stores/use-create-dialog-store";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 
 interface NavItem {
   label: string;
@@ -70,7 +72,9 @@ function addRecentPage(href: string) {
 
 export function CommandPalette() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { mode, setMode, accent, setAccent } = useThemeStore();
+  const activeDomainId = useApiDomain();
   const [open, setOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<
     Array<{ type: string; items: Array<{ id: string; title: string; link?: string }> }>
@@ -94,36 +98,50 @@ export function CommandPalette() {
 
   // Track page navigation for recent items
   useEffect(() => {
-    const path = window.location.pathname;
-    if (path !== "/login") addRecentPage(path);
-  }, []);
+    if (location.pathname !== "/login") addRecentPage(location.pathname);
+  }, [location.pathname]);
 
   // Quick actions
   const quickActions: QuickAction[] = [
     {
       label: "New task",
       icon: ListTodo,
-      action: () => navigate({ to: "/tasks" }),
+      action: () => {
+        useCreateDialogStore.getState().openCreate("task");
+        navigate({ to: "/tasks" });
+      },
     },
     {
       label: "New habit",
       icon: Flame,
-      action: () => navigate({ to: "/habits" }),
+      action: () => {
+        useCreateDialogStore.getState().openCreate("habit");
+        navigate({ to: "/habits" });
+      },
     },
     {
       label: "New project",
       icon: FolderKanban,
-      action: () => navigate({ to: "/projects" }),
+      action: () => {
+        useCreateDialogStore.getState().openCreate("project");
+        navigate({ to: "/projects" });
+      },
     },
     {
       label: "New note",
       icon: NotebookPen,
-      action: () => navigate({ to: "/notes" }),
+      action: () => {
+        useCreateDialogStore.getState().openCreate("note");
+        navigate({ to: "/notes" });
+      },
     },
     {
       label: "New event",
       icon: CalendarDays,
-      action: () => navigate({ to: "/calendar" }),
+      action: () => {
+        useCreateDialogStore.getState().openCreate("event");
+        navigate({ to: "/calendar" });
+      },
     },
   ];
 
@@ -172,7 +190,7 @@ export function CommandPalette() {
       const mentionQuery = query.slice(1).trim();
       if (mentionQuery) {
         try {
-          const res = await fetch(`/api/agents?q=${encodeURIComponent(mentionQuery)}`);
+          const res = await fetch(`/api/agents?q=${encodeURIComponent(mentionQuery)}` + (activeDomainId ? "&domain=" + activeDomainId : ""));
           if (res.ok) {
             const data = await res.json();
             setSearchResults([
@@ -195,16 +213,24 @@ export function CommandPalette() {
     // Debounced API search
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=5`);
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=5` + (activeDomainId ? "&domain=" + activeDomainId : ""));
         if (res.ok) {
           const data = await res.json();
-          setSearchResults(data.results || []);
+          // The API returns a flat list of SearchResult objects; group them by
+          // entity type for the grouped render below.
+          const flat: Array<{ type: string; id: string; title: string; link?: string }> = data.results || [];
+          const grouped: Record<string, Array<{ id: string; title: string; link?: string }>> = {};
+          for (const r of flat) {
+            const key = r.type.charAt(0).toUpperCase() + r.type.slice(1) + "s";
+            (grouped[key] = grouped[key] || []).push({ id: r.id, title: r.title, link: r.link });
+          }
+          setSearchResults(Object.entries(grouped).map(([type, items]) => ({ type, items })));
         }
       } catch {
         // Ignore search errors
       }
     }, 300);
-  }, []);
+  }, [activeDomainId]);
 
   const runCommand = useCallback(
     (command: () => void) => {
@@ -320,7 +346,7 @@ export function CommandPalette() {
                         runCommand(() => {});
                         return;
                       }
-                      const link = group.type === "domain" ? "/" : item.link!;
+                      const link = group.type === "Domains" ? "/" : item.link!;
                       runCommand(() => navigate({ to: link }));
                     }}
                   >

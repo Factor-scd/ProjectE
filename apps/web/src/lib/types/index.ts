@@ -104,8 +104,9 @@ export interface Note {
 }
 
 export interface Backlink {
-  noteId: string;
-  noteTitle: string;
+  id: string;
+  title: string;
+  excerpt?: string;
 }
 
 export interface OutgoingLink {
@@ -246,9 +247,10 @@ export interface WebhookDelivery {
 export interface ErrorLog {
   id: string;
   level: string;
+  source: string;
   message: string;
-  stack: string | null;
-  context: Record<string, unknown> | null;
+  stackTrace: string | null;
+  metadata: Record<string, unknown> | null;
   createdAt: string;
 }
 
@@ -291,6 +293,8 @@ export interface AgentActivity {
   entityType: string;
   entityId: string;
   metadata: Record<string, unknown> | null;
+  details?: Record<string, unknown> | null;
+  errorMessage?: string | null;
   createdAt: string;
 }
 

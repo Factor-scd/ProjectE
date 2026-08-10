@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, customFields } from "@project-e/db";
 import { and, asc, eq } from "drizzle-orm";
-import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
+import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { z } from "zod";
 
@@ -99,6 +99,9 @@ customFieldRoutes.patch("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const data = updateFieldSchema.parse(body);
 
@@ -137,6 +140,9 @@ customFieldRoutes.delete("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const [existing] = await db.select().from(customFields).where(eq(customFields.id, id)).limit(1);
     if (!existing) return c.json({ error: { code: "NOT_FOUND", message: "Custom field not found" } }, 404);
 

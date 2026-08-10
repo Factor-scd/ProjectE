@@ -4,6 +4,7 @@ import { Route as appRoute } from "../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
 import { useRealtime } from "@/hooks/use-realtime";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { Plus, Settings2, Trash2, ListTodo, Flame, FileText, FolderKanban, Calendar, Zap, TrendingUp, Target } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -31,7 +32,9 @@ const WIDGET_TYPES = [
 ] as const;
 
 function TasksDueWidget() {
-  const { data } = useApiQuery<PaginatedResponse<Task>>(["tasks-due"], "/tasks?limit=10&status=todo,in_progress&sort=due_date");
+  const activeDomainId = useApiDomain();
+  const domainSuffix = activeDomainId ? "&domain=" + activeDomainId : "";
+  const { data } = useApiQuery<PaginatedResponse<Task>>(["tasks-due", activeDomainId], "/tasks?limit=10&status=todo,in_progress&sort=due_date" + domainSuffix);
   const tasks = data?.items || [];
   const today = tasks.filter((t) => t.dueDate && isToday(parseISO(t.dueDate)));
   const overdue = tasks.filter((t) => t.dueDate && isPast(parseISO(t.dueDate)) && t.status !== "done");
@@ -70,7 +73,9 @@ function TasksDueWidget() {
 }
 
 function HabitsTodayWidget() {
-  const { data } = useApiQuery<PaginatedResponse<Habit>>(["habits-today"], "/habits?limit=20");
+  const activeDomainId = useApiDomain();
+  const domainSuffix = activeDomainId ? "&domain=" + activeDomainId : "";
+  const { data } = useApiQuery<PaginatedResponse<Habit>>(["habits-today", activeDomainId], "/habits?limit=20" + domainSuffix);
   const habits = data?.items || [];
   const queryClient = useQueryClient();
   const completeMutation = useMutation({
@@ -87,30 +92,39 @@ function HabitsTodayWidget() {
       {habits.length === 0 ? (
         <p className="text-sm text-muted-foreground">No habits yet</p>
       ) : (
-        habits.slice(0, 6).map((h) => (
-          <div key={h.id} className="flex items-center gap-2 py-1">
-            <button
-              onClick={() => completeMutation.mutate(h.id)}
-              className={cn("w-4 h-4 rounded border shrink-0 flex items-center justify-center", h.streakCount > 0 ? "bg-green-500 border-green-500" : "border-muted-foreground/30 hover:border-primary")}
-              aria-label={"Complete " + h.name}
-            >
-              {h.streakCount > 0 && <span className="text-[10px] text-white">\u2713</span>}
-            </button>
-            <span className="text-sm truncate flex-1">{h.name}</span>
-            {h.streakCount > 0 && (
-              <Badge variant="secondary" className="text-[10px] shrink-0">
-                <Flame className="h-2.5 w-2.5 mr-0.5" />{h.streakCount}
-              </Badge>
-            )}
-          </div>
-        ))
+        habits.slice(0, 6).map((h) => {
+          const doneToday = (h.recentCompletions || []).some((c) => {
+            const d = new Date(c.date);
+            const today = new Date();
+            return d.getUTCFullYear() === today.getUTCFullYear() && d.getUTCMonth() === today.getUTCMonth() && d.getUTCDate() === today.getUTCDate();
+          });
+          return (
+            <div key={h.id} className="flex items-center gap-2 py-1">
+              <button
+                onClick={() => completeMutation.mutate(h.id)}
+                className={cn("w-4 h-4 rounded border shrink-0 flex items-center justify-center", doneToday ? "bg-green-500 border-green-500" : "border-muted-foreground/30 hover:border-primary")}
+                aria-label={doneToday ? h.name + " (completed)" : "Complete " + h.name}
+              >
+                {doneToday && <span className="text-[10px] text-white">\u2713</span>}
+              </button>
+              <span className="text-sm truncate flex-1">{h.name}</span>
+              {h.streakCount > 0 && (
+                <Badge variant="secondary" className="text-[10px] shrink-0">
+                  <Flame className="h-2.5 w-2.5 mr-0.5" />{h.streakCount}
+                </Badge>
+              )}
+            </div>
+          );
+        })
       )}
     </div>
   );
 }
 
 function RecentNotesWidget() {
-  const { data } = useApiQuery<PaginatedResponse<Note>>(["recent-notes"], "/notes?limit=5&sort=-updated");
+  const activeDomainId = useApiDomain();
+  const domainSuffix = activeDomainId ? "&domain=" + activeDomainId : "";
+  const { data } = useApiQuery<PaginatedResponse<Note>>(["recent-notes", activeDomainId], "/notes?limit=5&sort=-updated" + domainSuffix);
   const notes = data?.items || [];
   return (
     <div className="space-y-2">
@@ -129,7 +143,9 @@ function RecentNotesWidget() {
 }
 
 function ActiveProjectsWidget() {
-  const { data } = useApiQuery<PaginatedResponse<Project>>(["active-projects"], "/projects?limit=10&status=active");
+  const activeDomainId = useApiDomain();
+  const domainSuffix = activeDomainId ? "&domain=" + activeDomainId : "";
+  const { data } = useApiQuery<PaginatedResponse<Project>>(["active-projects", activeDomainId], "/projects?limit=10&status=active" + domainSuffix);
   const projects = data?.items || [];
   return (
     <div className="space-y-3">
@@ -151,7 +167,9 @@ function ActiveProjectsWidget() {
 }
 
 function UpcomingEventsWidget() {
-  const { data } = useApiQuery<PaginatedResponse<CalendarEvent>>(["upcoming-events"], "/calendar/events?limit=20");
+  const activeDomainId = useApiDomain();
+  const domainSuffix = activeDomainId ? "&domain=" + activeDomainId : "";
+  const { data } = useApiQuery<PaginatedResponse<CalendarEvent>>(["upcoming-events", activeDomainId], "/calendar/events?limit=20" + domainSuffix);
   const events = data?.items || [];
   const now = new Date();
   const weekFromNow = addDays(now, 7);
@@ -177,7 +195,9 @@ function UpcomingEventsWidget() {
 }
 
 function StreakCounterWidget() {
-  const { data } = useApiQuery<PaginatedResponse<Habit>>(["streaks"], "/habits?limit=50");
+  const activeDomainId = useApiDomain();
+  const domainSuffix = activeDomainId ? "&domain=" + activeDomainId : "";
+  const { data } = useApiQuery<PaginatedResponse<Habit>>(["streaks", activeDomainId], "/habits?limit=50" + domainSuffix);
   const habits = data?.items || [];
   const bestStreak = Math.max(...habits.map((h) => h.streakCount || 0), 0);
   const totalActive = habits.filter((h) => h.streakCount > 0).length;
@@ -199,10 +219,11 @@ function StreakCounterWidget() {
 
 function QuickCaptureWidget() {
   const queryClient = useQueryClient();
+  const activeDomainId = useApiDomain();
   const [text, setText] = useState("");
   const [type, setType] = useState<"task" | "note">("task");
   const createTask = useMutation({
-    mutationFn: (title: string) => api.post<Task>("/tasks", { title, status: "todo", priority: "medium" }),
+    mutationFn: (title: string) => api.post<Task>("/tasks", { title, status: "todo", priority: "medium", ...(activeDomainId ? { domain: activeDomainId } : {}) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks-due"] });
       setText("");
@@ -211,7 +232,7 @@ function QuickCaptureWidget() {
     onError: (err) => toast.error(err.message || "Failed to create task"),
   });
   const createNote = useMutation({
-    mutationFn: (title: string) => api.post<Note>("/notes", { title, content: "" }),
+    mutationFn: (title: string) => api.post<Note>("/notes", { title, content: "", ...(activeDomainId ? { domain: activeDomainId } : {}) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["recent-notes"] });
       setText("");
@@ -244,7 +265,9 @@ function QuickCaptureWidget() {
 }
 
 function ProductivityChartWidget() {
-  const { data } = useApiQuery<any>(["productivity-chart"], "/analytics/productivity?range=30");
+  const activeDomainId = useApiDomain();
+  const domainSuffix = activeDomainId ? "&domain=" + activeDomainId : "";
+  const { data } = useApiQuery<any>(["productivity-chart", activeDomainId], "/analytics/productivity?range=30" + domainSuffix);
   const stats = data;
   if (!stats) return <p className="text-sm text-muted-foreground">Loading...</p>;
   return (
@@ -269,7 +292,9 @@ function ProductivityChartWidget() {
 }
 
 function StatsWidget() {
-  const { data } = useApiQuery<any>(["stats"], "/analytics/productivity?range=30");
+  const activeDomainId = useApiDomain();
+  const domainSuffix = activeDomainId ? "&domain=" + activeDomainId : "";
+  const { data } = useApiQuery<any>(["stats", activeDomainId], "/analytics/productivity?range=30" + domainSuffix);
   const stats = data;
   if (!stats) return <p className="text-sm text-muted-foreground">Loading...</p>;
   return (
@@ -379,7 +404,6 @@ function ConfigureWidgetDialog({ widget, open, onOpenChange, onSave }: { widget:
                   <SelectItem value="2">2 columns</SelectItem>
                   <SelectItem value="3">3 columns</SelectItem>
                   <SelectItem value="4">4 columns</SelectItem>
-                  <SelectItem value="6">6 columns</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -459,7 +483,13 @@ function DashboardPage() {
       ) : widgets.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-muted-foreground mb-4">Your dashboard is empty. Add some widgets to get started!</p>
-          <Button onClick={() => handleAddWidget("tasks_due")}><Plus className="h-4 w-4 mr-2" />Add Default Widgets</Button>
+          <Button onClick={() => {
+            const defaults = ["tasks_due", "habits_today", "recent_notes", "active_projects", "upcoming_events", "streak_counter", "quick_capture", "productivity_chart"];
+            defaults.forEach((type, i) => {
+              const typeInfo = WIDGET_TYPES.find((t) => t.id === type);
+              createMutation.mutate({ type, title: typeInfo?.label || type, layout: { x: 0, y: i, w: typeInfo?.defaultW || 2, h: typeInfo?.defaultH || 2 } });
+            });
+          }}><Plus className="h-4 w-4 mr-2" />Add Default Widgets</Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 auto-rows-[minmax(120px,auto)] sm:grid-cols-2 lg:grid-cols-4">

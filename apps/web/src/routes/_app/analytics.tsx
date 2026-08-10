@@ -3,6 +3,7 @@ import { createRoute } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useApiQuery } from "@/lib/api";
 import { useApiDomain } from "@/lib/stores/use-active-domain-store";
+import { useRealtime } from "@/hooks/use-realtime";
 import { Download, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadingState, ErrorState } from "@/components/state";
@@ -139,6 +140,8 @@ function AnalyticsPage() {
   const [range, setRange] = useState("30");
   const activeDomainId = useApiDomain();
   const domainSuffix = activeDomainId ? "&domain=" + activeDomainId : "";
+
+  useRealtime({ enabled: true });
 
   const { data: habitData, isLoading: habitsLoading, error: habitsError, refetch: refetchHabits } = useApiQuery<HabitAnalytics>(["analytics-habits", activeDomainId, range], "/analytics/habits?range=" + range + domainSuffix);
   const { data: projectData, isLoading: projectsLoading, error: projectsError, refetch: refetchProjects } = useApiQuery<ProjectAnalytics>(["analytics-projects", activeDomainId, range], "/analytics/projects?range=" + range + domainSuffix);

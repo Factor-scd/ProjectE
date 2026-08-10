@@ -5,6 +5,7 @@ import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
 import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
+import { useOpenCreateDialog } from "@/hooks/use-open-create-dialog";
 import { Plus, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -95,6 +96,7 @@ function CustomToolbar({ date, onNavigate, label }: any) {
 
 function EventForm({ event, onClose }: { event?: CalendarEvent; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const activeDomainId = useApiDomain();
   const [title, setTitle] = useState(event?.title || "");
   const [startTime, setStartTime] = useState(event?.startTime ? event.startTime.slice(0, 16) : "");
   const [endTime, setEndTime] = useState(event?.endTime ? event.endTime.slice(0, 16) : "");
@@ -126,7 +128,7 @@ function EventForm({ event, onClose }: { event?: CalendarEvent; onClose: () => v
     if (startTime) data.startTime = new Date(startTime).toISOString();
     if (endTime) data.endTime = new Date(endTime).toISOString();
     if (event) updateMutation.mutate(data);
-    else createMutation.mutate(data);
+    else createMutation.mutate({ ...data, ...(activeDomainId ? { domain: activeDomainId } : {}) });
   };
 
   return (
@@ -142,7 +144,7 @@ function EventForm({ event, onClose }: { event?: CalendarEvent; onClose: () => v
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="start">Start</Label>
-          <Input id="start" type={allDay ? "date" : "datetime-local"} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+          <Input id="start" type={allDay ? "date" : "datetime-local"} value={startTime} onChange={(e) => setStartTime(e.target.value)} required />
         </div>
         <div>
           <Label htmlFor="end">End</Label>
@@ -172,6 +174,8 @@ function CalendarPage() {
 
   useRealtime({ enabled: true });
 
+  useOpenCreateDialog("event", () => setCreateOpen(true));
+
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
     check();
@@ -183,7 +187,7 @@ function CalendarPage() {
   const activeDomainId = useApiDomain();
 
   const { data: eventsData, isLoading: eventsLoading } = useApiQuery<{ items: CalendarEvent[]; totalItems: number }>(
-    ["calendar-events", activeDomainId, date.toISOString()],
+    ["calendar-events", activeDomainId],
     `/calendar/events?from=${new Date(0).toISOString()}&to=${new Date("2100-01-01").toISOString()}` + (activeDomainId ? "&domain=" + activeDomainId : "")
   );
 

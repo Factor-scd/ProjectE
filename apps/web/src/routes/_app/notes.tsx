@@ -5,13 +5,16 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery } from "@/lib/api";
 import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
+import { useOpenCreateDialog } from "@/hooks/use-open-create-dialog";
 import { Plus, Trash2, Search, Pin, FileText, Link as LinkIcon, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { Note, PaginatedResponse } from "@/lib/types";
+import { format, parseISO } from "date-fns";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
@@ -135,9 +138,10 @@ const NoteTitleInput = memo(function NoteTitleInput({ noteId, initialTitle }: { 
 });
 
 // Memoized right pane - only re-renders when note changes, not on parent re-renders
-const NoteEditorPane = memo(function NoteEditorPane({ note, onDelete }: { note: Note; onDelete: (id: string) => void }) {
+const NoteEditorPane = memo(function NoteEditorPane({ note, onDelete, onOpenNote }: { note: Note; onDelete: (id: string) => void; onOpenNote: (note: Note) => void }) {
   const [showBacklinks, setShowBacklinks] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
+  const [versions, setVersions] = useState<{ id: string; createdAt: string; action?: string; changes?: Record<string, unknown> | null }[]>([]);
   const queryClient = useQueryClient();
 
   const updateMutation = useMutation({
@@ -157,7 +161,7 @@ const NoteEditorPane = memo(function NoteEditorPane({ note, onDelete }: { note: 
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowBacklinks(!showBacklinks)} aria-label="Backlinks">
             <LinkIcon className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowVersions(!showVersions)} aria-label="Version history">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setShowVersions(!showVersions); if (!showVersions) { api.get<{ items: { id: string; createdAt: string; action?: string; changes?: Record<string, unknown> | null }[] }>("/notes/" + note.id + "/versions").then((data) => setVersions(data.items || [])).catch(() => setVersions([])); } }} aria-label="Version history">
             <History className="h-4 w-4" />
           </Button>
           <AlertDialog>
@@ -188,8 +192,12 @@ const NoteEditorPane = memo(function NoteEditorPane({ note, onDelete }: { note: 
           <h4 className="text-sm font-semibold mb-2">Linked from</h4>
           <div className="space-y-1">
             {note.backlinks.map((bl) => (
-              <div key={bl.noteId} className="text-sm text-muted-foreground hover:text-foreground cursor-pointer">
-                {bl.noteTitle}
+              <div
+                key={bl.id}
+                className="text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+                onClick={() => { const linked: Note = { ...note, id: bl.id, title: bl.title }; onOpenNote(linked); }}
+              >
+                {bl.title}
               </div>
             ))}
           </div>
@@ -199,7 +207,18 @@ const NoteEditorPane = memo(function NoteEditorPane({ note, onDelete }: { note: 
       {showVersions && (
         <div className="border-t p-3">
           <h4 className="text-sm font-semibold mb-2">Version History</h4>
-          <p className="text-xs text-muted-foreground">Version history available via API.</p>
+          {versions.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No versions yet.</p>
+          ) : (
+            <div className="space-y-1">
+              {versions.map((v) => (
+                <div key={v.id} className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{format(parseISO(v.createdAt), "MMM d, yyyy HH:mm")}</span>
+                  {v.action && <Badge variant="secondary" className="text-[10px] capitalize">{v.action}</Badge>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </>
@@ -214,17 +233,39 @@ function NotesPage() {
 
   useRealtime({ enabled: true });
 
+  useOpenCreateDialog("note", () => createMutation.mutate());
+
   const activeDomainId = useApiDomain();
+
+  const notesQueryUrl = () =>
+    "/notes?limit=200" + (activeDomainId ? "&domain=" + activeDomainId : "") + (search ? "&search=" + encodeURIComponent(search) : "");
 
   const { data: notesData, isLoading } = useApiQuery<PaginatedResponse<Note>>(
     ["notes", activeDomainId, search],
-    "/notes?limit=200" + (activeDomainId ? "&domain=" + activeDomainId : "") + (search ? "&search=" + encodeURIComponent(search) : "")
+    notesQueryUrl()
   );
 
   const notes = notesData?.items || [];
+  const hasMoreNotes = notes.length < (notesData?.totalItems || 0);
+  const [loadingMoreNotes, setLoadingMoreNotes] = useState(false);
+
+  const loadMoreNotes = async () => {
+    if (!hasMoreNotes || loadingMoreNotes) return;
+    setLoadingMoreNotes(true);
+    try {
+      const next = await api.get<PaginatedResponse<Note>>(notesQueryUrl() + "&offset=" + notes.length);
+      queryClient.setQueryData<PaginatedResponse<Note>>(["notes", activeDomainId, search], (old) => {
+        if (!old) return old;
+        const seen = new Set(old.items.map((n) => n.id));
+        return { ...old, items: [...old.items, ...next.items.filter((n) => !seen.has(n.id))] };
+      });
+    } finally {
+      setLoadingMoreNotes(false);
+    }
+  };
 
   const createMutation = useMutation({
-    mutationFn: () => api.post<Note>("/notes", { title: "Untitled", content: "" }),
+    mutationFn: () => api.post<Note>("/notes", { title: "Untitled", content: "", ...(activeDomainId ? { domain: activeDomainId } : {}) }),
     onSuccess: (note) => {
       queryClient.invalidateQueries({ queryKey: ["notes"] });
       selectedNoteRef.current = note;
@@ -264,7 +305,7 @@ function NotesPage() {
         <div className="p-3 border-b">
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" tabIndex={-1} onMouseDown={(e) => e.preventDefault()} />
+            <Input placeholder="Search notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" aria-label="Search notes" />
           </div>
         </div>
         <div className="p-2">
@@ -299,13 +340,20 @@ function NotesPage() {
               ))}
             </div>
           )}
+          {hasMoreNotes && (
+            <div className="p-2">
+              <Button variant="outline" size="sm" className="w-full" onClick={loadMoreNotes} disabled={loadingMoreNotes}>
+                {loadingMoreNotes ? "Loading..." : "Load more notes"}
+              </Button>
+            </div>
+          )}
         </ScrollArea>
       </div>
 
       {/* Right pane - editor (memoized, won't re-render on parent state changes) */}
       <div className="flex-1 flex flex-col min-h-64 md:min-h-0">
         {selectedNote ? (
-          <NoteEditorPane key={selectedNote.id} note={selectedNote} onDelete={handleDeleteNote} />
+          <NoteEditorPane key={selectedNote.id} note={selectedNote} onDelete={handleDeleteNote} onOpenNote={selectNote} />
         ) : (
           <div className="flex items-center justify-center flex-1 text-muted-foreground">
             <div className="text-center">

@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import type { DailyNote } from "@/lib/types";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isToday, addMonths, subMonths } from "date-fns";
 
@@ -26,7 +27,8 @@ function CalendarSidebar({ selectedDate, onSelectDate }: { selectedDate: Date; o
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   // Check which dates have notes
-  const { data } = useApiQuery<{ items: DailyNote[]; totalItems: number }>(["daily-notes-list"], "/daily-notes");
+  const activeDomainId = useApiDomain();
+  const { data } = useApiQuery<{ items: DailyNote[]; totalItems: number }>(["daily-notes-list", activeDomainId], "/daily-notes" + (activeDomainId ? "?domain=" + activeDomainId : ""));
   const notes = data?.items || [];
   // The API stores daily notes at UTC midnight (YYYY-MM-DDT00:00:00.000Z).
   // Slicing off the time portion yields the calendar date the note belongs to
@@ -88,6 +90,8 @@ function CalendarSidebar({ selectedDate, onSelectDate }: { selectedDate: Date; o
 
 function DailyNoteEditor({ date }: { date: Date }) {
   const queryClient = useQueryClient();
+  const activeDomainId = useApiDomain();
+  const domainSuffix = activeDomainId ? "&domain=" + activeDomainId : "";
   const dateStr = format(date, "yyyy-MM-dd");
   const [content, setContent] = useState("");
   const [mood, setMood] = useState<number | null>(null);
@@ -106,8 +110,8 @@ function DailyNoteEditor({ date }: { date: Date }) {
   noteIdRef.current = noteId;
 
   const { data: note, isLoading } = useApiQuery<DailyNote | null>(
-    ["daily-note", dateStr],
-    "/daily-notes?date=" + dateStr
+    ["daily-note", dateStr, activeDomainId],
+    "/daily-notes?date=" + dateStr + domainSuffix
   );
 
   useEffect(() => {
@@ -174,10 +178,10 @@ function DailyNoteEditor({ date }: { date: Date }) {
       if (id) {
         updateMutation.mutate({ id, data: { content: newContent, mood: newMood, energy: newEnergy } });
       } else if (newContent.trim()) {
-        createMutation.mutate({ date: dateStr, content: newContent, mood: newMood, energy: newEnergy });
+        createMutation.mutate({ date: dateStr, content: newContent, mood: newMood, energy: newEnergy, ...(activeDomainId ? { domain: activeDomainId } : {}) });
       }
     }, 1500);
-  }, [dateStr, updateMutation, createMutation]);
+  }, [dateStr, activeDomainId, updateMutation, createMutation]);
 
   const handleContentChange = (value: string) => {
     setContent(value);
@@ -191,7 +195,7 @@ function DailyNoteEditor({ date }: { date: Date }) {
     } else if (isNew && !createMutation.isPending) {
       // No note exists for this day yet — create it so the mood is recorded
       // even before any content is typed.
-      createMutation.mutate({ date: dateStr, content: content, mood: value, energy: energy });
+      createMutation.mutate({ date: dateStr, content: content, mood: value, energy: energy, ...(activeDomainId ? { domain: activeDomainId } : {}) });
     }
   };
 
@@ -202,7 +206,7 @@ function DailyNoteEditor({ date }: { date: Date }) {
     } else if (isNew && !createMutation.isPending) {
       // No note exists for this day yet — create it so the energy is recorded
       // even before any content is typed.
-      createMutation.mutate({ date: dateStr, content: content, mood: mood, energy: value });
+      createMutation.mutate({ date: dateStr, content: content, mood: mood, energy: value, ...(activeDomainId ? { domain: activeDomainId } : {}) });
     }
   };
 

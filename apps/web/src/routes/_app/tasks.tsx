@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
 import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
+import { useOpenCreateDialog } from "@/hooks/use-open-create-dialog";
 import { DndContext, DragOverlay, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, useDroppable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -100,6 +101,7 @@ function ColumnDroppable({ id, className, children }: { id: string; className?: 
 
 function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const activeDomainId = useApiDomain();
   const [title, setTitle] = useState(task?.title || "");
   const [description, setDescription] = useState(task?.description || "");
   const [status, setStatus] = useState(task?.status || "todo");
@@ -133,7 +135,7 @@ function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
     if (task) {
       updateMutation.mutate(data);
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate({ ...data, ...(activeDomainId ? { domain: activeDomainId } : {}) });
     }
   };
 
@@ -201,14 +203,43 @@ function TasksPage() {
 
   useRealtime({ enabled: true });
 
+  useOpenCreateDialog("task", () => setCreateOpen(true));
+
   const activeDomainId = useApiDomain();
+
+  const taskQueryParams = () =>
+    new URLSearchParams({
+      limit: "200",
+      ...(activeDomainId ? { domain: activeDomainId } : {}),
+      ...(search ? { search } : {}),
+      ...(statusFilter && statusFilter !== "all" ? { status: statusFilter } : {}),
+    }).toString();
 
   const { data: tasksData, isLoading, isError, refetch } = useApiQuery<PaginatedResponse<Task>>(
     ["tasks", activeDomainId, search, statusFilter],
-    "/tasks?" + new URLSearchParams({ limit: "200", ...(activeDomainId ? { domain: activeDomainId } : {}), ...(search ? { search } : {}), ...(statusFilter ? { status: statusFilter } : {}) }).toString()
+    "/tasks?" + taskQueryParams()
   );
 
   const tasks = tasksData?.items || [];
+  const hasMoreTasks = tasks.length < (tasksData?.totalItems || 0);
+  const [loadingMoreTasks, setLoadingMoreTasks] = useState(false);
+
+  const loadMoreTasks = async () => {
+    if (!hasMoreTasks || loadingMoreTasks) return;
+    setLoadingMoreTasks(true);
+    try {
+      const next = await api.get<PaginatedResponse<Task>>(
+        "/tasks?" + new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(taskQueryParams())), offset: String(tasks.length) }).toString()
+      );
+      queryClient.setQueryData<PaginatedResponse<Task>>(["tasks", activeDomainId, search, statusFilter], (old) => {
+        if (!old) return old;
+        const seen = new Set(old.items.map((t) => t.id));
+        return { ...old, items: [...old.items, ...next.items.filter((t) => !seen.has(t.id))] };
+      });
+    } finally {
+      setLoadingMoreTasks(false);
+    }
+  };
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
@@ -375,7 +406,7 @@ function TasksPage() {
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-36"><SelectValue placeholder="All statuses" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value=" ">All statuses</SelectItem>
+            <SelectItem value="all">All statuses</SelectItem>
             {STATUS_COLUMNS.map((c) => (
               <SelectItem key={c.id} value={c.id}>{c.label}</SelectItem>
             ))}
@@ -463,6 +494,14 @@ function TasksPage() {
               ))}
             </TableBody>
           </Table>
+        </div>
+      )}
+
+      {hasMoreTasks && (
+        <div className="flex justify-center pt-2">
+          <Button variant="outline" size="sm" onClick={loadMoreTasks} disabled={loadingMoreTasks}>
+            {loadingMoreTasks ? "Loading..." : "Load more tasks"}
+          </Button>
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { db, errorLogs } from "@project-e/db";
 import { authMiddleware } from "./middleware/auth";
 import { authRoutes } from "./routes/auth";
 import { mcpRoutes } from "./routes/mcp";
@@ -62,6 +63,25 @@ app.route("/api/notifications", notificationRoutes);
 app.route("/api", importExportRoutes);
 app.route("/api", realtimeRoutes);
 app.route("/api/mcp", mcpRoutes);
+
+// Persist uncaught server errors so the Settings → Error Log tab shows real
+// diagnostics instead of always being empty. Errors already caught by route
+// handlers (which return 500 JSON themselves) still log to the console.
+app.onError((err, c) => {
+  console.error("[api] uncaught error:", err);
+  try {
+    void db.insert(errorLogs).values({
+      level: "error",
+      source: c.req.path,
+      message: err instanceof Error ? err.message : String(err),
+      stackTrace: err instanceof Error ? err.stack ?? null : null,
+      metadata: { method: c.req.method },
+    });
+  } catch {
+    // Logging must never break the error response.
+  }
+  return c.json({ error: { code: "INTERNAL_ERROR", message: "Internal server error" } }, 500);
+});
 
 const port = parseInt(process.env.PORT || "3001", 10);
 

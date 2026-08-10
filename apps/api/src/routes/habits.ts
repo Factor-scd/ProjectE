@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, habits, habitCompletions, habitTags, tags as tagsTable } from "@project-e/db";
-import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, lte, sql } from "drizzle-orm";
-import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError } from "../middleware/auth";
+import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, lt, lte, sql } from "drizzle-orm";
+import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { enqueueWebhooks } from "../middleware/webhook-queue";
 import { z } from "zod";
@@ -47,6 +47,10 @@ const completeHabitSchema = z.object({
 
 /**
  * Calculate the current streak for a habit.
+ *
+ * Day boundaries are resolved in UTC everywhere (grouping, streak walk and the
+ * frontend's "completed today" check) so the server and client agree on what
+ * "today" means even for users outside UTC.
  */
 async function calculateStreak(habitId: string, skipDays: number[]): Promise<number> {
   const completions = await db.select({ date: habitCompletions.date })
@@ -62,21 +66,21 @@ async function calculateStreak(habitId: string, skipDays: number[]): Promise<num
 
   let streak = 0;
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  today.setUTCHours(0, 0, 0, 0);
   const checkDate = new Date(today);
 
   for (let i = 0; i < 365; i++) {
     const dateStr = checkDate.toISOString().split("T")[0];
-    const dayOfWeek = checkDate.getDay();
+    const dayOfWeek = checkDate.getUTCDay();
 
     if (skipDays.includes(dayOfWeek)) {
-      checkDate.setDate(checkDate.getDate() - 1);
+      checkDate.setUTCDate(checkDate.getUTCDate() - 1);
       continue;
     }
 
     if (completionDates.has(dateStr)) {
       streak++;
-      checkDate.setDate(checkDate.getDate() - 1);
+      checkDate.setUTCDate(checkDate.getUTCDate() - 1);
     } else {
       break;
     }
@@ -192,8 +196,29 @@ habitRoutes.get("/", async (c) => {
       tags: habitTagMap.get(h.id) || [],
     }));
 
+    // Fetch recent completions for every habit in the page so the UI can render
+    // "completed today" / mini-grid state without a second request per row.
+    let habitCompletionMap = new Map<string, typeof habitCompletions.$inferSelect[]>();
+    if (items.length > 0) {
+      const habitIds = items.map(h => h.id);
+      const since = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000);
+      const completionRows = await db.select()
+        .from(habitCompletions)
+        .where(and(inArray(habitCompletions.habitId, habitIds), gte(habitCompletions.date, since)))
+        .orderBy(desc(habitCompletions.date));
+      for (const row of completionRows) {
+        if (!habitCompletionMap.has(row.habitId)) habitCompletionMap.set(row.habitId, []);
+        habitCompletionMap.get(row.habitId)!.push(row);
+      }
+    }
+
+    const itemsWithCompletions = itemsWithTags.map(h => ({
+      ...h,
+      recentCompletions: habitCompletionMap.get(h.id) || [],
+    }));
+
     return c.json({
-      items: itemsWithTags,
+      items: itemsWithCompletions,
       totalItems,
       totalPages: Math.ceil(totalItems / (limit || perPage)),
       page,
@@ -271,6 +296,9 @@ habitRoutes.get("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [habit] = await db.select()
       .from(habits)
@@ -324,6 +352,9 @@ habitRoutes.patch("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const data = updateHabitSchema.parse(body);
 
@@ -385,6 +416,9 @@ habitRoutes.delete("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
 
     const [existing] = await db.select()
       .from(habits)
@@ -427,6 +461,9 @@ habitRoutes.post("/:id/tags", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const { tagId } = z.object({ tagId: z.string().uuid("Invalid tag id") }).parse(body);
 
@@ -478,6 +515,9 @@ habitRoutes.delete("/:id/tags/:tagId", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const tagId = c.req.param("tagId");
 
     const [habit] = await db.select({ id: habits.id, domainId: habits.domainId })
@@ -517,6 +557,9 @@ habitRoutes.post("/:id/complete", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const body = await c.req.json();
     const data = completeHabitSchema.parse(body);
 
@@ -531,13 +574,36 @@ habitRoutes.post("/:id/complete", async (c) => {
 
     await requireWorkspaceAccess(c, habit.domainId);
 
-    const [completion] = await db.insert(habitCompletions).values({
-      habitId: id,
-      date: new Date(),
-      value: data.value,
-      mood: data.mood ?? null,
-      notes: data.notes ?? null,
-    }).returning();
+    // Guard against duplicate completions for the same UTC day: the habit list
+    // disables the button once completed today, but double-fires (or a stale
+    // client) must not inflate history/stats. Update the existing row instead.
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+    const [existingCompletion] = await db.select()
+      .from(habitCompletions)
+      .where(and(
+        eq(habitCompletions.habitId, id),
+        gte(habitCompletions.date, todayStart),
+        lt(habitCompletions.date, tomorrowStart),
+      ))
+      .limit(1);
+
+    let completion: typeof habitCompletions.$inferSelect;
+    if (existingCompletion) {
+      [completion] = await db.update(habitCompletions)
+        .set({ value: data.value, mood: data.mood ?? null, notes: data.notes ?? null })
+        .where(eq(habitCompletions.id, existingCompletion.id))
+        .returning();
+    } else {
+      [completion] = await db.insert(habitCompletions).values({
+        habitId: id,
+        date: new Date(),
+        value: data.value,
+        mood: data.mood ?? null,
+        notes: data.notes ?? null,
+      }).returning();
+    }
 
     // Recalculate streak
     const skipDays = habit.skipDays || [];
@@ -587,6 +653,9 @@ habitRoutes.get("/:id/completions", async (c) => {
   try {
     const user = await requireAuth(c);
     const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
     const url = new URL(c.req.url);
 
     const [habit] = await db.select({ id: habits.id, domainId: habits.domainId })
