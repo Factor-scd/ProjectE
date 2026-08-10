@@ -1,6 +1,6 @@
 # Project E — Deploy Guide
 
-Production runs as a docker-compose stack on the deploy host (`10.0.0.204`). The stack has four services: PostgreSQL, the Hono API, the Vite SPA served by Caddy, and the Bun worker. Deploys are normally driven by Gitea Actions, but every step below can be run by hand.
+Production runs as a docker-compose stack on the deploy host (`10.0.0.52`). The stack has four services: PostgreSQL, the Hono API, the Vite SPA served by Caddy, and the Bun worker. Deploys are normally driven by Gitea Actions, but every step below can be run by hand.
 
 ## Architecture
 
@@ -50,7 +50,7 @@ Idempotent, safe to re-run. It:
 
 The workflow runs on the self-hosted runner `projecte-runner`, which must be
 registered on the Gitea instance before any job can start (otherwise jobs stay
-stuck at "Waiting to run"). Do this once on the deploy host (10.0.0.204), which
+stuck at "Waiting to run"). Do this once on the deploy host (10.0.0.52), which
 is where the `deploy` and `smoke` jobs act on the local docker-compose stack:
 
 1. **Install `act_runner`** — download the `act_runner` binary from the Gitea
