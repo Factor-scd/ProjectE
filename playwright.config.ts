@@ -24,7 +24,7 @@ export default defineConfig({
     timeout: 5_000,
   },
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: process.env.E2E_BASE_URL || 'http://localhost:3000',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'on-first-retry',
@@ -36,8 +36,10 @@ export default defineConfig({
     // `bun run dev` boots the API (:3001) and the Vite dev server (:3000) via
     // concurrently. Poll the API health endpoint through the Vite proxy so we
     // don't start running tests until both servers are actually up.
-    command: 'bun run dev',
-    url: 'http://localhost:3000/api/health',
+    // In CI the host runs the production stack on :3000/:3001, so shift to
+    // :3100/:3101 to avoid port collisions.
+    command: process.env.E2E_WEB_SERVER_CMD || 'bun run dev',
+    url: process.env.E2E_WEB_SERVER_URL || 'http://localhost:3000/api/health',
     reuseExistingServer: !CI,
     timeout: 120_000,
   },

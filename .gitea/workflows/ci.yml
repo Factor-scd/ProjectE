@@ -135,6 +135,14 @@ jobs:
           INITIAL_ADMIN_EMAIL: admin@example.com
           INITIAL_ADMIN_PASSWORD: testpassword123
           CI: "1"
+          # The host runs the production stack on :3000/:3001; shift the e2e
+          # dev servers to :3100/:3101 so Playwright doesn't collide with prod.
+          VITE_PORT: "3100"
+          PORT: "3101"
+          API_PROXY_TARGET: http://localhost:3101
+          E2E_BASE_URL: http://localhost:3100
+          E2E_WEB_SERVER_CMD: bun run dev
+          E2E_WEB_SERVER_URL: http://localhost:3100/api/health
         run: bunx playwright test
 
       - name: Stop ephemeral Postgres

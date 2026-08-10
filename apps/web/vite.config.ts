@@ -10,14 +10,14 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: parseInt(process.env.VITE_PORT || "3000", 10),
     proxy: {
       "/api": {
-        target: "http://localhost:3001",
+        target: process.env.API_PROXY_TARGET || "http://localhost:3001",
         changeOrigin: true,
       },
       "/mcp": {
-        target: "http://localhost:3001",
+        target: process.env.API_PROXY_TARGET || "http://localhost:3001",
         changeOrigin: true,
       },
     },
