@@ -22,6 +22,10 @@
     "db:migrate": "bun run db:sync && bun run db:triggers",
     "deploy": "bash script/deploy.sh"
   },
+  "dependencies": {
+    "drizzle-orm": "^0.45.1",
+    "postgres": "^3.4.8"
+  },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@swc/jest": "^0.2.39",
