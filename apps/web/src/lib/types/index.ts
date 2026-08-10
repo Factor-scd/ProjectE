@@ -12,6 +12,7 @@ export interface Task {
   parentId: string | null;
   dueDate: string | null;
   estimatedMinutes: number | null;
+  recurrenceRule: string | null;
   order: number;
   completedAt: string | null;
   createdAt: string;
@@ -384,6 +385,30 @@ export interface ProjectProgress {
   totalTasks: number;
   completedTasks: number;
   progress: number;
+}
+
+// Comments & activity (detail pages)
+export interface Comment {
+  id: string;
+  entityType: string;
+  entityId: string;
+  workspaceId: string;
+  parentId: string | null;
+  author: string;
+  content: string;
+  createdAt: string;
+  deletedAt: string | null;
+}
+
+export interface ActivityItem {
+  id: string;
+  actor: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  changes: Record<string, unknown> | null;
+  workspaceId: string;
+  createdAt: string;
 }
 
 export interface ProjectAnalytics {

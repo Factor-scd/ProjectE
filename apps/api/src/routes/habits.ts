@@ -311,15 +311,19 @@ habitRoutes.get("/:id", async (c) => {
 
     await requireWorkspaceAccess(c, habit.domainId);
 
-    // Fetch recent completions (last 30 days)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    // Fetch recent completions (default last 30 days; ?days= extends up to a
+    // year so the frontend heatmap can show longer history)
+    const url = new URL(c.req.url);
+    const daysParam = url.searchParams.get("days");
+    const days = Math.min(365, Math.max(1, parseInt(daysParam || "30") || 30));
+    const since = new Date();
+    since.setDate(since.getDate() - days);
 
     const recentCompletions = await db.select()
       .from(habitCompletions)
       .where(and(
         eq(habitCompletions.habitId, id),
-        gte(habitCompletions.date, thirtyDaysAgo),
+        gte(habitCompletions.date, since),
       ))
       .orderBy(desc(habitCompletions.date));
 

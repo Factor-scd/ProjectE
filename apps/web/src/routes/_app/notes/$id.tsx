@@ -1,86 +1,293 @@
 import { createRoute, useParams, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../../_app";
-import { useApiQuery } from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { TagManager } from "@/components/entities/tag-manager";
-import { ArrowLeft, FileText, Clock } from "lucide-react";
-import type { Note } from "@/lib/types";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import {
+  Archive,
+  ArchiveRestore,
+  Clock,
+  FileText,
+  Link2,
+  Pin,
+  PinOff,
+  Trash2,
+} from "lucide-react";
 import { format, parseISO } from "date-fns";
+import { api, useApiQuery } from "@/lib/api";
+import { useRealtime } from "@/hooks/use-realtime";
+import { useOptimisticPatch } from "@/hooks/use-optimistic-patch";
+import { EntityDetailPage } from "@/components/entities/detail-page";
+import { InlineText } from "@/components/entities/inline-edit";
+import { EntityActivity } from "@/components/entities/entity-activity";
+import { EntityComments } from "@/components/entities/entity-comments";
+import { TagManager } from "@/components/entities/tag-manager";
+import { NoteEditor } from "@/components/entities/note-editor";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { LoadingState, ErrorState } from "@/components/state";
+import type { Note } from "@/lib/types";
 
-// Note content is Tiptap-generated HTML stored by the API. Lightweight sanitizer
-// applied before rendering via dangerouslySetInnerHTML: drops script/style
-// blocks, inline event handlers, and javascript: URLs.
-const sanitizeNoteHtml = (html: string): string =>
-  html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, "")
-    .replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/(\shref|\ssrc)\s*=\s*(?:"|')\s*javascript:[^"']*(?:"|')/gi, ' $1=""');
+// Query keys to keep fresh after any note-affecting mutation. Mirrors the
+// realtime hook's invalidation so the notes list and recent notes never go stale.
+const LIST_KEYS: string[][] = [["notes"], ["recent-notes"]];
+
+type PatchFn = (vars: { id: string; data: Record<string, unknown> }) => void;
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : "Something went wrong";
+}
 
 function NoteDetail() {
   const { id } = useParams({ from: Route.id });
   const navigate = useNavigate();
-  const { data: note, isLoading } = useApiQuery<Note>(["note", id], "/notes/" + id);
+  const queryClient = useQueryClient();
 
-  if (isLoading) return <div className="p-8 text-center text-muted-foreground">Loading...</div>;
-  if (!note) return <div className="p-8 text-center text-muted-foreground">Note not found</div>;
+  useRealtime({ enabled: true });
+
+  const { data: note, isLoading, isError, error, refetch } = useApiQuery<Note>(
+    ["note", id],
+    "/notes/" + id
+  );
+
+  const { patch } = useOptimisticPatch<Note>({
+    entityKey: ["note", id],
+    listKeys: LIST_KEYS,
+    patchUrl: (nid) => `/notes/${nid}`,
+    applyPatch: (current, data) => ({ ...current, ...data }),
+  });
+
+  const refreshLists = () => {
+    for (const key of LIST_KEYS) queryClient.invalidateQueries({ queryKey: key });
+  };
+
+  const togglePin = useMutation({
+    mutationFn: () =>
+      api.patch<Note>(`/notes/${id}`, { isPinned: !note?.isPinned }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["note", id] });
+      refreshLists();
+      toast.success(note?.isPinned ? "Note unpinned" : "Note pinned");
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const toggleArchive = useMutation({
+    mutationFn: () =>
+      api.patch<Note>(`/notes/${id}`, { isArchived: !note?.isArchived }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["note", id] });
+      refreshLists();
+      toast.success(note?.isArchived ? "Note unarchived" : "Note archived");
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => api.delete(`/notes/${id}`),
+    onSuccess: () => {
+      refreshLists();
+      toast.success("Note deleted");
+      navigate({ to: "/notes" });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  if (isLoading) return <LoadingState label="Loading note..." />;
+  if (isError) {
+    return <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />;
+  }
+  if (!note) return <ErrorState message="Note not found" />;
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-6">
-      <Button variant="ghost" onClick={() => navigate({ to: "/notes" })} className="w-fit">
-        <ArrowLeft className="h-4 w-4 mr-2" /> Back to Notes
-      </Button>
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <FileText className="h-6 w-6 text-muted-foreground" />
-            <CardTitle className="text-2xl">{note.title}</CardTitle>
-            {note.isPinned && <Badge>Pinned</Badge>}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-4 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Created {format(parseISO(note.createdAt), "MMM d, yyyy HH:mm")}</span>
-            <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Updated {format(parseISO(note.updatedAt), "MMM d, yyyy HH:mm")}</span>
-          </div>
-          <Separator />
-          {/* The @tailwindcss/typography plugin isn't installed, so style the
-              Tiptap output with scoped CSS instead of `prose` classes. */}
-          <div className="note-detail-content max-w-none">
-            <style>{`
-              .note-detail-content { line-height: 1.75; }
-              .note-detail-content h1 { font-size: 1.75rem; font-weight: 700; line-height: 1.25; margin: 1.5rem 0 0.75rem; }
-              .note-detail-content h2 { font-size: 1.5rem; font-weight: 700; line-height: 1.3; margin: 1.5rem 0 0.75rem; }
-              .note-detail-content h3 { font-size: 1.25rem; font-weight: 600; line-height: 1.4; margin: 1.25rem 0 0.5rem; }
-              .note-detail-content h4 { font-size: 1.125rem; font-weight: 600; line-height: 1.4; margin: 1rem 0 0.5rem; }
-              .note-detail-content h5, .note-detail-content h6 { font-size: 1rem; font-weight: 600; margin: 1rem 0 0.5rem; }
-              .note-detail-content p { margin: 0.75rem 0; }
-              .note-detail-content a { color: hsl(var(--primary)); text-decoration: underline; }
-              .note-detail-content ul { list-style: disc; padding-left: 1.5rem; margin: 0.75rem 0; }
-              .note-detail-content ol { list-style: decimal; padding-left: 1.5rem; margin: 0.75rem 0; }
-              .note-detail-content li { margin: 0.25rem 0; }
-              .note-detail-content li p { margin: 0; }
-              .note-detail-content blockquote { border-left: 3px solid hsl(var(--border)); padding-left: 1rem; margin: 1rem 0; color: hsl(var(--muted-foreground)); }
-              .note-detail-content hr { border: 0; border-top: 1px solid hsl(var(--border)); margin: 1.5rem 0; }
-              .note-detail-content code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.875em; background: hsl(var(--muted)); padding: 0.125rem 0.375rem; border-radius: 0.25rem; }
-              .note-detail-content pre { background: hsl(var(--muted)); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin: 1rem 0; }
-              .note-detail-content pre code { background: transparent; padding: 0; font-size: 0.875rem; }
-              .note-detail-content ul[data-type="taskList"] { list-style: none; padding-left: 0.25rem; }
-              .note-detail-content ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.5rem; }
-              .note-detail-content ul[data-type="taskList"] li p { flex: 1; }
-            `}</style>
-            {note.content ? (
-              <div dangerouslySetInnerHTML={{ __html: sanitizeNoteHtml(note.content) }} />
+    <EntityDetailPage
+      backTo={{ to: "/notes", label: "Back to Notes" }}
+      title={
+        <InlineText
+          value={note.title}
+          onSave={(title) => patch({ id, data: { title } })}
+          placeholder="Untitled note"
+        />
+      }
+      icon={<FileText className="h-6 w-6" />}
+      badges={note.isPinned ? <Badge>Pinned</Badge> : null}
+      actions={
+        <>
+          <Button
+            variant="outline"
+            onClick={() => togglePin.mutate()}
+            disabled={togglePin.isPending}
+          >
+            {note.isPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+            {note.isPinned ? "Unpin" : "Pin"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => toggleArchive.mutate()}
+            disabled={toggleArchive.isPending}
+          >
+            {note.isArchived ? (
+              <ArchiveRestore className="h-4 w-4" />
             ) : (
-              <p className="text-sm text-muted-foreground">No content</p>
+              <Archive className="h-4 w-4" />
             )}
+            {note.isArchived ? "Unarchive" : "Archive"}
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive">
+                <Trash2 className="h-4 w-4" /> Delete
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete Note</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to delete "{note.title}"? This action cannot be
+                  undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground"
+                  onClick={() => deleteMutation.mutate()}
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+      }
+      tabs={[
+        {
+          value: "editor",
+          label: "Editor",
+          content: <EditorTab note={note} patch={patch} />,
+        },
+        { value: "links", label: "Links", content: <LinksTab note={note} /> },
+        {
+          value: "activity",
+          label: "Activity",
+          content: <EntityActivity entityType="note" entityId={id} />,
+        },
+        {
+          value: "comments",
+          label: "Comments",
+          content: <EntityComments entityType="note" entityId={id} />,
+        },
+      ]}
+    />
+  );
+}
+
+function EditorTab({ note, patch }: { note: Note; patch: PatchFn }) {
+  return (
+    <div className="space-y-6">
+      <div>
+        <p className="mb-1 text-sm font-semibold text-muted-foreground">Content</p>
+        <div className="rounded-lg border">
+          <NoteEditor
+            key={note.id}
+            initialContent={note.content ?? ""}
+            onSave={(html) => patch({ id: note.id, data: { content: html } })}
+            placeholder="Start writing..."
+          />
+        </div>
+      </div>
+
+      <div className="border-t pt-4">
+        <TagManager entityType="note" entityId={note.id} tags={note.tags || []} />
+      </div>
+
+      <div className="flex items-center gap-4 border-t pt-4 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          Created {format(parseISO(note.createdAt), "MMM d, yyyy HH:mm")}
+        </span>
+        <span className="flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          Updated {format(parseISO(note.updatedAt), "MMM d, yyyy HH:mm")}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function LinksTab({ note }: { note: Note }) {
+  const navigate = useNavigate();
+  const backlinks = note.backlinks || [];
+  const outgoingLinks = note.outgoingLinks || [];
+
+  return (
+    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+      <div>
+        <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+          <Link2 className="h-4 w-4 text-muted-foreground" />
+          Backlinks
+        </h3>
+        {backlinks.length === 0 ? (
+          <p className="py-4 text-sm text-muted-foreground">No backlinks yet.</p>
+        ) : (
+          <div className="space-y-0.5">
+            {backlinks.map((bl) => (
+              <button
+                key={bl.id}
+                type="button"
+                onClick={() => navigate({ to: "/notes/$id", params: { id: bl.id } })}
+                className="flex items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted/50"
+              >
+                <Link2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm hover:underline">{bl.title}</span>
+                  {bl.excerpt ? (
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {bl.excerpt}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+            ))}
           </div>
-          <TagManager entityType="note" entityId={note.id} tags={note.tags || []} />
-        </CardContent>
-      </Card>
+        )}
+      </div>
+
+      <div>
+        <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+          <Link2 className="h-4 w-4 text-muted-foreground" />
+          Outgoing links
+        </h3>
+        {outgoingLinks.length === 0 ? (
+          <p className="py-4 text-sm text-muted-foreground">No outgoing links.</p>
+        ) : (
+          <div className="space-y-0.5">
+            {outgoingLinks.map((link) => (
+              <button
+                key={link.noteId}
+                type="button"
+                onClick={() => navigate({ to: "/notes/$id", params: { id: link.noteId } })}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted/50"
+              >
+                <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate text-sm hover:underline">
+                  {link.noteTitle}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

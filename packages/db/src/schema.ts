@@ -416,6 +416,34 @@ export const activityFeed = pgTable(
   ]
 );
 
+// ── Comments ───────────────────────────────────────────────────────────────────
+// Nested comment threads on any entity. Comments were previously stored as
+// activity_feed rows (entity_type='comment'); they now live here so replies
+// (parent_id) are first-class.
+
+export const comments = pgTable(
+  'comments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    entityType: text('entity_type').notNull(),
+    entityId: uuid('entity_id').notNull(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references((): any => domains.id, { onDelete: 'cascade' }),
+    parentId: uuid('parent_id').references((): any => comments.id, { onDelete: 'cascade' }),
+    author: text('author').notNull(),
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('comments_workspace_id_idx').on(table.workspaceId),
+    index('comments_entity_idx').on(table.entityType, table.entityId),
+    index('comments_parent_id_idx').on(table.parentId),
+    index('comments_created_at_idx').on(table.createdAt),
+  ]
+);
+
 // ── Scheduled Jobs ──────────────────────────────────────────────────────────────
 
 export const scheduledJobs = pgTable(

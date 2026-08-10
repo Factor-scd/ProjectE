@@ -23,6 +23,7 @@
     "deploy": "bash script/deploy.sh"
   },
   "dependencies": {
+    "@project-e/db": "^0.1.0",
     "drizzle-orm": "^0.45.1",
     "postgres": "^3.4.8"
   },

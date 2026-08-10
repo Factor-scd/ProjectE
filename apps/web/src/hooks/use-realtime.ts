@@ -28,16 +28,17 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
 
       switch (entityType) {
         case "task":
-          queryKeys.push(["tasks"], ["tasks-due"], ["stats"], ["productivity-chart"], ["analytics-daily"], ["analytics-projects"]);
+          // Singular keys (e.g. ["task", id]) refresh open detail pages live.
+          queryKeys.push(["tasks"], ["task"], ["tasks-due"], ["stats"], ["productivity-chart"], ["analytics-daily"], ["analytics-projects"]);
           break;
         case "habit":
-          queryKeys.push(["habits"], ["habits-today"], ["streaks"], ["analytics-habits"]);
+          queryKeys.push(["habits"], ["habit"], ["habits-today"], ["streaks"], ["analytics-habits"]);
           break;
         case "project":
-          queryKeys.push(["projects"], ["active-projects"], ["analytics-projects"]);
+          queryKeys.push(["projects"], ["project"], ["active-projects"], ["analytics-projects"]);
           break;
         case "note":
-          queryKeys.push(["notes"], ["recent-notes"]);
+          queryKeys.push(["notes"], ["note"], ["recent-notes"]);
           break;
         case "calendar_event":
           queryKeys.push(["calendar-events"], ["upcoming-events"]);
