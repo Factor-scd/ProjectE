@@ -183,14 +183,10 @@ function GraphPage() {
     }
   }, []);
 
-  // Snapshot every simulated node's position once the force simulation settles.
-  const snapshotPositions = useCallback(() => {
-    const nodes = graphRef.current?.graphData()?.nodes;
-    if (!nodes) return;
-    for (const node of nodes) {
-      trackNodePosition(node);
-    }
-  }, [trackNodePosition]);
+  // Track all node positions every render frame via nodeCanvasObject (which
+  // receives each node with its simulated x/y coords). This replaces the old
+  // snapshotPositions callback that relied on graphRef.graphData(), which is not
+  // exposed by react-force-graph-2d's ref.
 
   const handleSearch = useCallback(() => {
     if (!search.trim() || !graphRef.current) return;
@@ -235,6 +231,7 @@ function GraphPage() {
   // Custom node renderer
   const nodeCanvasObject = useCallback(
     (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      trackNodePosition(node);
       const isHighlighted = highlightNodes.size === 0 || highlightNodes.has(node.id);
       const isHovered = hoveredNode?.id === node.id;
       const label = node.label || "";
@@ -259,7 +256,7 @@ function GraphPage() {
       const displayLabel = label.length > 15 ? label.slice(0, 15) + "…" : label;
       ctx.fillText(displayLabel, node.x, node.y + radius + 2);
     },
-    [highlightNodes, hoveredNode]
+    [highlightNodes, hoveredNode, trackNodePosition]
   );
 
   // Custom link renderer with arrows
@@ -384,7 +381,6 @@ function GraphPage() {
             onNodeClick={handleNodeClick}
             onNodeHover={handleNodeHover}
             onNodeDrag={trackNodePosition}
-            onEngineStop={snapshotPositions}
             nodeRelSize={6}
             d3AlphaDecay={0.02}
             d3VelocityDecay={0.3}
