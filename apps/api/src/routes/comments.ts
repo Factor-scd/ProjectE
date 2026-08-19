@@ -14,6 +14,7 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import type { AnyPgColumn, AnyPgTable } from "drizzle-orm/pg-core";
 import { requireAuth, requireWorkspaceAccess, createErrorResponse, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
+import { notifyWorkspaceOwner } from "../lib/notify";
 import { z } from "zod";
 
 export const commentRoutes = new Hono();
@@ -149,6 +150,23 @@ commentRoutes.post("/", async (c) => {
       changes: { commentId: newComment.id },
       workspaceId: domainId,
     });
+
+    // Mention notification: any @mention in the comment notifies the workspace
+    // owner (single-user MVP — there is no other recipient to resolve).
+    if (/\B@[a-zA-Z0-9_.-]+/.test(data.content)) {
+      try {
+        await notifyWorkspaceOwner({
+          workspaceId: domainId,
+          type: "mention",
+          title: "You were mentioned",
+          body: `${user.name} mentioned you in a comment on this ${data.entityType.replace(/_/g, " ")}`,
+          entityType: data.entityType,
+          entityId: data.entityId,
+        });
+      } catch (notifyError) {
+        console.error(`[comments] Failed to create mention notification for ${data.entityType}:${data.entityId}:`, notifyError);
+      }
+    }
 
     return c.json(newComment, 201);
   } catch (error) {

@@ -55,16 +55,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { LoadingState, ErrorState } from "@/components/state";
-import { TASK_STATUS, PRIORITY } from "@/lib/status-colors";
-import type { PaginatedResponse, Project, Task } from "@/lib/types";
+import { getStatusLabel, getStatusToken, PRIORITY } from "@/lib/status-colors";
+import type { PaginatedResponse, Project, StatusDefinition, Task } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const STATUS_OPTIONS: InlineSelectOption[] = [
-  { value: "todo", label: "Todo" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "done", label: "Done" },
-  { value: "cancelled", label: "Cancelled" },
-];
 
 const PRIORITY_OPTIONS: InlineSelectOption[] = [
   { value: "low", label: "Low" },
@@ -112,6 +105,18 @@ function TaskDetail() {
     "/tasks/" + id
   );
 
+  // Load this task's project status definitions so we can resolve a real
+  // statusId when toggling completion (done ↔ todo) and when rendering the
+  // status inline-select.
+  const projectId = task?.projectId ?? null;
+  const { data: statusesData } = useApiQuery<{ items: StatusDefinition[] }>(
+    ["project-statuses", projectId ?? "none"],
+    projectId ? `/projects/${projectId}/statuses` : "",
+    { enabled: !!projectId }
+  );
+  const projectStatuses = statusesData?.items ?? [];
+  const statusById = new Map(projectStatuses.map((s) => [s.id, s]));
+
   const { patch } = useOptimisticPatch<Task>({
     entityKey: ["task", id],
     listKeys: LIST_KEYS,
@@ -120,10 +125,13 @@ function TaskDetail() {
   });
 
   const toggleComplete = useMutation({
-    mutationFn: () =>
-      api.post<Task>(`/tasks/${id}/status`, {
-        status: task?.status === "done" ? "todo" : "done",
-      }),
+    mutationFn: () => {
+      const isDone = task?.status?.category === "done";
+      const target = projectStatuses.find((s) => s.category === (isDone ? "todo" : "done"));
+      return api.post<Task>(`/tasks/${id}/status`, {
+        statusId: target?.id ?? "",
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["task", id] });
       for (const key of LIST_KEYS) queryClient.invalidateQueries({ queryKey: key });
@@ -152,7 +160,7 @@ function TaskDetail() {
   }
   if (!task) return <ErrorState message="Task not found" />;
 
-  const isDone = task.status === "done";
+  const isDone = task.status?.category === "done";
 
   return (
     <EntityDetailPage
@@ -168,14 +176,17 @@ function TaskDetail() {
       badges={
         <>
           <InlineSelect
-            value={task.status}
-            options={STATUS_OPTIONS}
-            displayValue={(v) => (
-              <Badge className={TASK_STATUS[v]?.badge}>
-                {TASK_STATUS[v]?.label ?? v}
-              </Badge>
-            )}
-            onSave={(status) => patch({ id, data: { status } })}
+            value={task.status?.id ?? ""}
+            options={projectStatuses.map((s) => ({ value: s.id, label: s.label }))}
+            displayValue={(v) => {
+              const status = statusById.get(v);
+              return (
+                <Badge className={getStatusToken(status).badge}>
+                  {status ? status.label : "No status"}
+                </Badge>
+              );
+            }}
+            onSave={(statusId) => patch({ id, data: { statusId: statusId || null } })}
           />
           <InlineSelect
             value={task.priority}
@@ -364,6 +375,16 @@ function Subtasks({ task }: { task: Task }) {
   const [newTitle, setNewTitle] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
 
+  // Subtasks live in the same project as the parent, so their status
+  // definitions are the parent's project statuses.
+  const projectId = task.projectId ?? null;
+  const { data: statusesData } = useApiQuery<{ items: StatusDefinition[] }>(
+    ["project-statuses", projectId ?? "none"],
+    projectId ? `/projects/${projectId}/statuses` : "",
+    { enabled: !!projectId }
+  );
+  const projectStatuses = statusesData?.items ?? [];
+
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["task", task.id] });
     queryClient.invalidateQueries({ queryKey: ["tasks"] });
@@ -381,8 +402,8 @@ function Subtasks({ task }: { task: Task }) {
   });
 
   const toggleMutation = useMutation({
-    mutationFn: ({ subId, status }: { subId: string; status: Task["status"] }) =>
-      api.post<Task>(`/tasks/${subId}/status`, { status }),
+    mutationFn: ({ subId, statusId }: { subId: string; statusId: string }) =>
+      api.post<Task>(`/tasks/${subId}/status`, { statusId }),
     onMutate: (vars) => setPendingId(vars.subId),
     onSettled: () => setPendingId(null),
     onSuccess: refresh,
@@ -421,35 +442,37 @@ function Subtasks({ task }: { task: Task }) {
         <p className="py-6 text-center text-sm text-muted-foreground">No subtasks yet.</p>
       ) : (
         <div className="space-y-0.5">
-          {subtasks.map((sub) => (
-            <div
-              key={sub.id}
-              className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-muted/50"
-            >
-              <Checkbox
-                checked={sub.status === "done"}
-                disabled={pendingId === sub.id}
-                onCheckedChange={() =>
-                  toggleMutation.mutate({
-                    subId: sub.id,
-                    status: sub.status === "done" ? "todo" : "done",
-                  })
-                }
-                aria-label={"Mark " + sub.title + " " + (sub.status === "done" ? "as not done" : "as done")}
-              />
-              <span className={cn("h-2 w-2 shrink-0 rounded-full", TASK_STATUS[sub.status]?.dot)} />
-              <button
-                type="button"
-                onClick={() => navigate({ to: "/tasks/$id", params: { id: sub.id } })}
-                className={cn(
-                  "min-w-0 flex-1 truncate text-left text-sm hover:underline",
-                  sub.status === "done" && "text-muted-foreground line-through"
-                )}
+          {subtasks.map((sub) => {
+            const subDone = sub.status?.category === "done";
+            return (
+              <div
+                key={sub.id}
+                className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-muted/50"
               >
-                {sub.title}
-              </button>
-            </div>
-          ))}
+                <Checkbox
+                  checked={subDone}
+                  disabled={pendingId === sub.id}
+                  onCheckedChange={() => {
+                    const target = projectStatuses.find((s) => s.category === (subDone ? "todo" : "done"));
+                    if (!target) return;
+                    toggleMutation.mutate({ subId: sub.id, statusId: target.id });
+                  }}
+                  aria-label={"Mark " + sub.title + " " + (subDone ? "as not done" : "as done")}
+                />
+                <span className={cn("h-2 w-2 shrink-0 rounded-full", getStatusToken(sub.status).dot)} />
+                <button
+                  type="button"
+                  onClick={() => navigate({ to: "/tasks/$id", params: { id: sub.id } })}
+                  className={cn(
+                    "min-w-0 flex-1 truncate text-left text-sm hover:underline",
+                    subDone && "text-muted-foreground line-through"
+                  )}
+                >
+                  {sub.title}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -523,7 +546,7 @@ function Dependencies({ task }: { task: Task }) {
                 key={dep.id}
                 className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
               >
-                <span className={cn("h-2 w-2 shrink-0 rounded-full", TASK_STATUS[dep.status]?.dot)} />
+                <span className={cn("h-2 w-2 shrink-0 rounded-full", getStatusToken(dep.status).dot)} />
                 <button
                   type="button"
                   onClick={() => navigate({ to: "/tasks/$id", params: { id: dep.id } })}
@@ -531,8 +554,8 @@ function Dependencies({ task }: { task: Task }) {
                 >
                   {dep.title}
                 </button>
-                <Badge className={cn("text-[10px]", TASK_STATUS[dep.status]?.badge)}>
-                  {TASK_STATUS[dep.status]?.label ?? dep.status}
+                <Badge className={cn("text-[10px]", getStatusToken(dep.status).badge)}>
+                  {getStatusLabel(dep.status)}
                 </Badge>
                 <Button
                   variant="ghost"
@@ -582,7 +605,7 @@ function Dependencies({ task }: { task: Task }) {
                 key={dep.id}
                 className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
               >
-                <span className={cn("h-2 w-2 shrink-0 rounded-full", TASK_STATUS[dep.status]?.dot)} />
+                <span className={cn("h-2 w-2 shrink-0 rounded-full", getStatusToken(dep.status).dot)} />
                 <button
                   type="button"
                   onClick={() => navigate({ to: "/tasks/$id", params: { id: dep.id } })}
@@ -590,8 +613,8 @@ function Dependencies({ task }: { task: Task }) {
                 >
                   {dep.title}
                 </button>
-                <Badge className={cn("text-[10px]", TASK_STATUS[dep.status]?.badge)}>
-                  {TASK_STATUS[dep.status]?.label ?? dep.status}
+                <Badge className={cn("text-[10px]", getStatusToken(dep.status).badge)}>
+                  {getStatusLabel(dep.status)}
                 </Badge>
                 <Button
                   variant="ghost"

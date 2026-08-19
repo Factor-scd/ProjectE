@@ -21,6 +21,40 @@ export const TASK_STATUS: Record<string, StatusToken> = {
   cancelled: { label: "Cancelled", dot: "bg-red-500", badge: "bg-red-500 text-white" },
 };
 
+/**
+ * Category → hex color fallback for custom workflow statuses. Custom statuses
+ * carry their own `color`; when unset the category color applies. Hex (not
+ * Tailwind classes) so it can drive inline `style={{ backgroundColor }}`.
+ */
+export const TASK_STATUS_CATEGORY_COLOR: Record<string, string> = {
+  todo: "#94a3b8",
+  in_progress: "#3b82f6",
+  done: "#22c55e",
+  cancelled: "#ef4444",
+};
+
+/** Label for a status definition (falls back to the raw category name). */
+export function getStatusLabel(status: { label?: string; category?: string } | null | undefined): string {
+  if (status?.label) return status.label;
+  if (status?.category) return status.category.replace("_", " ");
+  return "No status";
+}
+
+/** Hex color for a status definition: its own color or the category fallback. */
+export function getStatusColor(status: { color?: string | null; category?: string } | null | undefined): string {
+  if (status?.color) return status.color;
+  return TASK_STATUS_CATEGORY_COLOR[status?.category ?? "todo"] ?? "#94a3b8";
+}
+
+/**
+ * Tailwind token for a status definition (used where inline styles are awkward).
+ * Custom colors can't map to Tailwind classes, so this only covers the category
+ * fallback; callers needing exact colors should use `getStatusColor`.
+ */
+export function getStatusToken(status: { category?: string } | null | undefined): StatusToken {
+  return TASK_STATUS[status?.category ?? "todo"] ?? TASK_STATUS.todo;
+}
+
 /** Task priority. Badges use a soft tint (matching text + translucent bg). */
 export const PRIORITY: Record<string, { label: string; badge: string }> = {
   low: { label: "Low", badge: "text-slate-500 bg-slate-500/10" },

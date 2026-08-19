@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -27,8 +27,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { LoadingState, EmptyState, ErrorState } from "@/components/state";
 import { CustomFieldInputs } from "@/components/custom-fields/custom-field-inputs";
-import { TASK_STATUS, PRIORITY } from "@/lib/status-colors";
-import type { Task, PaginatedResponse } from "@/lib/types";
+import { getStatusLabel, getStatusToken, TASK_STATUS, PRIORITY } from "@/lib/status-colors";
+import type { StatusDefinition, Task, TaskStatusCategory, PaginatedResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const STATUS_COLUMNS = [
@@ -99,15 +99,27 @@ function ColumnDroppable({ id, className, children }: { id: string; className?: 
   );
 }
 
+const NO_STATUS = "__none__";
+
 function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
   const queryClient = useQueryClient();
   const activeDomainId = useApiDomain();
   const [title, setTitle] = useState(task?.title || "");
   const [description, setDescription] = useState(task?.description || "");
-  const [status, setStatus] = useState(task?.status || "todo");
+  const [statusId, setStatusId] = useState(task?.statusId ?? "");
   const [priority, setPriority] = useState(task?.priority || "medium");
   const [dueDate, setDueDate] = useState(task?.dueDate ? task.dueDate.slice(0, 10) : "");
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>(() => ({ ...(task?.customFields ?? {}) }));
+
+  // Status is a per-project status definition, so it can only be picked when the
+  // task belongs to a project whose statuses we can load.
+  const projectId = task?.projectId ?? null;
+  const { data: statusesData } = useApiQuery<{ items: StatusDefinition[] }>(
+    ["project-statuses", projectId ?? "none"],
+    projectId ? `/projects/${projectId}/statuses` : "",
+    { enabled: !!projectId }
+  );
+  const statusOptions = statusesData?.items ?? [];
 
   const createMutation = useMutation({
     mutationFn: (data: any) => api.post<Task>("/tasks", data),
@@ -128,7 +140,8 @@ function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
-    const data: any = { title: title.trim(), description: description || null, status, priority };
+    const data: any = { title: title.trim(), description: description || null, priority };
+    if (statusId) data.statusId = statusId;
     if (dueDate) data.dueDate = new Date(dueDate).toISOString();
     const customFields = { ...customFieldValues };
     if (Object.keys(customFields).length > 0) data.customFields = customFields;
@@ -150,18 +163,23 @@ function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
         <Textarea id="desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description (optional)" rows={3} />
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="status">Status</Label>
-          <Select value={status} onValueChange={(v) => setStatus(v as "todo" | "in_progress" | "done" | "cancelled")}>
-            <SelectTrigger id="status"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todo">Todo</SelectItem>
-              <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="done">Done</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        {statusOptions.length > 0 && (
+          <div>
+            <Label htmlFor="status">Status</Label>
+            <Select
+              value={statusId || NO_STATUS}
+              onValueChange={(v) => setStatusId(v === NO_STATUS ? "" : v)}
+            >
+              <SelectTrigger id="status"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_STATUS}>No status</SelectItem>
+                {statusOptions.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div>
           <Label htmlFor="priority">Priority</Label>
           <Select value={priority} onValueChange={(v) => setPriority(v as "low" | "medium" | "high" | "urgent")}>
@@ -242,8 +260,8 @@ function TasksPage() {
   };
 
   const statusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
-      api.post("/tasks/" + id + "/status", { status }),
+    mutationFn: ({ id, statusId }: { id: string; statusId: string }) =>
+      api.post("/tasks/" + id + "/status", { statusId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
@@ -276,11 +294,29 @@ function TasksPage() {
     useSensor(KeyboardSensor)
   );
 
+  // Status definitions are per-project; cache them so a board drop can resolve
+  // the target category to a real statusId without refetching every time.
+  const statusCache = useRef(new Map<string, StatusDefinition[]>());
+
+  const resolveProjectStatus = useCallback(
+    async (projectId: string | null, category: TaskStatusCategory): Promise<StatusDefinition | null> => {
+      if (!projectId) return null;
+      let statuses = statusCache.current.get(projectId);
+      if (!statuses) {
+        const res = await api.get<{ items: StatusDefinition[] }>(`/projects/${projectId}/statuses`);
+        statuses = res.items ?? [];
+        statusCache.current.set(projectId, statuses);
+      }
+      return statuses.find((s) => s.category === category) ?? null;
+    },
+    []
+  );
+
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string);
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = async (event: DragEndEvent) => {
     setActiveId(null);
     const { active, over } = event;
     if (!over) return;
@@ -294,7 +330,7 @@ function TasksPage() {
     // Tasks of a column in persisted order
     const columnTasks = (status: string) =>
       tasks
-        .filter((t) => t.status === status)
+        .filter((t) => t.status?.category === status)
         .sort((a, b) => a.order - b.order);
 
     // Decide the target column and insertion index:
@@ -308,7 +344,7 @@ function TasksPage() {
     } else {
       const overTask = tasks.find((t) => t.id === overId);
       if (!overTask) return;
-      targetColumn = overTask.status;
+      targetColumn = overTask.status?.category ?? "todo";
       const overIndex = columnTasks(targetColumn).findIndex((t) => t.id === overId);
       insertIndex = overIndex === -1 ? -1 : overIndex;
     }
@@ -330,16 +366,24 @@ function TasksPage() {
       currentIds.every((id, i) => id === targetIds[i]);
     if (unchanged) return;
 
+    const statusChanged = draggedTask.status?.category !== targetColumn;
+
+    // Resolve the target status definition for the dragged task's project so
+    // the optimistic update and the API call carry a real statusId.
+    let targetStatus: StatusDefinition | null = null;
+    if (statusChanged) {
+      targetStatus = await resolveProjectStatus(draggedTask.projectId, targetColumn as TaskStatusCategory);
+    }
+
     // Optimistic local update so the board reorders immediately
-    const statusChanged = draggedTask.status !== targetColumn;
     const orderById = new Map(targetIds.map((id, i) => [id, i]));
     queryClient.setQueryData<PaginatedResponse<Task>>(["tasks", activeDomainId, search, statusFilter], (old) => {
       if (!old) return old;
       return {
         ...old,
         items: old.items.map((t) => {
-          if (t.id === taskId && statusChanged) {
-            return { ...t, status: targetColumn as Task["status"], order: orderById.get(t.id) ?? t.order };
+          if (t.id === taskId && statusChanged && targetStatus) {
+            return { ...t, status: targetStatus, statusId: targetStatus.id, order: orderById.get(t.id) ?? t.order };
           }
           const order = orderById.get(t.id);
           return order !== undefined ? { ...t, order } : t;
@@ -347,8 +391,8 @@ function TasksPage() {
       };
     });
 
-    if (statusChanged) {
-      statusMutation.mutate({ id: taskId, status: targetColumn });
+    if (statusChanged && targetStatus) {
+      statusMutation.mutate({ id: taskId, statusId: targetStatus.id });
     }
     reorderMutation.mutate({ orderedIds: targetIds });
   };
@@ -367,7 +411,7 @@ function TasksPage() {
       ...col,
       color: TASK_STATUS[col.id].dot,
       tasks: tasks
-        .filter((t) => t.status === col.id)
+        .filter((t) => t.status?.category === col.id)
         .sort((a, b) => a.order - b.order),
     }));
   }, [tasks]);
@@ -470,7 +514,7 @@ function TasksPage() {
                 <TableRow key={task.id} className="cursor-pointer" onClick={() => openTaskDetail(task)}>
                   <TableCell className="font-medium">{task.title}</TableCell>
                   <TableCell>
-                    <Badge className={cn("text-[10px]", TASK_STATUS[task.status]?.badge)}>{task.status.replace("_", " ")}</Badge>
+                    <Badge className={cn("text-[10px]", getStatusToken(task.status).badge)}>{getStatusLabel(task.status)}</Badge>
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className={cn("text-[10px]", PRIORITY[task.priority]?.badge)}>{task.priority}</Badge>

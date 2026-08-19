@@ -72,6 +72,10 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
         case "graph_edge":
           queryKeys.push(["graph"]);
           break;
+        case "notification":
+          // A new in-app notification landed — refresh the bell badge and list.
+          queryKeys.push(["notifications"], ["notifications-count"]);
+          break;
         default:
           queryKeys.push([entityType]);
       }

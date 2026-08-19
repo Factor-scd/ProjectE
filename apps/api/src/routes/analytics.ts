@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { db, tasks, habits, habitCompletions, projects } from "@project-e/db";
-import { and, eq, gte, inArray, isNull, or } from "drizzle-orm";
+import { db, tasks, habits, habitCompletions, projects, statusDefinitions } from "@project-e/db";
+import { and, eq, gte, getTableColumns, inArray, isNull, or } from "drizzle-orm";
 import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
 
 export const analyticsRoutes = new Hono();
@@ -22,15 +22,18 @@ analyticsRoutes.get("/productivity", async (c) => {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - range);
 
-    const allTasks = await db.select()
+    const taskColumns = getTableColumns(tasks);
+    const allTasks = await db.select({ ...taskColumns, statusCategory: statusDefinitions.category })
       .from(tasks)
+      .leftJoin(statusDefinitions, eq(tasks.statusId, statusDefinitions.id))
       .where(and(
         eq(tasks.domainId, domainId),
         gte(tasks.createdAt, startDate),
         isNull(tasks.deletedAt),
       ));
 
-    const completedTasks = allTasks.filter(t => t.status === "done");
+    // "Done" is a status category; a status marked category='done' completes a task.
+    const completedTasks = allTasks.filter(t => t.statusCategory === "done");
     const taskCompletionRate = allTasks.length > 0 ? Math.round((completedTasks.length / allTasks.length) * 100) : 0;
 
     return c.json({
@@ -127,8 +130,9 @@ analyticsRoutes.get("/projects", async (c) => {
 
     // Count tasks per project (any status, including non-done) for the domain
     const taskRows = projectIds.length > 0
-      ? await db.select({ projectId: tasks.projectId, status: tasks.status })
+      ? await db.select({ projectId: tasks.projectId, statusCategory: statusDefinitions.category })
           .from(tasks)
+          .leftJoin(statusDefinitions, eq(tasks.statusId, statusDefinitions.id))
           .where(and(
             isNull(tasks.deletedAt),
             inArray(tasks.projectId, projectIds),
@@ -140,7 +144,7 @@ analyticsRoutes.get("/projects", async (c) => {
       if (!t.projectId) continue;
       const entry = counts.get(t.projectId) ?? { totalTasks: 0, completedTasks: 0 };
       entry.totalTasks += 1;
-      if (t.status === "done") entry.completedTasks += 1;
+      if (t.statusCategory === "done") entry.completedTasks += 1;
       counts.set(t.projectId, entry);
     }
 
@@ -191,8 +195,10 @@ analyticsRoutes.get("/daily", async (c) => {
     firstDay.setDate(firstDay.getDate() - (range - 1));
     firstDay.setHours(0, 0, 0, 0);
 
-    const domainTasks = await db.select()
+    const dailyTaskColumns = getTableColumns(tasks);
+    const domainTasks = await db.select({ ...dailyTaskColumns, statusCategory: statusDefinitions.category })
       .from(tasks)
+      .leftJoin(statusDefinitions, eq(tasks.statusId, statusDefinitions.id))
       .where(and(
         eq(tasks.domainId, domainId),
         isNull(tasks.deletedAt),
@@ -216,7 +222,7 @@ analyticsRoutes.get("/daily", async (c) => {
     for (const t of domainTasks) {
       const createdKey = localDateKey(t.createdAt);
       createdByDay.set(createdKey, (createdByDay.get(createdKey) || 0) + 1);
-      if (t.status === "done" && t.completedAt) {
+      if (t.statusCategory === "done" && t.completedAt) {
         const completedKey = localDateKey(t.completedAt);
         completedByDay.set(completedKey, (completedByDay.get(completedKey) || 0) + 1);
       }

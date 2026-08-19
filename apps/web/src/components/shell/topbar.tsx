@@ -1,12 +1,10 @@
-import { Search, Bell, Plus, Menu, RefreshCw } from "lucide-react";
+import { Search, Plus, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSidebarStore } from "@/lib/stores/use-sidebar-store";
-import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useAuthStore } from "@/lib/stores/use-auth-store";
-import { useApiQuery } from "@/lib/api";
 import { useNavigate } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
 import { DomainPicker } from "@/components/shell/domain-picker";
+import { NotificationCenter } from "@/components/notification-center";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -21,27 +19,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { formatDistanceToNow } from "date-fns";
-import type { NotificationsResponse } from "@/lib/types";
-
-const ACTION_LABELS: Record<string, string> = {
-  created: "created",
-  updated: "updated",
-  deleted: "deleted",
-  completed: "completed",
-};
-
-function readableEntityType(entityType: string): string {
-  return entityType
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (ch) => ch.toUpperCase());
-}
 
 export function Topbar() {
   const { setMobileOpen } = useSidebarStore();
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const domainId = useApiDomain();
   const user = useAuthStore((s) => s.user);
   const userName = user?.name || "User";
   const userEmail = user?.email || "";
@@ -50,20 +31,6 @@ export function Topbar() {
   const openPalette = () => {
     document.dispatchEvent(new CustomEvent("open-command-palette"));
   };
-
-  const { data: notificationsData } = useApiQuery<NotificationsResponse>(
-    ["notifications", domainId],
-    "/notifications?workspace_id=" + encodeURIComponent(domainId),
-    { enabled: !!domainId, refetchInterval: 60_000 }
-  );
-
-  const notifications = notificationsData?.items || [];
-  const count = notificationsData?.count || 0;
-  const badgeLabel = count > 99 ? "99+" : String(count);
-  const tooltipText =
-    count === 0
-      ? "No notifications"
-      : `${count} unread notification${count === 1 ? "" : "s"}`;
 
   return (
     <header
@@ -119,67 +86,15 @@ export function Topbar() {
           </Tooltip>
         </TooltipProvider>
 
-        {/* Notifications bell */}
-        <TooltipProvider>
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
-                    <Bell className="h-5 w-5" />
-                    {count > 0 && (
-                      <span
-                        aria-hidden="true"
-                        className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground"
-                      >
-                        {badgeLabel}
-                      </span>
-                    )}
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>{tooltipText}</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-80">
-              <div className="flex items-center justify-between px-2 py-1.5">
-                <span className="text-sm font-medium">Notifications</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => queryClient.invalidateQueries({ queryKey: ["notifications"] })}
-                >
-                  <RefreshCw className="h-3 w-3 mr-1" />Refresh
-                </Button>
-              </div>
-              <DropdownMenuSeparator />
-              {notifications.length === 0 ? (
-                <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-                  No notifications
-                </div>
-              ) : (
-                notifications.slice(0, 10).map((n) => (
-                  <DropdownMenuItem key={n.id} className="flex cursor-default flex-col items-start gap-0.5 py-2">
-                    <span className="text-sm capitalize">
-                      {readableEntityType(n.entityType)}{" "}
-                      {ACTION_LABELS[n.action] || n.action}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {n.actor} &middot; {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
-                    </span>
-                  </DropdownMenuItem>
-                ))
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </TooltipProvider>
+        {/* Notifications bell (badge + slide-out panel) */}
+        <NotificationCenter />
 
         {/* User avatar */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-9 w-9">
               <Avatar className="h-8 w-8">
-                <AvatarFallback className="text-xs">U</AvatarFallback>
+                <AvatarFallback className="text-xs">{userInitials}</AvatarFallback>
               </Avatar>
             </Button>
           </DropdownMenuTrigger>

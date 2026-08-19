@@ -19,6 +19,7 @@
     "db:generate": "drizzle-kit generate",
     "db:sync": "drizzle-kit push --force",
     "db:triggers": "bun script/apply-triggers.ts",
+    "db:statuses": "bun script/migrate-task-statuses.ts",
     "db:migrate": "bun run db:sync && bun run db:triggers",
     "deploy": "bash script/deploy.sh"
   },

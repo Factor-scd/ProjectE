@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { createHash } from "node:crypto";
-import { db, apiKeys, users, tasks, taskTags, tags as tagsTable, habits, habitCompletions, projects, notes, noteLinks, domains, activityFeed, webhooks, webhookDeliveries } from "@project-e/db";
-import { and, asc, desc, eq, ilike, isNull, or } from "drizzle-orm";
+import { db, apiKeys, users, tasks, taskTags, tags as tagsTable, habits, habitCompletions, projects, notes, noteLinks, domains, activityFeed, webhooks, webhookDeliveries, statusDefinitions } from "@project-e/db";
+import { and, asc, desc, eq, ilike, inArray, isNull, or } from "drizzle-orm";
 import { recordActivity } from "../middleware/activity";
 
 export const mcpRoutes = new Hono();
@@ -81,7 +81,8 @@ const tools: ToolDefinition[] = [
       type: "object",
       properties: {
         domain_id: { type: "string", description: "Workspace/domain ID" },
-        status: { type: "string", enum: ["todo", "in_progress", "done", "cancelled"] },
+        status: { type: "string", description: "Filter by status category (todo, in_progress, done, cancelled)" },
+        status_id: { type: "string", description: "Filter by a specific status definition ID" },
         priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
         project_id: { type: "string" },
         search: { type: "string" },
@@ -95,7 +96,14 @@ const tools: ToolDefinition[] = [
         eq(tasks.domainId, params.domain_id as string),
         isNull(tasks.deletedAt),
       ];
-      if (params.status) conditions.push(eq(tasks.status, params.status as any));
+      if (params.status_id) conditions.push(eq(tasks.statusId, params.status_id as string));
+      if (params.status) {
+        // Category filter — match every status definition in that category.
+        const matching = await db.select({ id: statusDefinitions.id })
+          .from(statusDefinitions)
+          .where(eq(statusDefinitions.category, params.status as any));
+        conditions.push(inArray(tasks.statusId, matching.map((s) => s.id)));
+      }
       if (params.priority) conditions.push(eq(tasks.priority, params.priority as any));
       if (params.project_id) conditions.push(eq(tasks.projectId, params.project_id as string));
       if (params.search) conditions.push(ilike(tasks.title, `%${params.search}%`));
@@ -119,7 +127,7 @@ const tools: ToolDefinition[] = [
         domain_id: { type: "string", description: "Workspace/domain ID" },
         title: { type: "string" },
         description: { type: "string" },
-        status: { type: "string", enum: ["todo", "in_progress", "done", "cancelled"] },
+        status_id: { type: "string", description: "Status definition ID (defaults to the project's default status)" },
         priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
         due_date: { type: "string" },
         project_id: { type: "string" },
@@ -127,10 +135,33 @@ const tools: ToolDefinition[] = [
       required: ["domain_id", "title"],
     },
     handler: async (params, auth) => {
+      // Resolve status: explicit status_id, else the project's default status.
+      let statusId = (params.status_id as string) ?? null;
+      let completedAt = null;
+      if (statusId) {
+        const [status] = await db.select({ id: statusDefinitions.id, projectId: statusDefinitions.projectId, category: statusDefinitions.category })
+          .from(statusDefinitions)
+          .where(eq(statusDefinitions.id, statusId))
+          .limit(1);
+        if (!status) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Status not found");
+        if (!params.project_id || status.projectId !== params.project_id) {
+          throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Status does not belong to the selected project");
+        }
+        completedAt = status.category === "done" ? new Date() : null;
+      } else if (params.project_id) {
+        const [defaultStatus] = await db.select({ id: statusDefinitions.id, category: statusDefinitions.category })
+          .from(statusDefinitions)
+          .where(and(eq(statusDefinitions.projectId, params.project_id as string), eq(statusDefinitions.isDefault, true)))
+          .limit(1);
+        statusId = defaultStatus?.id ?? null;
+        completedAt = defaultStatus?.category === "done" ? new Date() : null;
+      }
+
       const [task] = await db.insert(tasks).values({
         title: params.title as string,
         description: (params.description as string) ?? null,
-        status: (params.status as any) ?? "todo",
+        statusId,
+        completedAt,
         priority: (params.priority as any) ?? "medium",
         domainId: params.domain_id as string,
         projectId: (params.project_id as string) ?? null,
@@ -142,7 +173,7 @@ const tools: ToolDefinition[] = [
         action: "created",
         entityType: "task",
         entityId: task.id,
-        changes: { title: task.title, status: task.status },
+        changes: { title: task.title, statusId: task.statusId },
         workspaceId: params.domain_id as string,
       });
 
@@ -158,7 +189,7 @@ const tools: ToolDefinition[] = [
         task_id: { type: "string" },
         title: { type: "string" },
         description: { type: "string" },
-        status: { type: "string", enum: ["todo", "in_progress", "done", "cancelled"] },
+        status_id: { type: "string", description: "Status definition ID (must belong to the task's project)" },
         priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
         due_date: { type: "string" },
       },
@@ -172,7 +203,19 @@ const tools: ToolDefinition[] = [
       const updateData: Record<string, unknown> = {};
       if (params.title !== undefined) updateData.title = params.title;
       if (params.description !== undefined) updateData.description = params.description;
-      if (params.status !== undefined) updateData.status = params.status;
+      if (params.status_id !== undefined) {
+        const statusId = params.status_id as string;
+        const [status] = await db.select({ id: statusDefinitions.id, projectId: statusDefinitions.projectId, category: statusDefinitions.category })
+          .from(statusDefinitions)
+          .where(eq(statusDefinitions.id, statusId))
+          .limit(1);
+        if (!status) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Status not found");
+        if (!existing.projectId || status.projectId !== existing.projectId) {
+          throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Status does not belong to the task's project");
+        }
+        updateData.statusId = statusId;
+        updateData.completedAt = status.category === "done" ? new Date() : null;
+      }
       if (params.priority !== undefined) updateData.priority = params.priority;
       if (params.due_date !== undefined) updateData.dueDate = params.due_date ? new Date(params.due_date as string) : null;
       updateData.updatedAt = new Date();
@@ -236,8 +279,21 @@ const tools: ToolDefinition[] = [
       if (!existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Task not found");
       await verifyDomainAccess(existing.domainId, auth.userId);
 
+      // Complete = move to the project's first "done"-category status.
+      const [doneStatus] = await db.select({ id: statusDefinitions.id })
+        .from(statusDefinitions)
+        .where(and(
+          eq(statusDefinitions.projectId, existing.projectId ?? ""),
+          eq(statusDefinitions.category, "done"),
+        ))
+        .orderBy(asc(statusDefinitions.sortOrder))
+        .limit(1);
+      if (!doneStatus) {
+        throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Project has no done-category status");
+      }
+
       const [task] = await db.update(tasks)
-        .set({ status: "done", completedAt: new Date(), updatedAt: new Date() })
+        .set({ statusId: doneStatus.id, completedAt: new Date(), updatedAt: new Date() })
         .where(and(eq(tasks.id, params.task_id as string), isNull(tasks.deletedAt)))
         .returning();
 
@@ -566,7 +622,7 @@ const tools: ToolDefinition[] = [
       const results: Record<string, unknown[]> = {};
 
       if (types.includes("tasks")) {
-        results.tasks = await db.select({ id: tasks.id, title: tasks.title, status: tasks.status, priority: tasks.priority }).from(tasks)
+        results.tasks = await db.select({ id: tasks.id, title: tasks.title, statusId: tasks.statusId, priority: tasks.priority }).from(tasks)
           .where(and(eq(tasks.domainId, domainId), isNull(tasks.deletedAt), ilike(tasks.title, `%${query}%`))).limit(limit);
       }
       if (types.includes("notes")) {

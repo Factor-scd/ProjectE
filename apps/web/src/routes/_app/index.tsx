@@ -37,7 +37,7 @@ function TasksDueWidget() {
   const { data } = useApiQuery<PaginatedResponse<Task>>(["tasks-due", activeDomainId], "/tasks?limit=10&status=todo,in_progress&sort=due_date" + domainSuffix);
   const tasks = data?.items || [];
   const today = tasks.filter((t) => t.dueDate && isToday(parseISO(t.dueDate)));
-  const overdue = tasks.filter((t) => t.dueDate && isPast(parseISO(t.dueDate)) && t.status !== "done");
+  const overdue = tasks.filter((t) => t.dueDate && isPast(parseISO(t.dueDate)) && t.status?.category !== "done");
   return (
     <div className="space-y-2">
       {today.length === 0 && overdue.length === 0 ? (

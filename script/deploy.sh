@@ -74,6 +74,8 @@ if ! bun install --frozen-lockfile; then
 fi
 
 # ── 6. Database schema + triggers (both idempotent) ───────────────────────
+echo "Backfilling custom task statuses (db:statuses) ..."
+bun run db:statuses
 echo "Migrating database schema + triggers (db:migrate) ..."
 bun run db:migrate
 

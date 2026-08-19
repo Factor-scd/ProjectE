@@ -10,6 +10,8 @@ import { domainRoutes } from "./routes/domains";
 import { taskRoutes } from "./routes/tasks";
 import { habitRoutes } from "./routes/habits";
 import { projectRoutes } from "./routes/projects";
+import { statusRoutes } from "./routes/statuses";
+import { automationRoutes } from "./routes/automations";
 import { noteRoutes } from "./routes/notes";
 import { searchRoutes } from "./routes/search";
 import { calendarRoutes } from "./routes/calendar";
@@ -27,6 +29,7 @@ import { analyticsRoutes } from "./routes/analytics";
 import { activityRoutes } from "./routes/activity";
 import { importExportRoutes } from "./routes/import-export";
 import { notificationRoutes } from "./routes/notifications";
+import { timelineRoutes } from "./routes/timeline";
 import { healthHandler } from "./routes/health";
 
 const app = new Hono();
@@ -48,6 +51,8 @@ app.route("/api/domains", domainRoutes);
 app.route("/api/tasks", taskRoutes);
 app.route("/api/habits", habitRoutes);
 app.route("/api/projects", projectRoutes);
+app.route("/api/projects", statusRoutes);
+app.route("/api/projects", automationRoutes);
 app.route("/api/notes", noteRoutes);
 app.route("/api/search", searchRoutes);
 app.route("/api/calendar", calendarRoutes);
@@ -66,6 +71,7 @@ app.route("/api/activity", activityRoutes);
 app.route("/api/notifications", notificationRoutes);
 app.route("/api", importExportRoutes);
 app.route("/api", realtimeRoutes);
+app.route("/api", timelineRoutes);
 app.route("/api/mcp", mcpRoutes);
 
 // Persist uncaught server errors so the Settings → Error Log tab shows real

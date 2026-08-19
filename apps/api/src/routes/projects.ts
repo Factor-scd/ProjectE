@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db, projects, tasks, sections, projectTags, tags as tagsTable, activityFeed } from "@project-e/db";
+import { db, projects, tasks, sections, projectTags, tags as tagsTable, activityFeed, statusDefinitions } from "@project-e/db";
 import { and, asc, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
 import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
@@ -9,6 +9,16 @@ import { z } from "zod";
 export const projectRoutes = new Hono();
 
 const projectStatusEnum = z.enum(["active", "paused", "completed", "archived"]);
+
+// Default workflow statuses seeded for every new project. `isDefault` marks the
+// status new tasks get (the "todo" start state). Categories map to progress and
+// board-column semantics.
+const DEFAULT_STATUSES = [
+  { key: "todo", label: "Todo", category: "todo", color: "#94a3b8", sortOrder: 0, isDefault: true },
+  { key: "in_progress", label: "In Progress", category: "in_progress", color: "#3b82f6", sortOrder: 1, isDefault: false },
+  { key: "done", label: "Done", category: "done", color: "#22c55e", sortOrder: 2, isDefault: false },
+  { key: "cancelled", label: "Cancelled", category: "cancelled", color: "#ef4444", sortOrder: 3, isDefault: false },
+] as const;
 
 const createProjectSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -113,9 +123,10 @@ projectRoutes.get("/", async (c) => {
 
     const totalItems = Number(countResult[0]?.count || 0);
 
-    // Fetch task counts and tags for all projects
+    // Fetch task counts, status definitions and tags for all projects
     let projectTagMap = new Map<string, { id: string; name: string; color: string | null }[]>();
     let taskCountMap = new Map<string, { total: number; completed: number }>();
+    let statusMap = new Map<string, typeof statusDefinitions.$inferSelect[]>();
 
     if (items.length > 0) {
       const projectIds = items.map(p => p.id);
@@ -136,15 +147,32 @@ projectRoutes.get("/", async (c) => {
         projectTagMap.get(row.projectId)!.push({ id: row.id, name: row.name, color: row.color });
       }
 
+      // Status definitions
+      const statusRows = await db.select()
+        .from(statusDefinitions)
+        .where(inArray(statusDefinitions.projectId, projectIds))
+        .orderBy(asc(statusDefinitions.sortOrder), asc(statusDefinitions.createdAt));
+      for (const row of statusRows) {
+        if (!statusMap.has(row.projectId)) statusMap.set(row.projectId, []);
+        statusMap.get(row.projectId)!.push(row);
+      }
+
       // Task counts
       for (const projectId of projectIds) {
         const [totalResult] = await db.select({ count: sql<number>`count(*)` })
           .from(tasks)
           .where(and(eq(tasks.projectId, projectId), isNull(tasks.deletedAt)));
 
+        // "Done" is a status category, not a fixed status — a project's status
+        // workflow can mark any status with category='done' as completing.
         const [completedResult] = await db.select({ count: sql<number>`count(*)` })
           .from(tasks)
-          .where(and(eq(tasks.projectId, projectId), eq(tasks.status, "done"), isNull(tasks.deletedAt)));
+          .innerJoin(statusDefinitions, eq(tasks.statusId, statusDefinitions.id))
+          .where(and(
+            eq(tasks.projectId, projectId),
+            eq(statusDefinitions.category, "done"),
+            isNull(tasks.deletedAt),
+          ));
 
         taskCountMap.set(projectId, {
           total: Number(totalResult?.count || 0),
@@ -158,6 +186,7 @@ projectRoutes.get("/", async (c) => {
       return {
         ...p,
         tags: projectTagMap.get(p.id) || [],
+        statuses: statusMap.get(p.id) || [],
         taskCount: counts.total,
         completedCount: counts.completed,
         progress: counts.total > 0 ? Math.round((counts.completed / counts.total) * 100) : 0,
@@ -204,6 +233,11 @@ projectRoutes.post("/", async (c) => {
       targetDate: data.targetDate ? new Date(data.targetDate) : null,
     }).returning();
 
+    // Seed the default workflow statuses so a new project is usable immediately.
+    const seededStatuses = await db.insert(statusDefinitions).values(
+      DEFAULT_STATUSES.map((s) => ({ ...s, projectId: project.id }))
+    ).returning();
+
     if (data.tagIds && data.tagIds.length > 0) {
       await db.insert(projectTags).values(
         data.tagIds.map(tagId => ({ projectId: project.id, tagId }))
@@ -221,7 +255,7 @@ projectRoutes.post("/", async (c) => {
 
     await enqueueWebhooks({ workspaceId: data.domain, event: "project.created", entityType: "project", entityId: project.id, data: { name: project.name } });
 
-    return c.json(project, 201);
+    return c.json({ ...project, statuses: seededStatuses }, 201);
   } catch (error) {
     if (error instanceof AuthError) {
       return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
@@ -260,11 +294,22 @@ projectRoutes.get("/:id", async (c) => {
       .where(eq(sections.projectId, id))
       .orderBy(asc(sections.sortOrder));
 
-    // Fetch tasks
-    const projectTasks = await db.select()
+    // Fetch the project's status workflow
+    const projectStatuses = await db.select()
+      .from(statusDefinitions)
+      .where(eq(statusDefinitions.projectId, id))
+      .orderBy(asc(statusDefinitions.sortOrder), asc(statusDefinitions.createdAt));
+    const statusById = new Map(projectStatuses.map((s) => [s.id, s]));
+
+    // Fetch tasks (with their status definition embedded)
+    const taskColumns = db.select()
       .from(tasks)
       .where(and(eq(tasks.projectId, id), isNull(tasks.deletedAt)))
       .orderBy(asc(tasks.order));
+    const projectTasks = (await taskColumns).map((t) => ({
+      ...t,
+      status: t.statusId ? statusById.get(t.statusId) ?? null : null,
+    }));
 
     // Fetch tags
     const tagRows = await db.select({
@@ -277,13 +322,14 @@ projectRoutes.get("/:id", async (c) => {
       .where(eq(projectTags.projectId, id));
 
     const totalTasks = projectTasks.length;
-    const completedTasks = projectTasks.filter(t => t.status === "done").length;
+    const completedTasks = projectTasks.filter((t) => t.status?.category === "done").length;
     const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
     return c.json({
       ...project,
       sections: projectSections,
       tasks: projectTasks,
+      statuses: projectStatuses,
       tags: tagRows,
       taskCount: totalTasks,
       completedCount: completedTasks,

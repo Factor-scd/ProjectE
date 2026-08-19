@@ -1,6 +1,9 @@
 // ── Task ─────────────────────────────────────────────────────────────────────
 
+// @deprecated — task status is now a per-project status_definition row.
+// Kept as the category enum / default fallback only.
 export const TASK_STATUS = ['todo', 'in_progress', 'done', 'cancelled'] as const;
+export const TASK_STATUS_CATEGORY = ['todo', 'in_progress', 'done', 'cancelled'] as const;
 export const TASK_PRIORITY = ['low', 'medium', 'high', 'urgent'] as const;
 
 // ── Habit ────────────────────────────────────────────────────────────────────
