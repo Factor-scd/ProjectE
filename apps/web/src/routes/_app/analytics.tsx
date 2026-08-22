@@ -24,6 +24,8 @@ function AnalyticsPage() {
   const { data: habitData, isLoading: habitsLoading, error: habitsError, refetch: refetchHabits } = useApiQuery<HabitAnalytics>(["analytics-habits", activeDomainId, range], "/analytics/habits?range=" + range + domainSuffix);
   const { data: projectData, isLoading: projectsLoading, error: projectsError, refetch: refetchProjects } = useApiQuery<ProjectAnalytics>(["analytics-projects", activeDomainId, range], "/analytics/projects?range=" + range + domainSuffix);
   const { data: dailyData, isLoading: dailyLoading, error: dailyError, refetch: refetchDaily } = useApiQuery<DailyAnalytics>(["analytics-daily", activeDomainId, range], "/analytics/daily?range=" + range + domainSuffix);
+  const { data: velocityData } = useApiQuery<{ items: Array<{date:string;completed:number}>; avg:number }>(["analytics-velocity", activeDomainId, range], "/analytics/velocity?range=" + range + domainSuffix);
+  const { data: cycleData } = useApiQuery<{ median:number; avg:number; count:number }>(["analytics-cycle", activeDomainId, range], "/analytics/cycle?range=" + range + domainSuffix);
 
   const analyticsLoading = habitsLoading || projectsLoading || dailyLoading;
   const analyticsError = habitsError || projectsError || dailyError;
@@ -36,9 +38,10 @@ function AnalyticsPage() {
   const dailyItems = dailyData?.items || [];
 
   const habitRateData = useMemo(() => {
+    const expected = (habitData as any)?.totalExpected ?? (habitData?.totalHabits || 0) * parseInt(range);
     return [
       { name: "Completed", value: habitData?.totalLogs || 0 },
-      { name: "Missed", value: Math.max(0, (habitData?.totalHabits || 1) * parseInt(range) - (habitData?.totalLogs || 0)) },
+      { name: "Missed", value: Math.max(0, expected - (habitData?.totalLogs || 0)) },
     ];
   }, [habitData, range]);
 
@@ -159,6 +162,30 @@ function AnalyticsPage() {
           </CardHeader>
           <CardContent className="p-4">
             <CalendarHeatmap data={dailyItems.map((d) => ({ date: d.date, count: d.completed }))} days={parseInt(range)} />
+          </CardContent>
+        </Card>
+
+        {/* Velocity */}
+        <Card>
+          <CardHeader className="p-4 pb-0 flex flex-row items-center justify-between">
+            <CardTitle className="text-sm font-semibold">Velocity</CardTitle>
+            <span className="text-xs text-muted-foreground">avg {velocityData?.avg ?? 0}/day</span>
+          </CardHeader>
+          <CardContent className="p-4">
+            {velocityData?.items ? <LineChart data={velocityData.items} xKey="date" yKey="completed" /> : <p className="text-sm text-muted-foreground">No data</p>}
+          </CardContent>
+        </Card>
+
+        {/* Cycle time */}
+        <Card>
+          <CardHeader className="p-4 pb-0 flex flex-row items-center justify-between">
+            <CardTitle className="text-sm font-semibold">Cycle Time</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4">
+            <div className="text-center py-4">
+              <p className="text-2xl font-bold">{cycleData ? `${cycleData.median}d median · ${cycleData.avg}d avg` : "—"}</p>
+              <p className="text-xs text-muted-foreground">{cycleData?.count ?? 0} tasks completed in range</p>
+            </div>
           </CardContent>
         </Card>
       </div>

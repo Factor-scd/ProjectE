@@ -1,60 +1,21 @@
 import { Hono } from "hono";
-import { db, tasks, taskTags, tags as tagsTable, taskDependencies, activityFeed, scheduledJobs, projects, sections, statusDefinitions } from "@project-e/db";
-import { and, asc, desc, eq, exists, getTableColumns, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { db, tasks, taskTags, tags as tagsTable, taskDependencies, activityFeed, scheduledJobs, projects, sections } from "@project-e/db";
+import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { enqueueWebhooks } from "../middleware/webhook-queue";
-import { notifyWorkspaceOwner } from "../lib/notify";
-import { evaluateAutomations } from "../lib/automation-engine";
 import { z } from "zod";
 import { RRule } from "rrule";
 
 export const taskRoutes = new Hono();
 
-const STATUS_CATEGORIES = ["todo", "in_progress", "done", "cancelled"] as const;
+const taskStatusEnum = z.enum(["todo", "in_progress", "done", "cancelled"]);
 const taskPriorityEnum = z.enum(["low", "medium", "high", "urgent"]);
-
-// Columns of the status_definitions table flattened onto a task row as `status`
-// (null when the task has no status or its status was deleted).
-const statusColumns = {
-  id: statusDefinitions.id,
-  projectId: statusDefinitions.projectId,
-  key: statusDefinitions.key,
-  label: statusDefinitions.label,
-  category: statusDefinitions.category,
-  color: statusDefinitions.color,
-  sortOrder: statusDefinitions.sortOrder,
-  isDefault: statusDefinitions.isDefault,
-};
-
-type StatusRow = typeof statusDefinitions.$inferSelect;
-
-async function getProjectStatuses(projectId: string | null | undefined): Promise<StatusRow[]> {
-  if (!projectId) return [];
-  return db.select().from(statusDefinitions)
-    .where(eq(statusDefinitions.projectId, projectId))
-    .orderBy(asc(statusDefinitions.sortOrder), asc(statusDefinitions.createdAt));
-}
-
-async function getDefaultStatusId(projectId: string | null | undefined): Promise<string | null> {
-  if (!projectId) return null;
-  const statuses = await getProjectStatuses(projectId);
-  return statuses.find((s) => s.isDefault)?.id ?? statuses[0]?.id ?? null;
-}
-
-async function getStatusCategory(statusId: string | null | undefined): Promise<string | null> {
-  if (!statusId) return null;
-  const [status] = await db.select({ category: statusDefinitions.category })
-    .from(statusDefinitions)
-    .where(eq(statusDefinitions.id, statusId))
-    .limit(1);
-  return status?.category ?? null;
-}
 
 const createTaskSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional().nullable(),
-  statusId: z.string().uuid().optional().nullable(),
+  status: taskStatusEnum.optional().default("todo"),
   priority: taskPriorityEnum.optional().default("medium"),
   domain: z.string().min(1, "Domain is required"),
   projectId: z.string().uuid().optional().nullable(),
@@ -66,12 +27,13 @@ const createTaskSchema = z.object({
   customFields: z.record(z.string(), z.unknown()).optional(),
   recurrenceRule: z.string().optional().nullable(),
   tagIds: z.array(z.string().uuid()).optional(),
+  tagNames: z.array(z.string().min(1)).optional(),
 });
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
-  statusId: z.string().uuid().optional().nullable(),
+  status: taskStatusEnum.optional(),
   priority: taskPriorityEnum.optional(),
   projectId: z.string().uuid().optional().nullable(),
   sectionId: z.string().uuid().optional().nullable(),
@@ -150,16 +112,8 @@ taskRoutes.get("/", async (c) => {
     ];
 
     if (status) {
-      // Filter by category name (todo/in_progress/...) or by status definition
-      // id (uuid). Category filters match every project's statuses in that
-      // category; id filters target one specific project status.
-      const values = status.split(",").map((v) => v.trim()).filter(Boolean);
-      const categoryValues = values.filter((v) => (STATUS_CATEGORIES as readonly string[]).includes(v));
-      const idValues = values.filter((v) => isUuid(v));
-      const statusConds: any[] = [];
-      if (categoryValues.length > 0) statusConds.push(inArray(statusDefinitions.category, categoryValues as any));
-      if (idValues.length > 0) statusConds.push(inArray(statusDefinitions.id, idValues));
-      if (statusConds.length > 0) conditions.push(or(...statusConds));
+      const statuses = status.split(",");
+      conditions.push(inArray(tasks.status, statuses as any));
     }
     if (priority) {
       const priorities = priority.split(",");
@@ -211,7 +165,7 @@ taskRoutes.get("/", async (c) => {
       created: tasks.createdAt,
       updated: tasks.updatedAt,
       title: tasks.title,
-      status: statusDefinitions.sortOrder,
+      status: tasks.status,
       priority: tasks.priority,
       order: tasks.order,
       due_date: tasks.dueDate,
@@ -222,18 +176,15 @@ taskRoutes.get("/", async (c) => {
       ? asc(sortColumns[sortField] || tasks.createdAt)
       : desc(sortColumns[sortField] || tasks.createdAt);
 
-    const taskColumns = getTableColumns(tasks);
     const [items, countResult] = await Promise.all([
-      db.select({ ...taskColumns, status: statusColumns })
+      db.select()
         .from(tasks)
-        .leftJoin(statusDefinitions, eq(tasks.statusId, statusDefinitions.id))
         .where(and(...conditions))
         .orderBy(orderColumn)
         .limit(limit || perPage)
         .offset(offset || (page - 1) * perPage),
       db.select({ count: sql<number>`count(*)` })
         .from(tasks)
-        .leftJoin(statusDefinitions, eq(tasks.statusId, statusDefinitions.id))
         .where(and(...conditions)),
     ]);
 
@@ -343,47 +294,39 @@ taskRoutes.post("/", async (c) => {
       }
     }
 
-    // Resolve the task's status definition. A status is per-project, so it may
-    // only be set when the task belongs to a project, and the status must belong
-    // to that project. When omitted, the project's default status is used.
-    let statusId = data.statusId ?? null;
-    if (data.statusId) {
-      const [status] = await db.select({ id: statusDefinitions.id, projectId: statusDefinitions.projectId })
-        .from(statusDefinitions)
-        .where(eq(statusDefinitions.id, data.statusId))
-        .limit(1);
-      if (!status) {
-        return c.json({ error: { code: "NOT_FOUND", message: "Status not found" } }, 404);
-      }
-      if (!data.projectId || status.projectId !== data.projectId) {
-        return c.json({ error: { code: "VALIDATION_ERROR", message: "Status does not belong to the selected project" } }, 400);
-      }
-    } else if (data.projectId) {
-      statusId = await getDefaultStatusId(data.projectId);
-    }
-    const statusCategory = await getStatusCategory(statusId);
-
     const [task] = await db.insert(tasks).values({
       title: data.title,
       description: data.description ?? null,
-      statusId,
+      status: data.status,
       priority: data.priority,
       domainId: data.domain,
       projectId: data.projectId ?? null,
       sectionId: data.sectionId ?? null,
       parentId: data.parentId ?? null,
       dueDate: data.dueDate ? new Date(data.dueDate) : null,
-      completedAt: statusCategory === "done" ? new Date() : null,
       estimatedMinutes: data.estimatedMinutes ?? null,
       order: data.order ?? 0,
       customFields: data.customFields ?? {},
       recurrenceRule: data.recurrenceRule ?? null,
     }).returning();
 
-    if (data.tagIds && data.tagIds.length > 0) {
+    const tagIdsToLink: string[] = [...(data.tagIds || [])];
+    if ((data as any).tagNames && (data as any).tagNames.length > 0) {
+      for (const rawName of (data as any).tagNames) {
+        const name = rawName.trim().toLowerCase();
+        if (!name) continue;
+        let [existing] = await db.select({ id: tagsTable.id }).from(tagsTable).where(eq(tagsTable.name, name)).limit(1);
+        if (!existing) {
+          const [created] = await db.insert(tagsTable).values({ name, scope: "tasks" as any }).returning({ id: tagsTable.id });
+          existing = created;
+        }
+        if (existing && !tagIdsToLink.includes(existing.id)) tagIdsToLink.push(existing.id);
+      }
+    }
+    if (tagIdsToLink.length > 0) {
       await db.insert(taskTags).values(
-        data.tagIds.map(tagId => ({ taskId: task.id, tagId }))
-      );
+        tagIdsToLink.map(tagId => ({ taskId: task.id, tagId }))
+      ).onConflictDoNothing();
     }
 
     await recordActivity({
@@ -391,39 +334,15 @@ taskRoutes.post("/", async (c) => {
       action: "created",
       entityType: "task",
       entityId: task.id,
-      changes: { title: task.title, statusId: task.statusId, priority: task.priority },
+      changes: { title: task.title, status: task.status, priority: task.priority },
       workspaceId: data.domain,
     });
 
     await enqueueWebhooks({ workspaceId: data.domain, event: "task.created", entityType: "task", entityId: task.id, data: { title: task.title } });
 
-    // MVP single-user: the workspace owner is the only assignee, so a new task
-    // is treated as an assignment to them.
-    try {
-      await notifyWorkspaceOwner({
-        workspaceId: data.domain,
-        type: "assignment",
-        title: "New task assigned to you",
-        body: `"${task.title}" was created${user.name ? ` by ${user.name}` : ""}`,
-        entityType: "task",
-        entityId: task.id,
-      });
-    } catch (notifyError) {
-      console.error(`[tasks] Failed to create assignment notification for task ${task.id}:`, notifyError);
-    }
-
     if (data.recurrenceRule) {
       await syncScheduledJob(task.id, data.recurrenceRule);
     }
-
-    // Fire "task created" automation rules (e.g. set a default priority/label).
-    await evaluateAutomations({
-      projectId: task.projectId,
-      triggerType: "task_created",
-      entity: task,
-      changes: {},
-      actor: user.name,
-    });
 
     return c.json(task, 201);
   } catch (error) {
@@ -512,10 +431,8 @@ taskRoutes.get("/:id", async (c) => {
       return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
     }
 
-    const taskColumns = getTableColumns(tasks);
-    const [task] = await db.select({ ...taskColumns, status: statusColumns })
+    const [task] = await db.select()
       .from(tasks)
-      .leftJoin(statusDefinitions, eq(tasks.statusId, statusDefinitions.id))
       .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
       .limit(1);
 
@@ -526,9 +443,8 @@ taskRoutes.get("/:id", async (c) => {
     await requireWorkspaceAccess(c, task.domainId);
 
     // Fetch subtasks
-    const subtasks = await db.select({ ...taskColumns, status: statusColumns })
+    const subtasks = await db.select()
       .from(tasks)
-      .leftJoin(statusDefinitions, eq(tasks.statusId, statusDefinitions.id))
       .where(and(eq(tasks.parentId, id), isNull(tasks.deletedAt)))
       .orderBy(asc(tasks.order));
 
@@ -546,24 +462,20 @@ taskRoutes.get("/:id", async (c) => {
     const depRows = await db.select({
       id: tasks.id,
       title: tasks.title,
-      statusId: tasks.statusId,
-      status: statusColumns,
+      status: tasks.status,
     })
       .from(taskDependencies)
       .innerJoin(tasks, eq(taskDependencies.dependsOnTaskId, tasks.id))
-      .leftJoin(statusDefinitions, eq(tasks.statusId, statusDefinitions.id))
       .where(and(eq(taskDependencies.taskId, id), isNull(tasks.deletedAt)));
 
     // Fetch dependents (tasks that depend on this task)
     const dependentRows = await db.select({
       id: tasks.id,
       title: tasks.title,
-      statusId: tasks.statusId,
-      status: statusColumns,
+      status: tasks.status,
     })
       .from(taskDependencies)
       .innerJoin(tasks, eq(taskDependencies.taskId, tasks.id))
-      .leftJoin(statusDefinitions, eq(tasks.statusId, statusDefinitions.id))
       .where(and(eq(taskDependencies.dependsOnTaskId, id), isNull(tasks.deletedAt)));
 
     return c.json({
@@ -627,6 +539,7 @@ taskRoutes.patch("/:id", async (c) => {
     const updateValues: Record<string, unknown> = {};
     if (data.title !== undefined) updateValues.title = data.title;
     if (data.description !== undefined) updateValues.description = data.description;
+    if (data.status !== undefined) updateValues.status = data.status;
     if (data.priority !== undefined) updateValues.priority = data.priority;
     if (data.projectId !== undefined) updateValues.projectId = data.projectId;
     if (data.sectionId !== undefined) updateValues.sectionId = data.sectionId;
@@ -636,31 +549,6 @@ taskRoutes.patch("/:id", async (c) => {
     if (data.order !== undefined) updateValues.order = data.order;
     if (data.customFields !== undefined) updateValues.customFields = data.customFields;
     if (data.recurrenceRule !== undefined) updateValues.recurrenceRule = data.recurrenceRule;
-
-    // Status change: validate the status belongs to the task's project and keep
-    // completedAt in sync with the "done" category.
-    let newStatusLabel: string | null = null;
-    if (data.statusId !== undefined) {
-      const statusId = data.statusId ?? null;
-      if (statusId) {
-        const finalProjectId = (data.projectId !== undefined ? data.projectId : existing.projectId) ?? null;
-        const [status] = await db.select({ id: statusDefinitions.id, projectId: statusDefinitions.projectId, category: statusDefinitions.category, label: statusDefinitions.label })
-          .from(statusDefinitions)
-          .where(eq(statusDefinitions.id, statusId))
-          .limit(1);
-        if (!status) {
-          return c.json({ error: { code: "NOT_FOUND", message: "Status not found" } }, 404);
-        }
-        if (!finalProjectId || status.projectId !== finalProjectId) {
-          return c.json({ error: { code: "VALIDATION_ERROR", message: "Status does not belong to the task's project" } }, 400);
-        }
-        updateValues.completedAt = status.category === "done" ? new Date() : null;
-        newStatusLabel = status.label;
-      } else {
-        updateValues.completedAt = null;
-      }
-      updateValues.statusId = statusId;
-    }
     updateValues.updatedAt = new Date();
 
     const [updated] = await db.update(tasks)
@@ -673,42 +561,14 @@ taskRoutes.patch("/:id", async (c) => {
       action: "updated",
       entityType: "task",
       entityId: id,
-      changes: { ...data, previousStatusId: existing.statusId },
+      changes: { ...data, previousStatus: existing.status },
       workspaceId: existing.domainId,
     });
 
-    await enqueueWebhooks({ workspaceId: existing.domainId, event: "task.updated", entityType: "task", entityId: id, data: { ...data, previousStatusId: existing.statusId } });
-
-    // Notify on actual status changes only (not unrelated field updates).
-    if (data.statusId !== undefined && data.statusId !== existing.statusId) {
-      try {
-        await notifyWorkspaceOwner({
-          workspaceId: existing.domainId,
-          type: "status_change",
-          title: `Task moved to ${newStatusLabel ?? "a new status"}`,
-          body: `"${updated.title}" ${newStatusLabel ? `is now ${newStatusLabel}` : "changed status"}`,
-          entityType: "task",
-          entityId: id,
-        });
-      } catch (notifyError) {
-        console.error(`[tasks] Failed to create status-change notification for task ${id}:`, notifyError);
-      }
-    }
+    await enqueueWebhooks({ workspaceId: existing.domainId, event: "task.updated", entityType: "task", entityId: id, data: { ...data, previousStatus: existing.status } });
 
     if (data.recurrenceRule !== undefined) {
       await syncScheduledJob(id, data.recurrenceRule);
-    }
-
-    // Fire "status changed" automation rules when the status actually moved
-    // (e.g. when a status changes to Done, add a "shipped" label).
-    if (data.statusId !== undefined && data.statusId !== existing.statusId) {
-      await evaluateAutomations({
-        projectId: updated.projectId,
-        triggerType: "task_status_changed",
-        entity: updated,
-        changes: { previousStatusId: existing.statusId },
-        actor: user.name,
-      });
     }
 
     return c.json(updated);
@@ -992,7 +852,7 @@ taskRoutes.delete("/:id/dependencies/:depId", async (c) => {
   }
 });
 
-// POST /api/tasks/:id/status — Change task status (Kanban drag / completion)
+// POST /api/tasks/:id/status — Change task status (Kanban drag)
 taskRoutes.post("/:id/status", async (c) => {
   try {
     const user = await requireAuth(c);
@@ -1001,8 +861,8 @@ taskRoutes.post("/:id/status", async (c) => {
       return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
     }
     const body = await c.req.json();
-    const { statusId } = z.object({
-      statusId: z.string().uuid("Invalid status id"),
+    const { status: newStatus } = z.object({
+      status: taskStatusEnum,
     }).parse(body);
 
     const [existing] = await db.select()
@@ -1016,33 +876,13 @@ taskRoutes.post("/:id/status", async (c) => {
 
     await requireWorkspaceAccess(c, existing.domainId);
 
-    if (!existing.projectId) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "Tasks without a project cannot have a status" } }, 400);
-    }
-
-    // The status must belong to the task's project.
-    const [status] = await db.select({
-      id: statusDefinitions.id,
-      projectId: statusDefinitions.projectId,
-      category: statusDefinitions.category,
-      label: statusDefinitions.label,
-    })
-      .from(statusDefinitions)
-      .where(eq(statusDefinitions.id, statusId))
-      .limit(1);
-    if (!status) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Status not found" } }, 404);
-    }
-    if (status.projectId !== existing.projectId) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "Status does not belong to the task's project" } }, 400);
-    }
-
-    const isDone = status.category === "done";
     const updateValues: Record<string, unknown> = {
-      statusId,
-      completedAt: isDone ? new Date() : null,
+      status: newStatus,
       updatedAt: new Date(),
     };
+    if (newStatus === "done") {
+      updateValues.completedAt = new Date();
+    }
 
     const [updated] = await db.update(tasks)
       .set(updateValues)
@@ -1051,39 +891,14 @@ taskRoutes.post("/:id/status", async (c) => {
 
     await recordActivity({
       actor: user.name,
-      action: isDone ? "completed" : "updated",
+      action: newStatus === "done" ? "completed" : "updated",
       entityType: "task",
       entityId: id,
-      changes: { previousStatusId: existing.statusId, newStatusId: statusId, newStatusLabel: status.label },
+      changes: { previousStatus: existing.status, newStatus },
       workspaceId: existing.domainId,
     });
 
-    await enqueueWebhooks({ workspaceId: existing.domainId, event: "task.updated", entityType: "task", entityId: id, data: { previousStatusId: existing.statusId, newStatusId: statusId } });
-
-    // Fire "status changed" automation rules (Kanban drags and done checkboxes).
-    await evaluateAutomations({
-      projectId: updated.projectId,
-      triggerType: "task_status_changed",
-      entity: updated,
-      changes: { previousStatusId: existing.statusId },
-      actor: user.name,
-    });
-
-    // Notify the workspace owner (MVP single-user) of the status change.
-    try {
-      await notifyWorkspaceOwner({
-        workspaceId: existing.domainId,
-        type: "status_change",
-        title: `Task moved to ${status.label}`,
-        body: `"${existing.title}" is now ${status.label}`,
-        entityType: "task",
-        entityId: id,
-      });
-    } catch (notifyError) {
-      console.error(`[tasks] Failed to create status-change notification for task ${id}:`, notifyError);
-    }
-
-    return c.json({ ...updated, status });
+    return c.json(updated);
   } catch (error) {
     if (error instanceof AuthError) {
       return c.json({ error: { code: error.code, message: error.message } }, error.status as any);

@@ -1,5 +1,5 @@
-import { db, sql, jobs, webhooks, webhookDeliveries, scheduledJobs, tasks, statusDefinitions, projects, domains, notifications } from '@project-e/db';
-import { and, asc, eq, gte, lte, isNotNull, isNull, or } from 'drizzle-orm';
+import { db, jobs, webhooks, webhookDeliveries, scheduledJobs, tasks } from '@project-e/db';
+import { and, eq, lte, isNull, or } from 'drizzle-orm';
 import { createHmac } from 'node:crypto';
 import { RRule } from 'rrule';
 
@@ -21,10 +21,6 @@ async function poll(): Promise<void> {
     // Enqueue recurring_spawn jobs for due scheduled jobs before polling the
     // queue so they are picked up in the same iteration.
     const scheduledEnqueued = await processDueScheduledJobs();
-
-    // Create due-soon notifications for tasks whose due date approaches. Runs
-    // on every poll iteration but is deduped, so it is cheap in the steady state.
-    await processDueSoonNotifications();
 
     const now = new Date();
 
@@ -207,75 +203,6 @@ async function advanceScheduledJob(scheduled: typeof scheduledJobs.$inferSelect)
   }
 }
 
-// ── Due-soon notifications ─────────────────────────────────────────────────────
-
-const DUE_SOON_WINDOW_MS = 24 * 60 * 60 * 1000; // notify when due within 24h
-
-/**
- * Create a `due_soon` notification for each incomplete task whose due date is
- * within the next 24 hours. Deduped per task: a task is skipped when a
- * `due_soon` notification for it was already created in the last 24 hours, so
- * the user is not nagged on every poll iteration.
- */
-async function processDueSoonNotifications(): Promise<void> {
-  try {
-    const now = new Date();
-    const soon = new Date(now.getTime() + DUE_SOON_WINDOW_MS);
-
-    const dueTasks = await db.select({
-      id: tasks.id,
-      title: tasks.title,
-      dueDate: tasks.dueDate,
-      domainId: tasks.domainId,
-    })
-      .from(tasks)
-      .where(and(
-        isNull(tasks.deletedAt),
-        isNull(tasks.completedAt),
-        isNotNull(tasks.dueDate),
-        gte(tasks.dueDate, now),
-        lte(tasks.dueDate, soon),
-      ))
-      .limit(50);
-
-    for (const task of dueTasks) {
-      const [domain] = await db.select({ ownerId: domains.ownerId })
-        .from(domains)
-        .where(eq(domains.id, task.domainId))
-        .limit(1);
-      if (!domain?.ownerId) continue;
-
-      const [existing] = await db.select({ id: notifications.id })
-        .from(notifications)
-        .where(and(
-          eq(notifications.userId, domain.ownerId),
-          eq(notifications.type, 'due_soon'),
-          eq(notifications.entityType, 'task'),
-          eq(notifications.entityId, task.id),
-          gte(notifications.createdAt, new Date(now.getTime() - DUE_SOON_WINDOW_MS)),
-        ))
-        .limit(1);
-      if (existing) continue;
-
-      const [notification] = await db.insert(notifications).values({
-        userId: domain.ownerId,
-        workspaceId: task.domainId,
-        type: 'due_soon',
-        title: 'Task due soon',
-        body: `"${task.title}" is due within 24 hours`,
-        entityType: 'task',
-        entityId: task.id,
-      }).returning({ id: notifications.id });
-
-      const payload = JSON.stringify({ type: 'notification', action: 'created', id: notification.id, workspace_id: task.domainId });
-      await sql`SELECT pg_notify('project_e_events', ${payload}::text)`;
-      console.log(`[Worker] Due-soon notification created for task ${task.id}`);
-    }
-  } catch (error) {
-    console.error('[Worker] processDueSoonNotifications error:', error);
-  }
-}
-
 // ── Webhook delivery ─────────────────────────────────────────────────────────────
 
 async function handleWebhookDelivery(job: typeof jobs.$inferSelect): Promise<void> {
@@ -385,34 +312,11 @@ async function handleRecurringSpawn(job: typeof jobs.$inferSelect): Promise<void
       .limit(1);
 
     if (originalTask) {
-      // Resolve the project's default status so spawned instances start in the
-      // project's configured initial state instead of a hardcoded "todo".
-      let statusId: string | null = null;
-      if (originalTask.projectId) {
-        const [defaultStatus] = await db.select({ id: statusDefinitions.id })
-          .from(statusDefinitions)
-          .where(and(
-            eq(statusDefinitions.projectId, originalTask.projectId),
-            eq(statusDefinitions.isDefault, true),
-          ))
-          .limit(1);
-        if (defaultStatus) {
-          statusId = defaultStatus.id;
-        } else {
-          const [firstStatus] = await db.select({ id: statusDefinitions.id })
-            .from(statusDefinitions)
-            .where(eq(statusDefinitions.projectId, originalTask.projectId))
-            .orderBy(asc(statusDefinitions.sortOrder))
-            .limit(1);
-          statusId = firstStatus?.id ?? null;
-        }
-      }
-
       // Create a new task instance
-      const [spawned] = await db.insert(tasks).values({
+      await db.insert(tasks).values({
         title: originalTask.title,
         description: originalTask.description,
-        statusId,
+        status: 'todo',
         priority: originalTask.priority,
         domainId: originalTask.domainId,
         projectId: originalTask.projectId,
@@ -422,28 +326,8 @@ async function handleRecurringSpawn(job: typeof jobs.$inferSelect): Promise<void
         recurrenceRule: originalTask.recurrenceRule,
         order: originalTask.order,
         customFields: originalTask.customFields,
-      }).returning({ id: tasks.id });
+      });
       console.log(`[Worker] Spawned new task instance for ${scheduled.entityId}`);
-
-      // Notify the workspace owner that a recurring task was spawned.
-      const [domain] = await db.select({ ownerId: domains.ownerId })
-        .from(domains)
-        .where(eq(domains.id, originalTask.domainId))
-        .limit(1);
-      if (domain?.ownerId) {
-        const [notification] = await db.insert(notifications).values({
-          userId: domain.ownerId,
-          workspaceId: originalTask.domainId,
-          type: 'automation',
-          title: 'Recurring task created',
-          body: `"${originalTask.title}" was created by your recurring schedule`,
-          entityType: 'task',
-          entityId: spawned.id,
-        }).returning({ id: notifications.id });
-
-        const payload = JSON.stringify({ type: 'notification', action: 'created', id: notification.id, workspace_id: originalTask.domainId });
-        await sql`SELECT pg_notify('project_e_events', ${payload}::text)`;
-      }
     }
   } else if (scheduled.entityType === 'habit') {
     // For habits, we just log — habit completions are user-driven

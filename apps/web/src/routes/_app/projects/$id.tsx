@@ -10,10 +10,8 @@ import {
   FolderKanban,
   ListTodo,
   Plus,
-  Pencil,
   Trash2,
   X,
-  Zap,
 } from "lucide-react";
 import { differenceInCalendarDays, format, parseISO } from "date-fns";
 import { api, useApiQuery } from "@/lib/api";
@@ -30,7 +28,6 @@ import {
 } from "@/components/entities/inline-edit";
 import { EntityActivity } from "@/components/entities/entity-activity";
 import { EntityComments } from "@/components/entities/entity-comments";
-import { AutomationRuleBuilder, TRIGGER_OPTIONS, summarizeActions } from "@/components/automation-rule-builder";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,12 +52,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Switch } from "@/components/ui/switch";
 import { LoadingState, ErrorState } from "@/components/state";
-import { GanttChart } from "@/components/gantt/gantt-chart";
-import type { TimelineData } from "@/components/gantt/gantt-utils";
-import { getStatusToken, PRIORITY, PROJECT_STATUS } from "@/lib/status-colors";
-import type { AutomationRule, Project, Section, Task } from "@/lib/types";
+import { PRIORITY, PROJECT_STATUS, TASK_STATUS } from "@/lib/status-colors";
+import type { Project, Section, Task } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const PROJECT_STATUS_OPTIONS: InlineSelectOption[] = [
@@ -233,16 +227,6 @@ function ProjectDetail() {
         { value: "tasks", label: "Tasks", content: <ProjectTasks project={project} /> },
         { value: "sections", label: "Sections", content: <Sections project={project} /> },
         {
-          value: "timeline",
-          label: "Timeline",
-          content: <ProjectTimeline project={project} />,
-        },
-        {
-          value: "automations",
-          label: "Automations",
-          content: <ProjectAutomations project={project} />,
-        },
-        {
           value: "activity",
           label: "Activity",
           content: <EntityActivity entityType="project" entityId={id} />,
@@ -358,8 +342,8 @@ function ProjectTasks({ project }: { project: Project }) {
   });
 
   const toggleMutation = useMutation({
-    mutationFn: ({ taskId, statusId }: { taskId: string; statusId: string | null }) =>
-      api.post<Task>(`/tasks/${taskId}/status`, { statusId }),
+    mutationFn: ({ taskId, status }: { taskId: string; status: Task["status"] }) =>
+      api.post<Task>(`/tasks/${taskId}/status`, { status }),
     onMutate: (vars) => setPendingId(vars.taskId),
     onSettled: () => setPendingId(null),
     onSuccess: refresh,
@@ -454,7 +438,6 @@ function ProjectTasks({ project }: { project: Project }) {
                 <TaskRow
                   key={task.id}
                   task={task}
-                  project={project}
                   pending={pendingId === task.id}
                   onToggle={(vars) => toggleMutation.mutate(vars)}
                   onOpen={() => openTask(task.id)}
@@ -477,7 +460,6 @@ function ProjectTasks({ project }: { project: Project }) {
                 <TaskRow
                   key={task.id}
                   task={task}
-                  project={project}
                   pending={pendingId === task.id}
                   onToggle={(vars) => toggleMutation.mutate(vars)}
                   onOpen={() => openTask(task.id)}
@@ -493,43 +475,37 @@ function ProjectTasks({ project }: { project: Project }) {
 
 function TaskRow({
   task,
-  project,
   pending,
   onToggle,
   onOpen,
 }: {
   task: Task;
-  project: Project;
   pending: boolean;
-  onToggle: (vars: { taskId: string; statusId: string | null }) => void;
+  onToggle: (vars: { taskId: string; status: Task["status"] }) => void;
   onOpen: () => void;
 }) {
-  const isDone = task.status?.category === "done";
-  const statuses = project.statuses ?? [];
   return (
     <div className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-muted/50">
       <Checkbox
-        checked={isDone}
+        checked={task.status === "done"}
         disabled={pending}
         onCheckedChange={() =>
           onToggle({
             taskId: task.id,
-            statusId: isDone
-              ? (statuses.find((s) => s.category === "todo")?.id ?? null)
-              : (statuses.find((s) => s.category === "done")?.id ?? null),
+            status: task.status === "done" ? "todo" : "done",
           })
         }
         aria-label={
-          "Mark " + task.title + " " + (isDone ? "as not done" : "as done")
+          "Mark " + task.title + " " + (task.status === "done" ? "as not done" : "as done")
         }
       />
-      <span className={cn("h-2 w-2 shrink-0 rounded-full", getStatusToken(task.status).dot)} />
+      <span className={cn("h-2 w-2 shrink-0 rounded-full", TASK_STATUS[task.status]?.dot)} />
       <button
         type="button"
         onClick={onOpen}
         className={cn(
           "min-w-0 flex-1 truncate text-left text-sm hover:underline",
-          isDone && "text-muted-foreground line-through"
+          task.status === "done" && "text-muted-foreground line-through"
         )}
       >
         {task.title}
@@ -711,156 +687,6 @@ function Sections({ project }: { project: Project }) {
         </div>
       )}
     </div>
-  );
-}
-
-function ProjectAutomations({ project }: { project: Project }) {
-  const queryClient = useQueryClient();
-  const [builderOpen, setBuilderOpen] = useState(false);
-  const [editingRule, setEditingRule] = useState<AutomationRule | null>(null);
-
-  const { data, isLoading, isError, error, refetch } = useApiQuery<{
-    items: AutomationRule[];
-  }>(["automations", project.id], `/projects/${project.id}/automations`);
-
-  const rules = data?.items ?? [];
-
-  const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["automations", project.id] });
-  };
-
-  const toggleMutation = useMutation({
-    mutationFn: (ruleId: string) =>
-      api.post(`/projects/${project.id}/automations/${ruleId}/toggle`),
-    onSuccess: refresh,
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (ruleId: string) =>
-      api.delete(`/projects/${project.id}/automations/${ruleId}`),
-    onSuccess: () => {
-      toast.success("Rule deleted");
-      refresh();
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
-  const openCreate = () => {
-    setEditingRule(null);
-    setBuilderOpen(true);
-  };
-
-  const openEdit = (rule: AutomationRule) => {
-    setEditingRule(rule);
-    setBuilderOpen(true);
-  };
-
-  if (isLoading) return <LoadingState label="Loading automations..." />;
-  if (isError) return <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          Automatically run actions when tasks change in this project.
-        </p>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4" /> Create Rule
-        </Button>
-      </div>
-
-      {rules.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">
-          No automation rules yet — e.g. add a "shipped" label when a task is done.
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {rules.map((rule) => {
-            const triggerLabel =
-              TRIGGER_OPTIONS.find((t) => t.value === rule.trigger.type)?.label ??
-              rule.trigger.type;
-            const actionSummaries = summarizeActions(project, rule.actions);
-            return (
-              <div
-                key={rule.id}
-                className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3"
-              >
-                <Zap className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold">{rule.name}</p>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    When {triggerLabel.toLowerCase()}
-                    {rule.conditions.length > 0
-                      ? ` (${rule.conditions.length} ${rule.conditions.length === 1 ? "condition" : "conditions"})`
-                      : ""}{" "}
-                    → {actionSummaries.join(", ")}
-                  </p>
-                </div>
-                <Switch
-                  checked={rule.active}
-                  onCheckedChange={() => toggleMutation.mutate(rule.id)}
-                  disabled={toggleMutation.isPending}
-                  aria-label={"Toggle " + rule.name}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                  onClick={() => openEdit(rule)}
-                  aria-label={"Edit " + rule.name}
-                  title="Edit rule"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                  onClick={() => deleteMutation.mutate(rule.id)}
-                  disabled={deleteMutation.isPending}
-                  aria-label={"Delete " + rule.name}
-                  title="Delete rule"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {builderOpen ? (
-        <AutomationRuleBuilder
-          project={project}
-          open={builderOpen}
-          onOpenChange={setBuilderOpen}
-          rule={editingRule}
-          onSaved={refresh}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function ProjectTimeline({ project }: { project: Project }) {
-  const { data, isLoading, isError, error, refetch } = useApiQuery<TimelineData>(
-    ["timeline", project.domainId, project.id],
-    `/domains/${project.domainId}/projects/${project.id}/timeline`
-  );
-
-  if (isLoading) return <LoadingState label="Loading timeline..." />;
-  if (isError) return <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />;
-  if (!data) return <ErrorState message="Timeline data unavailable" />;
-
-  return (
-    <GanttChart
-      domainId={project.domainId}
-      projectId={project.id}
-      tasks={data.tasks}
-      milestones={data.milestones}
-      statuses={project.statuses ?? []}
-    />
   );
 }
 

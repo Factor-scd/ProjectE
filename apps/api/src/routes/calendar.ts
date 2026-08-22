@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db, calendarEvents } from "@project-e/db";
+import { db, calendarEvents, tasks, habits } from "@project-e/db";
 import { and, asc, desc, eq, gte, lte, isNull } from "drizzle-orm";
 import { requireAuth, createErrorResponse, resolveActiveDomain, requireWorkspaceAccess, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
@@ -219,6 +219,57 @@ calendarRoutes.delete("/events/:id", async (c) => {
     }
     console.error("[calendar] DELETE /events/:id error:", error);
     return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to delete event" } }, 500);
+  }
+});
+
+// GET /api/calendar/unified?from=&to=&domain — Merged timeline: calendar_events + tasks due + habit reminders
+calendarRoutes.get("/unified", async (c) => {
+  try {
+    const user = await requireAuth(c);
+    const url = new URL(c.req.url);
+    const fromStr = url.searchParams.get("from");
+    const toStr = url.searchParams.get("to");
+    let domainId = url.searchParams.get("domain") || undefined;
+    if (!domainId) {
+      const active = await resolveActiveDomain(user);
+      domainId = active.id;
+    }
+    await requireWorkspaceAccess(c, domainId);
+    const from = fromStr ? new Date(fromStr) : new Date(new Date().setDate(new Date().getDate() - 7));
+    const to = toStr ? new Date(toStr) : new Date(new Date().setDate(new Date().getDate() + 30));
+    const [events, domainTasks, domainHabits] = await Promise.all([
+      db.select().from(calendarEvents).where(and(eq(calendarEvents.domainId, domainId), gte(calendarEvents.startTime, from), lte(calendarEvents.startTime, to))).orderBy(asc(calendarEvents.startTime)),
+      db.select().from(tasks).where(and(eq(tasks.domainId, domainId), isNull(tasks.deletedAt), gte(tasks.dueDate, from), lte(tasks.dueDate, to))).orderBy(asc(tasks.dueDate)),
+      db.select().from(habits).where(and(eq(habits.domainId, domainId), isNull(habits.deletedAt))),
+    ]);
+    const taskEvents = domainTasks.filter(t => t.dueDate).map(t => ({
+      id: `task-${t.id}`, title: t.title, description: null, startTime: t.dueDate, endTime: null, allDay: true, color: "#3b82f6", domainId, entityType: "task", entityId: t.id, recurrenceRule: null, createdAt: t.createdAt, updatedAt: t.updatedAt,
+    }));
+    const habitEvents: typeof events = [];
+    for (const h of domainHabits) {
+      if (!h.reminderTime || !h.active) continue;
+      const [hh, mm] = h.reminderTime.split(":").map(Number);
+      const cursor = new Date(from);
+      cursor.setHours(0,0,0,0);
+      while (cursor <= to) {
+        const skip = (h.skipDays || []).includes(cursor.getDay());
+        if (!skip) {
+          const dt = new Date(cursor);
+          dt.setHours(hh||9, mm||0, 0, 0);
+          habitEvents.push({
+            id: `habit-${h.id}-${dt.toISOString().slice(0,10)}`, title: h.name, description: h.description, startTime: dt, endTime: null, allDay: false, color: "#f59e0b", domainId, entityType: "habit", entityId: h.id, recurrenceRule: null, createdAt: h.createdAt, updatedAt: h.updatedAt,
+          } as any);
+        }
+        cursor.setDate(cursor.getDate()+1);
+        if (h.frequency === "weekly" && habitEvents.filter(e=>e.entityId===h.id).length >= 2) break;
+      }
+    }
+    const items = [...events, ...taskEvents as any, ...habitEvents].sort((a,b)=> new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    return c.json({ items, totalItems: items.length, breakdown: { events: events.length, tasks: taskEvents.length, habits: habitEvents.length } });
+  } catch (error) {
+    if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    console.error("[calendar] GET /unified error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to get unified calendar" } }, 500);
   }
 });
 

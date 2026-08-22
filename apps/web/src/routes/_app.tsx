@@ -5,7 +5,6 @@ import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { ShortcutsHelp } from "@/components/shell/shortcuts-help";
-import { QuickAddBar } from "@/components/quick-add-bar";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
 function AppLayout() {
@@ -42,7 +41,6 @@ function AppLayout() {
       </div>
       <CommandPalette />
       <ShortcutsHelp />
-      <QuickAddBar />
     </div>
   );
 }

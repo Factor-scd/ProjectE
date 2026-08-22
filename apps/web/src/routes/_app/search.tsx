@@ -1,17 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
-import { useQuery } from "@tanstack/react-query";
-import { api, useApiQuery } from "@/lib/api";
+import { useApiQuery } from "@/lib/api";
 import { Search as SearchIcon, X, Clock, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import type { SearchResult } from "@/lib/types";
+import Fuse from "fuse.js";
 
 const SEARCH_TYPES = [
   { id: "task", label: "Tasks", color: "bg-blue-500" },
@@ -62,7 +60,25 @@ function SearchPage() {
     "/search?q=" + encodeURIComponent(debouncedQuery) + "&types=" + Array.from(selectedTypes).join(",") + "&limit=50" + (activeDomainId ? "&domain=" + activeDomainId : "")
   );
 
-  const results = searchData?.results || [];
+  const serverResults = searchData?.results || [];
+
+  const results = useMemo(() => {
+    const rawQuery = debouncedQuery.trim();
+    const operatorMatch = rawQuery.match(/\b(in|status|tag):(\S+)/g);
+    let filtered = serverResults;
+    if (operatorMatch) {
+      for (const op of operatorMatch) {
+        const [key, val] = op.split(":");
+        if (key === "in") filtered = filtered.filter(r => r.type === val.toLowerCase());
+        if (key === "status") filtered = filtered.filter(r => r.snippet.toLowerCase().includes(val.toLowerCase()) || r.title.toLowerCase().includes(val.toLowerCase()));
+      }
+    }
+    const cleanQuery = rawQuery.replace(/\b(in|status|tag):\S+\s*/g, "").trim();
+    if (!cleanQuery) return filtered;
+    const fuse = new Fuse(filtered, { keys: ["title", "snippet"], threshold: 0.4, includeScore: true });
+    const fused = fuse.search(cleanQuery);
+    return fused.length > 0 ? fused.map(f => f.item) : filtered;
+  }, [serverResults, debouncedQuery]);
 
   const toggleType = (typeId: string) => {
     const next = new Set(selectedTypes);

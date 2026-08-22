@@ -6,7 +6,6 @@ import {
   projects,
   habits,
   notes,
-  canvases,
   dailyNotes,
   calendarEvents,
 } from "@project-e/db";
@@ -14,13 +13,12 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import type { AnyPgColumn, AnyPgTable } from "drizzle-orm/pg-core";
 import { requireAuth, requireWorkspaceAccess, createErrorResponse, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
-import { notifyWorkspaceOwner } from "../lib/notify";
 import { z } from "zod";
 
 export const commentRoutes = new Hono();
 
 // Entity types that support comments. Keep in sync with entityWorkspaceLookups.
-const entityTypeEnum = z.enum(["task", "project", "habit", "note", "canvas", "daily_note", "calendar_event"]);
+const entityTypeEnum = z.enum(["task", "project", "habit", "note", "daily_note", "calendar_event"]);
 
 interface EntityWorkspaceLookup {
   table: AnyPgTable;
@@ -35,7 +33,6 @@ const entityWorkspaceLookups: Record<string, EntityWorkspaceLookup> = {
   project: { table: projects, idColumn: projects.id, workspaceColumn: projects.domainId },
   habit: { table: habits, idColumn: habits.id, workspaceColumn: habits.domainId },
   note: { table: notes, idColumn: notes.id, workspaceColumn: notes.domainId },
-  canvas: { table: canvases, idColumn: canvases.id, workspaceColumn: canvases.domainId },
   daily_note: { table: dailyNotes, idColumn: dailyNotes.id, workspaceColumn: dailyNotes.domainId },
   calendar_event: { table: calendarEvents, idColumn: calendarEvents.id, workspaceColumn: calendarEvents.domainId },
 };
@@ -150,23 +147,6 @@ commentRoutes.post("/", async (c) => {
       changes: { commentId: newComment.id },
       workspaceId: domainId,
     });
-
-    // Mention notification: any @mention in the comment notifies the workspace
-    // owner (single-user MVP — there is no other recipient to resolve).
-    if (/\B@[a-zA-Z0-9_.-]+/.test(data.content)) {
-      try {
-        await notifyWorkspaceOwner({
-          workspaceId: domainId,
-          type: "mention",
-          title: "You were mentioned",
-          body: `${user.name} mentioned you in a comment on this ${data.entityType.replace(/_/g, " ")}`,
-          entityType: data.entityType,
-          entityId: data.entityId,
-        });
-      } catch (notifyError) {
-        console.error(`[comments] Failed to create mention notification for ${data.entityType}:${data.entityId}:`, notifyError);
-      }
-    }
 
     return c.json(newComment, 201);
   } catch (error) {

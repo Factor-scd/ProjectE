@@ -42,15 +42,7 @@ export type {
   CreateNoteTaskLink,
 } from '../schemas/note';
 
-// ── Report ───────────────────────────────────────────────────────────────────
 
-export type { Report, CreateReport, UpdateReport } from '../schemas/report';
-export type { ReportTemplate, CreateReportTemplate } from '../schemas/report';
-
-// ── Canvas ───────────────────────────────────────────────────────────────────
-
-export type { Canvas, CreateCanvas, UpdateCanvas } from '../schemas/canvas';
-export type { CanvasCard, CreateCanvasCard, UpdateCanvasCard } from '../schemas/canvas';
 
 // ── Agent ────────────────────────────────────────────────────────────────────
 

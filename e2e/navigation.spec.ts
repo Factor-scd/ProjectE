@@ -18,7 +18,6 @@ test.describe('Navigation', () => {
       { url: '/search', check: page.getByPlaceholder(/search tasks, notes/i) },
       { url: '/analytics', check: page.getByRole('heading', { name: /analytics/i }) },
       { url: '/agents/activity', check: page.getByRole('heading', { name: /agent activity/i }) },
-      { url: '/canvas', check: page.getByRole('heading', { name: /canvas/i }) },
       { url: '/daily', check: page.getByRole('button', { name: /today/i }) },
       { url: '/settings', check: page.getByRole('button', { name: 'Appearance' }) },
     ];

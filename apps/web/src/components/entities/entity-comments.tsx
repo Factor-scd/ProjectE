@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Trash2 } from "lucide-react";
+import { Trash2, Bot } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ErrorState, LoadingState } from "@/components/state";
 import { api, useApiMutation, useApiQuery } from "@/lib/api";
 import type { Comment } from "@/lib/types";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 
 interface EntityCommentsProps {
   entityType: string;
@@ -84,20 +85,27 @@ function CommentComposer({
   entityId,
   parentId = null,
   submitLabel = "Comment",
-  placeholder = "Write a comment...",
+  placeholder = "Write a comment... (use @agent to mention)",
   autoFocus = false,
   onSubmitted,
 }: CommentComposerProps) {
   const queryClient = useQueryClient();
+  const activeDomainId = useApiDomain();
   const [content, setContent] = useState("");
+  const showMentionHint = content.includes("@");
 
   const createMutation = useApiMutation<Comment, CreateCommentVariables>(
     "post",
     "/comments",
     {
-      onSuccess: () => {
+      onSuccess: (c) => {
         queryClient.invalidateQueries({ queryKey: ["comments", entityType, entityId] });
+        queryClient.invalidateQueries({ queryKey: ["agent-activity"] });
         toast.success("Comment added");
+        if (content.includes("@")) {
+          fetch("/api/agents/dispatch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ commentId: (c as any).id || "", entityType, entityId, workspaceId: activeDomainId }) }).catch(()=>{});
+          toast.info("Agent notified via @mention");
+        }
         setContent("");
         onSubmitted?.();
       },
@@ -127,6 +135,7 @@ function CommentComposer({
         placeholder={placeholder}
         autoFocus={autoFocus}
       />
+      {showMentionHint && <p className="text-[11px] text-muted-foreground flex items-center gap-1"><Bot className="h-3 w-3" /> @mention will notify agents</p>}
       <div className="flex justify-end">
         <Button size="sm" onClick={submit} disabled={!canSubmit}>
           {createMutation.isPending ? "Posting..." : submitLabel}

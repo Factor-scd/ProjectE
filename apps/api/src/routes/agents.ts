@@ -329,6 +329,38 @@ agentRoutes.get("/:id/permissions", async (c) => {
   }
 });
 
+// POST /api/agents/dispatch — Stub for @mention dispatch (enqueues worker job)
+agentRoutes.post("/dispatch", async (c) => {
+  try {
+    const user = await requireAuth(c);
+    const body = await c.req.json();
+    const domainId = body.workspaceId || body.domain || (await resolveActiveDomain(user)).id;
+    await requireWorkspaceAccess(c, domainId);
+    const agentsList = await db.select().from(agents).where(and(eq(agents.domainId, domainId), eq(agents.status, "active"))).limit(1);
+    if (agentsList.length === 0) return c.json({ success: false, message: "No active agents" }, 200);
+    const agent = agentsList[0];
+    await db.insert(agentTasks).values({
+      agentId: agent.id,
+      taskType: "mention",
+      input: { commentId: body.commentId, entityType: body.entityType, entityId: body.entityId, author: user.name },
+      status: "pending",
+    });
+    await db.insert(agentActivity).values({
+      agentId: agent.id,
+      action: "mentioned",
+      entityType: body.entityType || "comment",
+      entityId: body.entityId,
+      details: { commentId: body.commentId },
+      success: true,
+    });
+    return c.json({ success: true, agentId: agent.id });
+  } catch (error) {
+    if (error instanceof AuthError) return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    console.error("[agents] POST /dispatch error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Dispatch failed" } }, 500);
+  }
+});
+
 // GET /api/agents/:id/activity — Agent activity log (or all if id=_all)
 agentRoutes.get("/:id/activity", async (c) => {
   try {

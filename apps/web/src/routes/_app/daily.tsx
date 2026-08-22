@@ -86,13 +86,22 @@ function CalendarSidebar({ selectedDate, onSelectDate }: { selectedDate: Date; o
   );
 }
 
-// ─── Daily Note Editor ────────────────────────────────────────────────────
+  // ─── Daily Note Editor ────────────────────────────────────────────────────
 
 function DailyNoteEditor({ date }: { date: Date }) {
   const queryClient = useQueryClient();
   const activeDomainId = useApiDomain();
   const domainSuffix = activeDomainId ? "&domain=" + activeDomainId : "";
   const dateStr = format(date, "yyyy-MM-dd");
+  const { data: tasksData } = useApiQuery<{ items: Array<{ id:string; title:string; status:string; dueDate:string|null }> }>(["tasks-daily", dateStr, activeDomainId], "/tasks?limit=50" + (activeDomainId ? "&domain=" + activeDomainId : ""));
+  const { data: habitsData } = useApiQuery<{ items: Array<{ id:string; name:string }> }>(["habits-daily", activeDomainId], "/habits?limit=50" + (activeDomainId ? "&domain=" + activeDomainId : ""));
+  const tasksDue = (tasksData?.items || []).filter(t => t.dueDate && t.dueDate.slice(0,10) === dateStr && t.status !== "done");
+  const habitsToday = habitsData?.items || [];
+  const insertTemplate = () => {
+    const tpl = `# ${format(date, "EEEE, MMM d")}\n\n## Tasks Due Today\n${tasksDue.length ? tasksDue.map(t => `- [ ] ${t.title}`).join("\n") : "- No tasks due"}\n\n## Habits\n${habitsToday.slice(0,5).map(h => `- [ ] ${h.name}`).join("\n") || "- No habits"}\n\n## Notes\n`;
+    setContent(tpl);
+    autoSave(tpl, mood, energy);
+  };
   const [content, setContent] = useState("");
   const [mood, setMood] = useState<number | null>(null);
   const [energy, setEnergy] = useState<number | null>(null);
@@ -319,11 +328,15 @@ function DailyNoteEditor({ date }: { date: Date }) {
       {isLoading ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">Loading...</div>
       ) : isNew && !content ? (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground mb-4">No note for this day &mdash; click to start writing</p>
-          <Button variant="outline" onClick={() => textareaRef.current?.focus()}>
-            <Plus className="h-4 w-4 mr-2" />Start Writing
-          </Button>
+        <div className="text-center py-8 space-y-4">
+          <p className="text-muted-foreground">No note for this day</p>
+          {tasksDue.length > 0 && <p className="text-xs text-muted-foreground">{tasksDue.length} tasks due · {habitsToday.length} habits</p>}
+          <div className="flex gap-2 justify-center">
+            <Button variant="outline" onClick={() => textareaRef.current?.focus()}>
+              <Plus className="h-4 w-4 mr-2" />Start Writing
+            </Button>
+            <Button variant="secondary" onClick={insertTemplate}>Insert Daily Template</Button>
+          </div>
         </div>
       ) : (
         <textarea

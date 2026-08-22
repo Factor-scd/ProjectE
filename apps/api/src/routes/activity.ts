@@ -6,7 +6,6 @@ import {
   projects,
   habits,
   notes,
-  canvases,
   dailyNotes,
   calendarEvents,
 } from "@project-e/db";
@@ -20,7 +19,7 @@ export const activityRoutes = new Hono();
 // Entity types that participate in the generic activity feed / comments API.
 // The comments table stores the same entityType strings, so keep this enum and
 // the entityWorkspaceLookups map below in sync.
-const entityTypeEnum = z.enum(["task", "project", "habit", "note", "canvas", "daily_note", "calendar_event"]);
+const entityTypeEnum = z.enum(["task", "project", "habit", "note", "daily_note", "calendar_event"]);
 
 interface EntityWorkspaceLookup {
   table: AnyPgTable;
@@ -28,14 +27,11 @@ interface EntityWorkspaceLookup {
   workspaceColumn: AnyPgColumn;
 }
 
-// Maps an entityType (as recorded in activity_feed) to the table + column that
-// holds its owning workspace/domain. All of these tables use domain_id.
 const entityWorkspaceLookups: Record<string, EntityWorkspaceLookup> = {
   task: { table: tasks, idColumn: tasks.id, workspaceColumn: tasks.domainId },
   project: { table: projects, idColumn: projects.id, workspaceColumn: projects.domainId },
   habit: { table: habits, idColumn: habits.id, workspaceColumn: habits.domainId },
   note: { table: notes, idColumn: notes.id, workspaceColumn: notes.domainId },
-  canvas: { table: canvases, idColumn: canvases.id, workspaceColumn: canvases.domainId },
   daily_note: { table: dailyNotes, idColumn: dailyNotes.id, workspaceColumn: dailyNotes.domainId },
   calendar_event: { table: calendarEvents, idColumn: calendarEvents.id, workspaceColumn: calendarEvents.domainId },
 };

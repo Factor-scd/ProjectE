@@ -52,9 +52,6 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
         case "agent":
           queryKeys.push(["agents"], ["agents-list"], ["agent-activity"]);
           break;
-        case "canvas":
-          queryKeys.push(["canvas"]);
-          break;
         case "webhook":
           queryKeys.push(["webhooks"]);
           break;
@@ -71,10 +68,6 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
           break;
         case "graph_edge":
           queryKeys.push(["graph"]);
-          break;
-        case "notification":
-          // A new in-app notification landed — refresh the bell badge and list.
-          queryKeys.push(["notifications"], ["notifications-count"]);
           break;
         default:
           queryKeys.push([entityType]);

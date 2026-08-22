@@ -185,13 +185,28 @@ function CalendarPage() {
 
 
   const activeDomainId = useApiDomain();
+  const [showTasks, setShowTasks] = useState(true);
+  const [showHabits, setShowHabits] = useState(true);
+
+  const fromISO = useMemo(() => { const d = new Date(date); d.setDate(1); d.setHours(0,0,0,0); d.setMonth(d.getMonth()-1); return d.toISOString(); }, [date]);
+  const toISO = useMemo(() => { const d = new Date(date); d.setMonth(d.getMonth()+2); d.setDate(0); d.setHours(23,59,59,999); return d.toISOString(); }, [date]);
 
   const { data: eventsData, isLoading: eventsLoading } = useApiQuery<{ items: CalendarEvent[]; totalItems: number }>(
-    ["calendar-events", activeDomainId],
-    `/calendar/events?from=${new Date(0).toISOString()}&to=${new Date("2100-01-01").toISOString()}` + (activeDomainId ? "&domain=" + activeDomainId : "")
+    ["calendar-events", activeDomainId, fromISO, toISO],
+    `/calendar/events?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}` + (activeDomainId ? "&domain=" + activeDomainId : "")
   );
-
-  const events = eventsData?.items || [];
+  const { data: unifiedData } = useApiQuery<{ items: CalendarEvent[] }>(
+    ["calendar-unified", activeDomainId, fromISO, toISO],
+    `/calendar/unified?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}` + (activeDomainId ? "&domain=" + activeDomainId : "")
+  );
+  const events = useMemo(() => {
+    if (!unifiedData?.items) return eventsData?.items || [];
+    const base = unifiedData.items;
+    if (!showTasks && !showHabits) return base.filter(e => !e.entityType || (e.entityType!=="task" && e.entityType!=="habit"));
+    if (!showTasks) return base.filter(e => e.entityType!=="task");
+    if (!showHabits) return base.filter(e => e.entityType!=="habit");
+    return base;
+  }, [unifiedData, eventsData, showTasks, showHabits]);
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete("/calendar/events/" + id),
@@ -223,11 +238,16 @@ function CalendarPage() {
 
   const handleEventDrop = useCallback(
     ({ event, start, end }: { event: any; start: stringOrDate; end: stringOrDate }) => {
-      api.patch(`/calendar/events/${event.id}`, {
-        startTime: start instanceof Date ? start.toISOString() : new Date(start).toISOString(),
-        endTime: end instanceof Date ? end.toISOString() : new Date(end).toISOString(),
-      }).then(() => {
+      const isTask = event.entityType === "task" && String(event.id).startsWith("task-");
+      const patchUrl = isTask ? `/tasks/${event.entityId}` : `/calendar/events/${event.id}`;
+      const patchData = isTask ? { dueDate: (start instanceof Date ? start : new Date(start as string)).toISOString() } : {
+        startTime: start instanceof Date ? start.toISOString() : new Date(start as string).toISOString(),
+        endTime: end instanceof Date ? end.toISOString() : new Date(end as string).toISOString(),
+      };
+      api.patch(patchUrl, patchData).then(() => {
         queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+        queryClient.invalidateQueries({ queryKey: ["calendar-unified"] });
+        queryClient.invalidateQueries({ queryKey: ["tasks"] });
       });
     },
     [queryClient]
@@ -235,11 +255,13 @@ function CalendarPage() {
 
   const handleEventResize = useCallback(
     ({ event, start, end }: { event: any; start: stringOrDate; end: stringOrDate }) => {
+      if (String(event.id).startsWith("task-") || String(event.id).startsWith("habit-")) return;
       api.patch(`/calendar/events/${event.id}`, {
-        startTime: start instanceof Date ? start.toISOString() : new Date(start).toISOString(),
-        endTime: end instanceof Date ? end.toISOString() : new Date(end).toISOString(),
+        startTime: start instanceof Date ? start.toISOString() : new Date(start as string).toISOString(),
+        endTime: end instanceof Date ? end.toISOString() : new Date(end as string).toISOString(),
       }).then(() => {
         queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+        queryClient.invalidateQueries({ queryKey: ["calendar-unified"] });
       });
     },
     [queryClient]
@@ -268,7 +290,12 @@ function CalendarPage() {
         </Dialog>
       </div>
 
-            <div className="flex items-center justify-end gap-1 mb-2">
+            <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={showTasks} onChange={e=>setShowTasks(e.target.checked)} /> Tasks</label>
+          <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={showHabits} onChange={e=>setShowHabits(e.target.checked)} /> Habits</label>
+        </div>
+        <div className="flex items-center gap-1">
         {["month", "week", "day", "agenda"].map((name) => (
           <Button
             key={name}
@@ -280,6 +307,7 @@ function CalendarPage() {
             {name}
           </Button>
         ))}
+        </div>
       </div>
       {eventsLoading && events.length === 0 ? (
         <LoadingState label="Loading events..." />

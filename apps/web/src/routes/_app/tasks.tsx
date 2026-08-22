@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -27,9 +27,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { LoadingState, EmptyState, ErrorState } from "@/components/state";
 import { CustomFieldInputs } from "@/components/custom-fields/custom-field-inputs";
-import { getStatusLabel, getStatusToken, TASK_STATUS, PRIORITY } from "@/lib/status-colors";
-import type { StatusDefinition, Task, TaskStatusCategory, PaginatedResponse } from "@/lib/types";
+import { TASK_STATUS, PRIORITY } from "@/lib/status-colors";
+import type { Task, PaginatedResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { parseTaskInput } from "@/lib/nlp";
+import { RecurrencePicker } from "@/components/tasks/recurrence-picker";
 
 const STATUS_COLUMNS = [
   { id: "todo", label: "Todo" },
@@ -99,27 +101,17 @@ function ColumnDroppable({ id, className, children }: { id: string; className?: 
   );
 }
 
-const NO_STATUS = "__none__";
-
 function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
   const queryClient = useQueryClient();
   const activeDomainId = useApiDomain();
   const [title, setTitle] = useState(task?.title || "");
   const [description, setDescription] = useState(task?.description || "");
-  const [statusId, setStatusId] = useState(task?.statusId ?? "");
+  const [status, setStatus] = useState(task?.status || "todo");
   const [priority, setPriority] = useState(task?.priority || "medium");
   const [dueDate, setDueDate] = useState(task?.dueDate ? task.dueDate.slice(0, 10) : "");
+  const [recurrenceRule, setRecurrenceRule] = useState(task?.recurrenceRule || "");
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>(() => ({ ...(task?.customFields ?? {}) }));
-
-  // Status is a per-project status definition, so it can only be picked when the
-  // task belongs to a project whose statuses we can load.
-  const projectId = task?.projectId ?? null;
-  const { data: statusesData } = useApiQuery<{ items: StatusDefinition[] }>(
-    ["project-statuses", projectId ?? "none"],
-    projectId ? `/projects/${projectId}/statuses` : "",
-    { enabled: !!projectId }
-  );
-  const statusOptions = statusesData?.items ?? [];
+  const parsed = !task ? parseTaskInput(title) : null;
 
   const createMutation = useMutation({
     mutationFn: (data: any) => api.post<Task>("/tasks", data),
@@ -140,9 +132,20 @@ function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
-    const data: any = { title: title.trim(), description: description || null, priority };
-    if (statusId) data.statusId = statusId;
-    if (dueDate) data.dueDate = new Date(dueDate).toISOString();
+    let finalTitle = title.trim();
+    let finalDueDate = dueDate ? new Date(dueDate).toISOString() : null;
+    let finalPriority = priority;
+    let tagNames: string[] = [];
+    if (!task) {
+      const p = parseTaskInput(title);
+      finalTitle = p.title;
+      if (p.dueDate && !dueDate) finalDueDate = p.dueDate;
+      if (p.priority) finalPriority = p.priority;
+      tagNames = p.tags;
+    }
+    const data: any = { title: finalTitle, description: description || null, status, priority: finalPriority, tagNames };
+    if (finalDueDate) data.dueDate = finalDueDate;
+    if (recurrenceRule) data.recurrenceRule = recurrenceRule;
     const customFields = { ...customFieldValues };
     if (Object.keys(customFields).length > 0) data.customFields = customFields;
     if (task) {
@@ -155,31 +158,33 @@ function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <Label htmlFor="title">Title</Label>
-        <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Task title" required />
+        <Label htmlFor="title">Title <span className="text-xs text-muted-foreground">— try "Buy milk tomorrow 5pm #groceries p1"</span></Label>
+        <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder='e.g. Report due tomorrow 5pm #work p1' required />
+        {parsed && (parsed.dueDate || parsed.priority || parsed.tags.length > 0) && (
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            {parsed.dueDate && <Badge variant="outline" className="text-[10px]">Due {new Date(parsed.dueDate).toLocaleDateString()} {new Date(parsed.dueDate).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</Badge>}
+            {parsed.priority && <Badge variant="secondary" className="text-[10px]">Priority {parsed.priority}</Badge>}
+            {parsed.tags.map(t => <Badge key={t} variant="outline" className="text-[10px]">#{t}</Badge>)}
+          </div>
+        )}
       </div>
       <div>
         <Label htmlFor="desc">Description</Label>
         <Textarea id="desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description (optional)" rows={3} />
       </div>
       <div className="grid grid-cols-2 gap-4">
-        {statusOptions.length > 0 && (
-          <div>
-            <Label htmlFor="status">Status</Label>
-            <Select
-              value={statusId || NO_STATUS}
-              onValueChange={(v) => setStatusId(v === NO_STATUS ? "" : v)}
-            >
-              <SelectTrigger id="status"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_STATUS}>No status</SelectItem>
-                {statusOptions.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+        <div>
+          <Label htmlFor="status">Status</Label>
+          <Select value={status} onValueChange={(v) => setStatus(v as "todo" | "in_progress" | "done" | "cancelled")}>
+            <SelectTrigger id="status"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todo">Todo</SelectItem>
+              <SelectItem value="in_progress">In Progress</SelectItem>
+              <SelectItem value="done">Done</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <div>
           <Label htmlFor="priority">Priority</Label>
           <Select value={priority} onValueChange={(v) => setPriority(v as "low" | "medium" | "high" | "urgent")}>
@@ -197,6 +202,7 @@ function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
         <Label htmlFor="dueDate">Due Date</Label>
         <Input id="dueDate" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
       </div>
+      <RecurrencePicker value={recurrenceRule || null} onChange={(v) => setRecurrenceRule(v || "")} />
       <CustomFieldInputs entityType="tasks" values={customFieldValues} onChange={setCustomFieldValues} />
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
@@ -260,8 +266,8 @@ function TasksPage() {
   };
 
   const statusMutation = useMutation({
-    mutationFn: ({ id, statusId }: { id: string; statusId: string }) =>
-      api.post("/tasks/" + id + "/status", { statusId }),
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      api.post("/tasks/" + id + "/status", { status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
@@ -294,29 +300,11 @@ function TasksPage() {
     useSensor(KeyboardSensor)
   );
 
-  // Status definitions are per-project; cache them so a board drop can resolve
-  // the target category to a real statusId without refetching every time.
-  const statusCache = useRef(new Map<string, StatusDefinition[]>());
-
-  const resolveProjectStatus = useCallback(
-    async (projectId: string | null, category: TaskStatusCategory): Promise<StatusDefinition | null> => {
-      if (!projectId) return null;
-      let statuses = statusCache.current.get(projectId);
-      if (!statuses) {
-        const res = await api.get<{ items: StatusDefinition[] }>(`/projects/${projectId}/statuses`);
-        statuses = res.items ?? [];
-        statusCache.current.set(projectId, statuses);
-      }
-      return statuses.find((s) => s.category === category) ?? null;
-    },
-    []
-  );
-
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string);
   };
 
-  const handleDragEnd = async (event: DragEndEvent) => {
+  const handleDragEnd = (event: DragEndEvent) => {
     setActiveId(null);
     const { active, over } = event;
     if (!over) return;
@@ -330,7 +318,7 @@ function TasksPage() {
     // Tasks of a column in persisted order
     const columnTasks = (status: string) =>
       tasks
-        .filter((t) => t.status?.category === status)
+        .filter((t) => t.status === status)
         .sort((a, b) => a.order - b.order);
 
     // Decide the target column and insertion index:
@@ -344,7 +332,7 @@ function TasksPage() {
     } else {
       const overTask = tasks.find((t) => t.id === overId);
       if (!overTask) return;
-      targetColumn = overTask.status?.category ?? "todo";
+      targetColumn = overTask.status;
       const overIndex = columnTasks(targetColumn).findIndex((t) => t.id === overId);
       insertIndex = overIndex === -1 ? -1 : overIndex;
     }
@@ -366,24 +354,16 @@ function TasksPage() {
       currentIds.every((id, i) => id === targetIds[i]);
     if (unchanged) return;
 
-    const statusChanged = draggedTask.status?.category !== targetColumn;
-
-    // Resolve the target status definition for the dragged task's project so
-    // the optimistic update and the API call carry a real statusId.
-    let targetStatus: StatusDefinition | null = null;
-    if (statusChanged) {
-      targetStatus = await resolveProjectStatus(draggedTask.projectId, targetColumn as TaskStatusCategory);
-    }
-
     // Optimistic local update so the board reorders immediately
+    const statusChanged = draggedTask.status !== targetColumn;
     const orderById = new Map(targetIds.map((id, i) => [id, i]));
     queryClient.setQueryData<PaginatedResponse<Task>>(["tasks", activeDomainId, search, statusFilter], (old) => {
       if (!old) return old;
       return {
         ...old,
         items: old.items.map((t) => {
-          if (t.id === taskId && statusChanged && targetStatus) {
-            return { ...t, status: targetStatus, statusId: targetStatus.id, order: orderById.get(t.id) ?? t.order };
+          if (t.id === taskId && statusChanged) {
+            return { ...t, status: targetColumn as Task["status"], order: orderById.get(t.id) ?? t.order };
           }
           const order = orderById.get(t.id);
           return order !== undefined ? { ...t, order } : t;
@@ -391,8 +371,8 @@ function TasksPage() {
       };
     });
 
-    if (statusChanged && targetStatus) {
-      statusMutation.mutate({ id: taskId, statusId: targetStatus.id });
+    if (statusChanged) {
+      statusMutation.mutate({ id: taskId, status: targetColumn });
     }
     reorderMutation.mutate({ orderedIds: targetIds });
   };
@@ -411,7 +391,7 @@ function TasksPage() {
       ...col,
       color: TASK_STATUS[col.id].dot,
       tasks: tasks
-        .filter((t) => t.status?.category === col.id)
+        .filter((t) => t.status === col.id)
         .sort((a, b) => a.order - b.order),
     }));
   }, [tasks]);
@@ -514,7 +494,7 @@ function TasksPage() {
                 <TableRow key={task.id} className="cursor-pointer" onClick={() => openTaskDetail(task)}>
                   <TableCell className="font-medium">{task.title}</TableCell>
                   <TableCell>
-                    <Badge className={cn("text-[10px]", getStatusToken(task.status).badge)}>{getStatusLabel(task.status)}</Badge>
+                    <Badge className={cn("text-[10px]", TASK_STATUS[task.status]?.badge)}>{task.status.replace("_", " ")}</Badge>
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className={cn("text-[10px]", PRIORITY[task.priority]?.badge)}>{task.priority}</Badge>

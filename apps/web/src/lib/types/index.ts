@@ -1,32 +1,10 @@
 // Shared types for Project E entities
 
-export type TaskStatusCategory = "todo" | "in_progress" | "done" | "cancelled";
-
-/** A per-project workflow status definition. */
-export interface StatusDefinition {
-  id: string;
-  projectId: string;
-  /** Stable machine key unique per project, e.g. "in_review". */
-  key: string;
-  /** Display label, e.g. "In Review". */
-  label: string;
-  /** UI semantics: drives progress, board columns and completion checks. */
-  category: TaskStatusCategory;
-  /** Hex color, or null to fall back to the category color. */
-  color: string | null;
-  sortOrder: number;
-  isDefault: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface Task {
   id: string;
   title: string;
   description: string | null;
-  statusId: string | null;
-  /** The resolved status definition (null when unassigned or status deleted). */
-  status: StatusDefinition | null;
+  status: "todo" | "in_progress" | "done" | "cancelled";
   priority: "low" | "medium" | "high" | "urgent";
   domainId: string;
   projectId: string | null;
@@ -43,16 +21,8 @@ export interface Task {
   tags: Tag[];
   customFields?: Record<string, unknown>;
   subtasks?: Task[];
-  dependencies?: TaskSummary[];
-  dependents?: TaskSummary[];
-}
-
-/** Slim task row used in dependency lists. */
-export interface TaskSummary {
-  id: string;
-  title: string;
-  statusId: string | null;
-  status: StatusDefinition | null;
+  dependencies?: { id: string; title: string; status: string }[];
+  dependents?: { id: string; title: string; status: string }[];
 }
 
 export interface Habit {
@@ -103,8 +73,6 @@ export interface Project {
   taskCount: number;
   completedCount: number;
   progress: number;
-  /** This project's workflow status definitions (defaults seeded on create). */
-  statuses?: StatusDefinition[];
   sections?: Section[];
   tasks?: Task[];
 }
@@ -117,40 +85,6 @@ export interface Section {
   status: "planned" | "in_progress" | "complete";
   targetDate: string | null;
   sortOrder: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// ── Automation Rules ────────────────────────────────────────────────────────────
-
-export type AutomationTriggerType = "task_status_changed" | "task_created" | "due_date_approaching";
-export type AutomationActionType = "set_status" | "set_priority" | "add_label" | "create_notification";
-export type AutomationConditionField = "project" | "status" | "priority" | "label";
-
-export interface AutomationTrigger {
-  type: AutomationTriggerType;
-  params?: Record<string, unknown>;
-}
-
-export interface AutomationCondition {
-  field: AutomationConditionField;
-  op: string;
-  value: unknown;
-}
-
-export interface AutomationAction {
-  type: AutomationActionType;
-  params: Record<string, unknown>;
-}
-
-export interface AutomationRule {
-  id: string;
-  projectId: string;
-  name: string;
-  active: boolean;
-  trigger: AutomationTrigger;
-  conditions: AutomationCondition[];
-  actions: AutomationAction[];
   createdAt: string;
   updatedAt: string;
 }
@@ -336,34 +270,19 @@ export interface Agent {
   updatedAt: string;
 }
 
-export type NotificationType = "mention" | "status_change" | "due_soon" | "automation" | "assignment" | (string & {});
-
 export interface Notification {
   id: string;
-  userId: string;
-  workspaceId: string | null;
-  type: NotificationType;
-  title: string;
-  body: string | null;
-  entityType: string | null;
-  entityId: string | null;
-  /** NULL = unread. */
-  readAt: string | null;
+  actor: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  changes: Record<string, unknown> | null;
+  workspaceId: string;
   createdAt: string;
-  deletedAt: string | null;
 }
 
 export interface NotificationsResponse {
   items: Notification[];
-  totalItems: number;
-  unreadCount: number;
-  page: number;
-  perPage: number;
-  limit: number;
-  offset: number;
-}
-
-export interface NotificationCount {
   count: number;
 }
 
@@ -380,44 +299,7 @@ export interface AgentActivity {
   createdAt: string;
 }
 
-// Canvas
-export interface Canvas {
-  id: string;
-  name: string;
-  description: string | null;
-  mode: "freeform" | "graph";
-  domainId: string;
-  tags: string[];
-  viewport: { x: number; y: number; zoom: number };
-  background: string | null;
-  customFields: Record<string, unknown>;
-  createdAt: string;
-  updatedAt: string;
-  cards?: CanvasCard[];
-  connections?: CanvasConnection[];
-}
 
-export interface CanvasCard {
-  id: string;
-  canvasId: string;
-  type: string;
-  content: string;
-  position: { x: number; y: number };
-  size: { w: number; h: number };
-  zIndex: number;
-  color: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CanvasConnection {
-  id: string;
-  canvasId: string;
-  sourceCardId: string;
-  targetCardId: string;
-  label: string | null;
-  color: string | null;
-}
 
 // Daily Notes
 export interface DailyNote {
@@ -444,6 +326,8 @@ export interface HabitAnalytics {
   habitConsistency: number;
   totalHabits: number;
   totalLogs: number;
+  totalExpected?: number;
+  perHabit?: Array<{ id: string; name: string; completed: number; expected: number; consistency: number }>;
   activeStreaks: number;
   bestStreak: number;
   period: number;

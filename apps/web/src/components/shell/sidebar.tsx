@@ -11,7 +11,6 @@ import {
   NotebookPen,
   BookOpen,
   Share2,
-  LayoutGrid,
   CalendarDays,
   Search,
   BarChart3,
@@ -67,7 +66,6 @@ const navItems: NavItem[] = [
   { href: "/search", label: "Search", icon: Search },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/agents/activity", label: "Agent Activity", icon: Bot },
-  { href: "/canvas", label: "Canvas", icon: LayoutGrid },
   { href: "/daily", label: "Daily Notes", icon: PenLine },
 ];
 

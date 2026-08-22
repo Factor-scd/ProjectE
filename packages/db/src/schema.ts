@@ -23,7 +23,7 @@ export const tsvector = customType<{ data: string }>({
 
 // ── Enums ──────────────────────────────────────────────────────────────────────
 
-export const statusCategoryEnum = pgEnum('status_category', ['todo', 'in_progress', 'done', 'cancelled']);
+export const taskStatusEnum = pgEnum('task_status', ['todo', 'in_progress', 'done', 'cancelled']);
 export const taskPriorityEnum = pgEnum('task_priority', ['low', 'medium', 'high', 'urgent']);
 export const habitFrequencyEnum = pgEnum('habit_frequency', ['daily', 'weekly', 'custom']);
 export const habitDifficultyEnum = pgEnum('habit_difficulty', ['easy', 'medium', 'hard']);
@@ -119,65 +119,6 @@ export const projects = pgTable(
   ]
 );
 
-// ── Status Definitions ─────────────────────────────────────────────────────────
-// Per-project configurable task workflow statuses. `category` maps a user-defined
-// status to the UI semantics that drive progress (done), board columns, and
-// completion checks. `key` is a stable machine id per project; `label` is the
-// display name.
-
-export const statusDefinitions = pgTable(
-  'status_definitions',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    projectId: uuid('project_id')
-      .notNull()
-      .references((): any => projects.id, { onDelete: 'cascade' }),
-    key: text('key').notNull(),
-    label: text('label').notNull(),
-    category: statusCategoryEnum('category').notNull().default('todo'),
-    color: text('color'),
-    sortOrder: integer('sort_order').default(0),
-    isDefault: boolean('is_default').default(false),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    uniqueIndex('status_definitions_project_key_idx').on(table.projectId, table.key),
-    index('status_definitions_project_id_idx').on(table.projectId),
-  ]
-);
-
-// ── Automation Rules ─────────────────────────────────────────────────────────────
-// No-code trigger-action rules scoped to a single project. `trigger` names the
-// event, `conditions` filter when it fires, and `actions` run in order when a
-// rule matches. Config-only rows — deleted rules are hard-deleted.
-
-export const automationRules = pgTable(
-  'automation_rules',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    projectId: uuid('project_id')
-      .notNull()
-      .references((): any => projects.id, { onDelete: 'cascade' }),
-    name: text('name').notNull(),
-    active: boolean('active').default(true),
-    trigger: jsonb('trigger')
-      .notNull()
-      .$type<{ type: string; params?: Record<string, any> }>(),
-    conditions: jsonb('conditions')
-      .$type<{ field: string; op: string; value: any }[]>()
-      .default([]),
-    actions: jsonb('actions')
-      .notNull()
-      .$type<{ type: string; params: Record<string, any> }[]>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('automation_rules_project_id_idx').on(table.projectId),
-  ]
-);
-
 // ── Sections ────────────────────────────────────────────────────────────────────
 
 export const sections = pgTable(
@@ -210,7 +151,7 @@ export const tasks = pgTable(
     id: uuid('id').defaultRandom().primaryKey(),
     title: text('title').notNull(),
     description: text('description'),
-    statusId: uuid('status_id').references((): any => statusDefinitions.id, { onDelete: 'set null' }),
+    status: taskStatusEnum('status').notNull().default('todo'),
     priority: taskPriorityEnum('priority').notNull().default('medium'),
     domainId: uuid('domain_id')
       .notNull()
@@ -235,7 +176,7 @@ export const tasks = pgTable(
     index('tasks_project_id_idx').on(table.projectId),
     index('tasks_section_id_idx').on(table.sectionId),
     index('tasks_parent_id_idx').on(table.parentId),
-    index('tasks_status_id_idx').on(table.statusId),
+    index('tasks_status_idx').on(table.status),
     index('tasks_priority_idx').on(table.priority),
     index('tasks_due_date_idx').on(table.dueDate),
     index('tasks_order_idx').on(table.order),
@@ -475,36 +416,6 @@ export const activityFeed = pgTable(
   ]
 );
 
-// ── Notifications ─────────────────────────────────────────────────────────────
-// Per-user in-app notifications. `readAt` NULL means unread; rows are soft-
-// deleted (deleted_at set) rather than removed so the unread/read history can
-// be reconstructed if a notification is ever un-deleted.
-
-export const notifications = pgTable(
-  'notifications',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    userId: uuid('user_id')
-      .notNull()
-      .references((): any => users.id, { onDelete: 'cascade' }),
-    workspaceId: uuid('workspace_id').references((): any => domains.id, { onDelete: 'cascade' }),
-    type: text('type').notNull(), // 'mention', 'status_change', 'due_soon', 'automation', 'assignment'
-    title: text('title').notNull(),
-    body: text('body'),
-    entityType: text('entity_type'),
-    entityId: uuid('entity_id'),
-    readAt: timestamp('read_at', { withTimezone: true }), // NULL = unread
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
-  },
-  (table) => [
-    index('notifications_user_id_idx').on(table.userId),
-    index('notifications_user_read_idx').on(table.userId, table.readAt),
-    index('notifications_workspace_id_idx').on(table.workspaceId),
-    index('notifications_entity_idx').on(table.entityType, table.entityId),
-  ]
-);
-
 // ── Comments ───────────────────────────────────────────────────────────────────
 // Nested comment threads on any entity. Comments were previously stored as
 // activity_feed rows (entity_type='comment'); they now live here so replies
@@ -626,30 +537,6 @@ export const webhookDeliveries = pgTable(
 
 
 
-// ── Reports ──────────────────────────────────────────────────────────────────
-
-export const reports = pgTable(
-  'reports',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    title: text('title').notNull().default('Untitled report'),
-    content: text('content'),
-    reportType: text('report_type').notNull().default('custom'),
-    dateRangeStart: timestamp('date_range_start', { withTimezone: true }),
-    dateRangeEnd: timestamp('date_range_end', { withTimezone: true }),
-    domain: text('domain').notNull().default('personal'),
-    projectId: uuid('project_id').references((): any => projects.id, { onDelete: 'set null' }),
-    isDraft: boolean('is_draft').default(true),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('reports_domain_idx').on(table.domain),
-    index('reports_type_idx').on(table.reportType),
-    index('reports_created_at_idx').on(table.createdAt),
-  ]
-);
-
 export const apiKeys = pgTable(
   'api_keys',
   {
@@ -748,81 +635,7 @@ export const agentTasks = pgTable(
   ]
 );
 
-// ── Canvases ────────────────────────────────────────────────────────────────────
 
-export const canvases = pgTable(
-  'canvases',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    name: text('name').notNull(),
-    description: text('description'),
-    mode: text('mode').notNull().default('freeform'),
-    domainId: uuid('domain_id')
-      .notNull()
-      .references((): any => domains.id, { onDelete: 'cascade' }),
-    tags: text('tags').array().default([]),
-    viewport: jsonb('viewport').$type<{ x: number; y: number; zoom: number }>().default({ x: 0, y: 0, zoom: 1 }),
-    background: text('background'),
-    customFields: jsonb('custom_fields').$type<Record<string, unknown>>().default({}),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('canvases_domain_id_idx').on(table.domainId),
-  ]
-);
-
-// ── Canvas Cards ─────────────────────────────────────────────────────────────────
-
-export const canvasCards = pgTable(
-  'canvas_cards',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    canvasId: uuid('canvas_id')
-      .notNull()
-      .references((): any => canvases.id, { onDelete: 'cascade' }),
-    type: text('type').notNull().default('note'),
-    entityId: uuid('entity_id'),
-    title: text('title'),
-    content: text('content'),
-    x: integer('x').default(0),
-    y: integer('y').default(0),
-    width: integer('width').default(200),
-    height: integer('height').default(150),
-    rotation: integer('rotation').default(0),
-    color: text('color'),
-    zIndex: integer('z_index').default(0),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('canvas_cards_canvas_id_idx').on(table.canvasId),
-  ]
-);
-
-// ── Canvas Connections ───────────────────────────────────────────────────────────
-
-export const canvasConnections = pgTable(
-  'canvas_connections',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    canvasId: uuid('canvas_id')
-      .notNull()
-      .references((): any => canvases.id, { onDelete: 'cascade' }),
-    sourceCardId: uuid('source_card_id')
-      .notNull()
-      .references((): any => canvasCards.id, { onDelete: 'cascade' }),
-    targetCardId: uuid('target_card_id')
-      .notNull()
-      .references((): any => canvasCards.id, { onDelete: 'cascade' }),
-    label: text('label'),
-    style: text('style').notNull().default('solid'),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('canvas_connections_canvas_id_idx').on(table.canvasId),
-  ]
-);
 
 // ── Calendar Events ──────────────────────────────────────────────────────────────
 

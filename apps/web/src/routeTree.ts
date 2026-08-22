@@ -13,13 +13,11 @@ import { Route as searchRoute } from "./routes/_app/search";
 import { Route as analyticsRoute } from "./routes/_app/analytics";
 import { Route as agentsRoute } from "./routes/_app/agents";
 import { Route as agentActivityRoute } from "./routes/_app/agents/activity";
-import { Route as canvasRoute } from "./routes/_app/canvas";
 import { Route as dailyRoute } from "./routes/_app/daily";
 import { Route as settingsRoute } from "./routes/_app/settings";
 import { Route as taskDetailRoute } from "./routes/_app/tasks/$id";
 import { Route as habitDetailRoute } from "./routes/_app/habits/$id";
 import { Route as noteDetailRoute } from "./routes/_app/notes/$id";
-import { Route as canvasDetailRoute } from "./routes/_app/canvas/$id";
 import { Route as projectDetailRoute } from "./routes/_app/projects/$id";
 
 const appChildren = [
@@ -34,13 +32,11 @@ const appChildren = [
   analyticsRoute,
   agentsRoute,
   agentActivityRoute,
-  canvasRoute,
   dailyRoute,
   settingsRoute,
   taskDetailRoute,
   habitDetailRoute,
   noteDetailRoute,
-  canvasDetailRoute,
   projectDetailRoute,
 ];
 
