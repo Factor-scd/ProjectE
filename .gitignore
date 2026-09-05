@@ -44,3 +44,7 @@ pocketbase/pb_data/
 .wrangler/
 .vinext/
 pb_data/
+# Build artifacts
+*.tsbuildinfo
+# One-off fix scripts
+fix_*.py
