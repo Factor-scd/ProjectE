@@ -1,8 +1,9 @@
 # Project E
 
-A personal project, habit, and task tracker built for the AI-agent era. Track tasks and habits, manage projects, write notes, and let AI agents read and write your data through a built-in MCP (Model Context Protocol) server.
+Project E is a personal task and habit tracker designed for the AI-agent era. It combines traditional productivity tools with a built-in MCP (Model Context Protocol) server, allowing AI agents to read and write your data securely based on defined permission tiers.
 
 ## Features
+
 
 - **Tasks:** Kanban boards, priorities, due dates, subtasks, time tracking, recurring tasks, dependencies, and attachments
 - **Habits:** Daily/weekly/custom frequencies, streak tracking, mood logging, skip days, and completion scoring
