@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db, tasks, habits, habitCompletions, projects } from "@project-e/db";
-import { and, eq, gte, inArray, isNull, isNotNull, or } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, or } from "drizzle-orm";
 import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
 
 export const analyticsRoutes = new Hono();
@@ -30,7 +30,7 @@ analyticsRoutes.get("/productivity", async (c) => {
         isNull(tasks.deletedAt),
       ));
 
-    const completedTasks = allTasks.filter(t => t.completedAt !== null);
+    const completedTasks = allTasks.filter(t => t.status === "done");
     const taskCompletionRate = allTasks.length > 0 ? Math.round((completedTasks.length / allTasks.length) * 100) : 0;
 
     return c.json({
@@ -163,9 +163,9 @@ analyticsRoutes.get("/projects", async (c) => {
 
     const projectIds = allProjects.map((p) => p.id);
 
-    // Count tasks per project for the domain
+    // Count tasks per project (any status, including non-done) for the domain
     const taskRows = projectIds.length > 0
-      ? await db.select({ projectId: tasks.projectId, completedAt: tasks.completedAt })
+      ? await db.select({ projectId: tasks.projectId, status: tasks.status })
           .from(tasks)
           .where(and(
             isNull(tasks.deletedAt),
@@ -178,7 +178,7 @@ analyticsRoutes.get("/projects", async (c) => {
       if (!t.projectId) continue;
       const entry = counts.get(t.projectId) ?? { totalTasks: 0, completedTasks: 0 };
       entry.totalTasks += 1;
-      if (t.completedAt) entry.completedTasks += 1;
+      if (t.status === "done") entry.completedTasks += 1;
       counts.set(t.projectId, entry);
     }
 
@@ -261,7 +261,7 @@ analyticsRoutes.get("/cycle", async (c) => {
     await requireWorkspaceAccess(c, domainId);
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - range);
-    const doneTasks = await db.select().from(tasks).where(and(eq(tasks.domainId, domainId), isNotNull(tasks.completedAt), gte(tasks.completedAt, startDate), isNull(tasks.deletedAt)));
+    const doneTasks = await db.select().from(tasks).where(and(eq(tasks.domainId, domainId), eq(tasks.status, "done"), gte(tasks.completedAt, startDate), isNull(tasks.deletedAt)));
     const durations: number[] = [];
     for (const t of doneTasks) if (t.completedAt) durations.push((t.completedAt.getTime() - t.createdAt.getTime()) / (1000*60*60*24));
     durations.sort((a,b)=>a-b);
@@ -319,7 +319,7 @@ analyticsRoutes.get("/daily", async (c) => {
     for (const t of domainTasks) {
       const createdKey = localDateKey(t.createdAt);
       createdByDay.set(createdKey, (createdByDay.get(createdKey) || 0) + 1);
-      if (t.completedAt) {
+      if (t.status === "done" && t.completedAt) {
         const completedKey = localDateKey(t.completedAt);
         completedByDay.set(completedKey, (completedByDay.get(completedKey) || 0) + 1);
       }
