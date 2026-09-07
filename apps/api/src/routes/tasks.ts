@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db, tasks, taskTags, tags as tagsTable, activityFeed, scheduledJobs, projects, sections, links } from "@project-e/db";
+import { db, tasks, states as statesTable, taskTags, tags as tagsTable, activityFeed, scheduledJobs, projects, sections, links } from "@project-e/db";
 import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
@@ -90,6 +90,9 @@ taskRoutes.get("/", async (c) => {
     const filter = url.searchParams.get("filter") || undefined;
     const sort = url.searchParams.get("sort") || "-created";
     const stateId = url.searchParams.get("state_id");
+    const stateGroup = url.searchParams.get("state_group");
+    const moduleId = url.searchParams.get("module_id");
+    const cycleId = url.searchParams.get("cycle_id");
     const priority = url.searchParams.get("priority");
     const tag = url.searchParams.get("tag");
     const search = url.searchParams.get("search");
@@ -143,6 +146,22 @@ taskRoutes.get("/", async (c) => {
     }
     if (sectionId) {
       conditions.push(eq(tasks.sectionId, sectionId));
+    }
+    if (moduleId) {
+      conditions.push(eq(tasks.moduleId, moduleId));
+    }
+    if (cycleId) {
+      conditions.push(eq(tasks.cycleId, cycleId));
+    }
+    if (stateGroup) {
+      const groups = stateGroup.split(",") as any[];
+      conditions.push(
+        exists(
+          db.select({ one: sql`1` })
+            .from(statesTable)
+            .where(and(eq(statesTable.id, tasks.stateId), inArray(statesTable.group, groups)))
+        )
+      );
     }
     // Tag filter applied in SQL (EXISTS on the junction table) so it runs over
     // the full dataset before pagination — filtering in-memory after fetching a
@@ -296,6 +315,21 @@ taskRoutes.post("/", async (c) => {
       }
     }
 
+    // Validate stateId exists and compute completedAt
+    let completedAt: Date | null = null;
+    if (data.stateId) {
+      const [state] = await db.select({ id: statesTable.id, group: statesTable.group })
+        .from(statesTable)
+        .where(eq(statesTable.id, data.stateId))
+        .limit(1);
+      if (!state) {
+        return c.json({ error: { code: "NOT_FOUND", message: "State not found" } }, 404);
+      }
+      if (state.group === "completed") {
+        completedAt = new Date();
+      }
+    }
+
     const [task] = await db.insert(tasks).values({
       title: data.title,
       description: data.description ?? null,
@@ -312,6 +346,7 @@ taskRoutes.post("/", async (c) => {
       order: data.order ?? 0,
       customFields: data.customFields ?? {},
       recurrenceRule: data.recurrenceRule ?? null,
+      completedAt,
     }).returning();
 
     const tagIdsToLink: string[] = [...(data.tagIds || [])];
@@ -539,6 +574,23 @@ taskRoutes.patch("/:id", async (c) => {
     if (data.order !== undefined) updateValues.order = data.order;
     if (data.customFields !== undefined) updateValues.customFields = data.customFields;
     if (data.recurrenceRule !== undefined) updateValues.recurrenceRule = data.recurrenceRule;
+
+    // Validate stateId and compute completedAt when state changes
+    if (data.stateId !== undefined) {
+      if (data.stateId !== null) {
+        const [state] = await db.select({ id: statesTable.id, group: statesTable.group })
+          .from(statesTable)
+          .where(eq(statesTable.id, data.stateId))
+          .limit(1);
+        if (!state) {
+          return c.json({ error: { code: "NOT_FOUND", message: "State not found" } }, 404);
+        }
+        updateValues.completedAt = state.group === "completed" ? new Date() : null;
+      } else {
+        updateValues.completedAt = null;
+      }
+    }
+
     updateValues.updatedAt = new Date();
 
     const [updated] = await db.update(tasks)
@@ -733,7 +785,7 @@ taskRoutes.post("/:id/status", async (c) => {
   return c.json({ error: { code: "NOT_FOUND", message: "Status endpoint replaced by state assignment (Phase 2)" } }, 404);
 });
 
-// GET /api/tasks/:id/history — Status change log (from activity feed)
+// GET /api/tasks/:id/history — State change log (from activity feed)
 taskRoutes.get("/:id/history", async (c) => {
   try {
     const user = await requireAuth(c);
