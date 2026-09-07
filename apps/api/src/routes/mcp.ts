@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { createHash } from "node:crypto";
-import { db, apiKeys, users, tasks, taskTags, tags as tagsTable, habits, habitCompletions, projects, notes, domains, activityFeed, webhooks, webhookDeliveries } from "@project-e/db";
-import { and, asc, desc, eq, ilike, isNull, or } from "drizzle-orm";
+import { db, apiKeys, users, tasks, taskTags, tags as tagsTable, habits, habitCompletions, projects, notes, domains, activityFeed, webhooks, webhookDeliveries, states, modules, cycles, links } from "@project-e/db";
+import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { recordActivity } from "../middleware/activity";
 
 export const mcpRoutes = new Hono();
@@ -81,9 +81,12 @@ const tools: ToolDefinition[] = [
       type: "object",
       properties: {
         domain_id: { type: "string", description: "Workspace/domain ID" },
-        status: { type: "string", enum: ["todo", "in_progress", "done", "cancelled"] },
+        state_id: { type: "string", description: "Filter by state UUID" },
+        state_group: { type: "string", enum: ["backlog", "unstarted", "started", "completed", "cancelled"], description: "Filter by state group" },
         priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
         project_id: { type: "string" },
+        module_id: { type: "string", description: "Filter by module UUID" },
+        cycle_id: { type: "string", description: "Filter by cycle UUID" },
         search: { type: "string" },
         limit: { type: "number", default: 50 },
         offset: { type: "number", default: 0 },
@@ -95,9 +98,24 @@ const tools: ToolDefinition[] = [
         eq(tasks.domainId, params.domain_id as string),
         isNull(tasks.deletedAt),
       ];
-      // TODO(phase-2): filter by state_group / state_id instead of old status
+      if (params.state_id) {
+        const stateIds = (params.state_id as string).split(",");
+        conditions.push(inArray(tasks.stateId, stateIds));
+      }
+      if (params.state_group) {
+        const groups = (params.state_group as string).split(",") as any[];
+        conditions.push(
+          exists(
+            db.select({ one: sql`1` })
+              .from(states)
+              .where(and(eq(states.id, tasks.stateId), inArray(states.group, groups)))
+          )
+        );
+      }
       if (params.priority) conditions.push(eq(tasks.priority, params.priority as any));
       if (params.project_id) conditions.push(eq(tasks.projectId, params.project_id as string));
+      if (params.module_id) conditions.push(eq(tasks.moduleId, params.module_id as string));
+      if (params.cycle_id) conditions.push(eq(tasks.cycleId, params.cycle_id as string));
       if (params.search) conditions.push(ilike(tasks.title, `%${params.search}%`));
 
       const items = await db.select()
@@ -119,21 +137,38 @@ const tools: ToolDefinition[] = [
         domain_id: { type: "string", description: "Workspace/domain ID" },
         title: { type: "string" },
         description: { type: "string" },
-        status: { type: "string" },
+        state_id: { type: "string", description: "State UUID" },
         priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
         due_date: { type: "string" },
         project_id: { type: "string" },
+        module_id: { type: "string", description: "Module UUID" },
+        cycle_id: { type: "string", description: "Cycle UUID" },
       },
       required: ["domain_id", "title"],
     },
     handler: async (params, auth) => {
+      let completedAt: Date | null = null;
+      if (params.state_id) {
+        const [state] = await db.select({ id: states.id, group: states.group })
+          .from(states)
+          .where(eq(states.id, params.state_id as string))
+          .limit(1);
+        if (state?.group === "completed") {
+          completedAt = new Date();
+        }
+      }
+
       const [task] = await db.insert(tasks).values({
         title: params.title as string,
         description: (params.description as string) ?? null,
         priority: (params.priority as any) ?? "medium",
         domainId: params.domain_id as string,
         projectId: (params.project_id as string) ?? null,
+        stateId: (params.state_id as string) ?? null,
+        moduleId: (params.module_id as string) ?? null,
+        cycleId: (params.cycle_id as string) ?? null,
         dueDate: params.due_date ? new Date(params.due_date as string) : null,
+        completedAt,
       }).returning();
 
       await recordActivity({
@@ -141,7 +176,7 @@ const tools: ToolDefinition[] = [
         action: "created",
         entityType: "task",
         entityId: task.id,
-        changes: { title: task.title },
+        changes: { title: task.title, stateId: task.stateId },
         workspaceId: params.domain_id as string,
       });
 
@@ -157,9 +192,11 @@ const tools: ToolDefinition[] = [
         task_id: { type: "string" },
         title: { type: "string" },
         description: { type: "string" },
-        status: { type: "string" },
+        state_id: { type: "string", description: "State UUID" },
         priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
         due_date: { type: "string" },
+        module_id: { type: "string", description: "Module UUID" },
+        cycle_id: { type: "string", description: "Cycle UUID" },
       },
       required: ["task_id"],
     },
@@ -173,6 +210,24 @@ const tools: ToolDefinition[] = [
       if (params.description !== undefined) updateData.description = params.description;
       if (params.priority !== undefined) updateData.priority = params.priority;
       if (params.due_date !== undefined) updateData.dueDate = params.due_date ? new Date(params.due_date as string) : null;
+      if (params.module_id !== undefined) updateData.moduleId = params.module_id;
+      if (params.cycle_id !== undefined) updateData.cycleId = params.cycle_id;
+
+      // Handle state change + completedAt
+      if (params.state_id !== undefined) {
+        updateData.stateId = params.state_id;
+        if (params.state_id) {
+          const [state] = await db.select({ id: states.id, group: states.group })
+            .from(states)
+            .where(eq(states.id, params.state_id as string))
+            .limit(1);
+          if (!state) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "State not found");
+          updateData.completedAt = state.group === "completed" ? new Date() : null;
+        } else {
+          updateData.completedAt = null;
+        }
+      }
+
       updateData.updatedAt = new Date();
 
       const [task] = await db.update(tasks)
@@ -223,10 +278,13 @@ const tools: ToolDefinition[] = [
   },
   {
     name: "tasks.complete",
-    description: "Mark a task as done",
+    description: "Mark a task as done by setting its state to a completed group state",
     inputSchema: {
       type: "object",
-      properties: { task_id: { type: "string" } },
+      properties: {
+        task_id: { type: "string" },
+        state_id: { type: "string", description: "Optional specific completed state UUID. If omitted, finds a completed-group state from the task's project." },
+      },
       required: ["task_id"],
     },
     handler: async (params, auth) => {
@@ -234,8 +292,25 @@ const tools: ToolDefinition[] = [
       if (!existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Task not found");
       await verifyDomainAccess(existing.domainId, auth.userId);
 
+      let completedStateId = params.state_id as string | undefined;
+      if (!completedStateId && existing.projectId) {
+        const [completedState] = await db.select({ id: states.id })
+          .from(states)
+          .where(and(eq(states.projectId, existing.projectId), eq(states.group, "completed"), isNull(states.deletedAt)))
+          .limit(1);
+        completedStateId = completedState?.id;
+      }
+
+      const updateData: Record<string, unknown> = {
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      };
+      if (completedStateId) {
+        updateData.stateId = completedStateId;
+      }
+
       const [task] = await db.update(tasks)
-        .set({ completedAt: new Date(), updatedAt: new Date() })
+        .set(updateData)
         .where(and(eq(tasks.id, params.task_id as string), isNull(tasks.deletedAt)))
         .returning();
 
@@ -244,6 +319,7 @@ const tools: ToolDefinition[] = [
         action: "completed",
         entityType: "task",
         entityId: task.id,
+        changes: { stateId: task.stateId },
         workspaceId: task.domainId,
       });
 
@@ -603,6 +679,719 @@ const tools: ToolDefinition[] = [
         .limit(Math.min(Number(params.limit) || 20, 100))
         .offset(Number(params.offset) || 0);
       return { items };
+    },
+  },
+  // ── States ──────────────────────────────────────────────────────────────────────
+  {
+    name: "states.list",
+    description: "List workflow states for a project",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Project UUID" },
+      },
+      required: ["project_id"],
+    },
+    handler: async (params) => {
+      const items = await db.select()
+        .from(states)
+        .where(and(eq(states.projectId, params.project_id as string), isNull(states.deletedAt)))
+        .orderBy(asc(states.sortOrder));
+      return { items };
+    },
+  },
+  {
+    name: "states.create",
+    description: "Create a workflow state",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: { type: "string" },
+        name: { type: "string" },
+        color: { type: "string" },
+        group: { type: "string", enum: ["backlog", "unstarted", "started", "completed", "cancelled"] },
+        sort_order: { type: "number" },
+      },
+      required: ["project_id", "name"],
+    },
+    handler: async (params, auth) => {
+      const [project] = await db.select().from(projects).where(eq(projects.id, params.project_id as string)).limit(1);
+      if (!project) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Project not found");
+      await verifyDomainAccess(project.domainId, auth.userId);
+
+      const [state] = await db.insert(states).values({
+        name: params.name as string,
+        color: (params.color as string) ?? null,
+        group: (params.group as any) ?? "unstarted",
+        projectId: params.project_id as string,
+        sortOrder: (params.sort_order as number) ?? 0,
+      }).returning();
+
+      await recordActivity({
+        actor: auth.userName,
+        action: "created",
+        entityType: "state",
+        entityId: state.id,
+        changes: { name: state.name, group: state.group },
+        workspaceId: project.domainId,
+      });
+
+      return state;
+    },
+  },
+  {
+    name: "states.update",
+    description: "Update a workflow state",
+    inputSchema: {
+      type: "object",
+      properties: {
+        state_id: { type: "string" },
+        name: { type: "string" },
+        color: { type: "string" },
+        group: { type: "string", enum: ["backlog", "unstarted", "started", "completed", "cancelled"] },
+        sort_order: { type: "number" },
+      },
+      required: ["state_id"],
+    },
+    handler: async (params, auth) => {
+      const [existing] = await db.select().from(states).where(and(eq(states.id, params.state_id as string), isNull(states.deletedAt))).limit(1);
+      if (!existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "State not found");
+
+      const [project] = await db.select().from(projects).where(eq(projects.id, existing.projectId)).limit(1);
+      if (project) await verifyDomainAccess(project.domainId, auth.userId);
+
+      const updateData: Record<string, unknown> = { updatedAt: new Date() };
+      if (params.name !== undefined) updateData.name = params.name;
+      if (params.color !== undefined) updateData.color = params.color;
+      if (params.group !== undefined) updateData.group = params.group;
+      if (params.sort_order !== undefined) updateData.sortOrder = params.sort_order;
+
+      const [state] = await db.update(states)
+        .set(updateData)
+        .where(eq(states.id, params.state_id as string))
+        .returning();
+
+      if (project) {
+        await recordActivity({
+          actor: auth.userName,
+          action: "updated",
+          entityType: "state",
+          entityId: state.id,
+          changes: updateData,
+          workspaceId: project.domainId,
+        });
+      }
+
+      return state;
+    },
+  },
+  {
+    name: "states.delete",
+    description: "Soft-delete a workflow state",
+    inputSchema: {
+      type: "object",
+      properties: { state_id: { type: "string" } },
+      required: ["state_id"],
+    },
+    handler: async (params, auth) => {
+      const [existing] = await db.select().from(states).where(and(eq(states.id, params.state_id as string), isNull(states.deletedAt))).limit(1);
+      if (!existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "State not found");
+
+      const [project] = await db.select().from(projects).where(eq(projects.id, existing.projectId)).limit(1);
+      if (project) await verifyDomainAccess(project.domainId, auth.userId);
+
+      await db.update(states)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(states.id, params.state_id as string));
+
+      if (project) {
+        await recordActivity({
+          actor: auth.userName,
+          action: "deleted",
+          entityType: "state",
+          entityId: params.state_id as string,
+          changes: { name: existing.name },
+          workspaceId: project.domainId,
+        });
+      }
+
+      return { deleted: true, id: params.state_id };
+    },
+  },
+  // ── Modules ─────────────────────────────────────────────────────────────────────
+  {
+    name: "modules.list",
+    description: "List modules for a project",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: { type: "string" },
+      },
+      required: ["project_id"],
+    },
+    handler: async (params) => {
+      const items = await db.select()
+        .from(modules)
+        .where(and(eq(modules.projectId, params.project_id as string), isNull(modules.deletedAt)))
+        .orderBy(asc(modules.sortOrder));
+      return { items };
+    },
+  },
+  {
+    name: "modules.create",
+    description: "Create a module",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: { type: "string" },
+        name: { type: "string" },
+        description: { type: "string" },
+        status: { type: "string", enum: ["planned", "in_progress", "completed", "cancelled"] },
+        start_date: { type: "string" },
+        target_date: { type: "string" },
+      },
+      required: ["project_id", "name"],
+    },
+    handler: async (params, auth) => {
+      const [project] = await db.select().from(projects).where(eq(projects.id, params.project_id as string)).limit(1);
+      if (!project) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Project not found");
+      await verifyDomainAccess(project.domainId, auth.userId);
+
+      const [mod] = await db.insert(modules).values({
+        name: params.name as string,
+        description: (params.description as string) ?? null,
+        projectId: params.project_id as string,
+        status: (params.status as any) ?? "planned",
+        startDate: params.start_date ? new Date(params.start_date as string) : null,
+        targetDate: params.target_date ? new Date(params.target_date as string) : null,
+      }).returning();
+
+      await recordActivity({
+        actor: auth.userName,
+        action: "created",
+        entityType: "module",
+        entityId: mod.id,
+        changes: { name: mod.name },
+        workspaceId: project.domainId,
+      });
+
+      return mod;
+    },
+  },
+  {
+    name: "modules.update",
+    description: "Update a module",
+    inputSchema: {
+      type: "object",
+      properties: {
+        module_id: { type: "string" },
+        name: { type: "string" },
+        description: { type: "string" },
+        status: { type: "string", enum: ["planned", "in_progress", "completed", "cancelled"] },
+        start_date: { type: "string" },
+        target_date: { type: "string" },
+      },
+      required: ["module_id"],
+    },
+    handler: async (params, auth) => {
+      const [existing] = await db.select().from(modules).where(and(eq(modules.id, params.module_id as string), isNull(modules.deletedAt))).limit(1);
+      if (!existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Module not found");
+
+      const [project] = await db.select().from(projects).where(eq(projects.id, existing.projectId)).limit(1);
+      if (project) await verifyDomainAccess(project.domainId, auth.userId);
+
+      const updateData: Record<string, unknown> = { updatedAt: new Date() };
+      if (params.name !== undefined) updateData.name = params.name;
+      if (params.description !== undefined) updateData.description = params.description;
+      if (params.status !== undefined) updateData.status = params.status;
+      if (params.start_date !== undefined) updateData.startDate = params.start_date ? new Date(params.start_date as string) : null;
+      if (params.target_date !== undefined) updateData.targetDate = params.target_date ? new Date(params.target_date as string) : null;
+
+      const [mod] = await db.update(modules)
+        .set(updateData)
+        .where(eq(modules.id, params.module_id as string))
+        .returning();
+
+      if (project) {
+        await recordActivity({
+          actor: auth.userName,
+          action: "updated",
+          entityType: "module",
+          entityId: mod.id,
+          changes: updateData,
+          workspaceId: project.domainId,
+        });
+      }
+
+      return mod;
+    },
+  },
+  {
+    name: "modules.delete",
+    description: "Soft-delete a module and clear module_id on its tasks",
+    inputSchema: {
+      type: "object",
+      properties: { module_id: { type: "string" } },
+      required: ["module_id"],
+    },
+    handler: async (params, auth) => {
+      const [existing] = await db.select().from(modules).where(and(eq(modules.id, params.module_id as string), isNull(modules.deletedAt))).limit(1);
+      if (!existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Module not found");
+
+      const [project] = await db.select().from(projects).where(eq(projects.id, existing.projectId)).limit(1);
+      if (project) await verifyDomainAccess(project.domainId, auth.userId);
+
+      await db.update(tasks)
+        .set({ moduleId: null, updatedAt: new Date() })
+        .where(eq(tasks.moduleId, params.module_id as string));
+
+      await db.update(modules)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(modules.id, params.module_id as string));
+
+      if (project) {
+        await recordActivity({
+          actor: auth.userName,
+          action: "deleted",
+          entityType: "module",
+          entityId: params.module_id as string,
+          changes: { name: existing.name },
+          workspaceId: project.domainId,
+        });
+      }
+
+      return { deleted: true, id: params.module_id };
+    },
+  },
+  {
+    name: "modules.add-task",
+    description: "Add a task to a module",
+    inputSchema: {
+      type: "object",
+      properties: {
+        module_id: { type: "string" },
+        task_id: { type: "string" },
+      },
+      required: ["module_id", "task_id"],
+    },
+    handler: async (params, auth) => {
+      const [mod] = await db.select().from(modules).where(and(eq(modules.id, params.module_id as string), isNull(modules.deletedAt))).limit(1);
+      if (!mod) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Module not found");
+
+      const [project] = await db.select().from(projects).where(eq(projects.id, mod.projectId)).limit(1);
+      if (project) await verifyDomainAccess(project.domainId, auth.userId);
+
+      const [task] = await db.select().from(tasks).where(and(eq(tasks.id, params.task_id as string), isNull(tasks.deletedAt))).limit(1);
+      if (!task) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Task not found");
+
+      await db.update(tasks)
+        .set({ moduleId: params.module_id as string, updatedAt: new Date() })
+        .where(eq(tasks.id, params.task_id as string));
+
+      if (project) {
+        await recordActivity({
+          actor: auth.userName,
+          action: "added_task",
+          entityType: "module",
+          entityId: params.module_id as string,
+          changes: { taskId: params.task_id, taskTitle: task.title },
+          workspaceId: project.domainId,
+        });
+      }
+
+      return { success: true };
+    },
+  },
+  {
+    name: "modules.remove-task",
+    description: "Remove a task from a module",
+    inputSchema: {
+      type: "object",
+      properties: {
+        module_id: { type: "string" },
+        task_id: { type: "string" },
+      },
+      required: ["module_id", "task_id"],
+    },
+    handler: async (params, auth) => {
+      const [mod] = await db.select().from(modules).where(and(eq(modules.id, params.module_id as string), isNull(modules.deletedAt))).limit(1);
+      if (!mod) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Module not found");
+
+      const [project] = await db.select().from(projects).where(eq(projects.id, mod.projectId)).limit(1);
+      if (project) await verifyDomainAccess(project.domainId, auth.userId);
+
+      await db.update(tasks)
+        .set({ moduleId: null, updatedAt: new Date() })
+        .where(and(eq(tasks.id, params.task_id as string), eq(tasks.moduleId, params.module_id as string)));
+
+      if (project) {
+        await recordActivity({
+          actor: auth.userName,
+          action: "removed_task",
+          entityType: "module",
+          entityId: params.module_id as string,
+          changes: { taskId: params.task_id },
+          workspaceId: project.domainId,
+        });
+      }
+
+      return { success: true };
+    },
+  },
+  // ── Cycles ──────────────────────────────────────────────────────────────────────
+  {
+    name: "cycles.list",
+    description: "List cycles for a project",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: { type: "string" },
+      },
+      required: ["project_id"],
+    },
+    handler: async (params) => {
+      const items = await db.select()
+        .from(cycles)
+        .where(eq(cycles.projectId, params.project_id as string))
+        .orderBy(desc(cycles.createdAt));
+      return { items };
+    },
+  },
+  {
+    name: "cycles.create",
+    description: "Create a cycle",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: { type: "string" },
+        name: { type: "string" },
+        start_date: { type: "string" },
+        end_date: { type: "string" },
+        active: { type: "boolean" },
+      },
+      required: ["project_id", "name"],
+    },
+    handler: async (params, auth) => {
+      const [project] = await db.select().from(projects).where(eq(projects.id, params.project_id as string)).limit(1);
+      if (!project) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Project not found");
+      await verifyDomainAccess(project.domainId, auth.userId);
+
+      const [cycle] = await db.insert(cycles).values({
+        name: params.name as string,
+        projectId: params.project_id as string,
+        startDate: params.start_date ? new Date(params.start_date as string) : null,
+        endDate: params.end_date ? new Date(params.end_date as string) : null,
+        active: (params.active as boolean) ?? false,
+      }).returning();
+
+      await recordActivity({
+        actor: auth.userName,
+        action: "created",
+        entityType: "cycle",
+        entityId: cycle.id,
+        changes: { name: cycle.name },
+        workspaceId: project.domainId,
+      });
+
+      return cycle;
+    },
+  },
+  {
+    name: "cycles.update",
+    description: "Update a cycle",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cycle_id: { type: "string" },
+        name: { type: "string" },
+        start_date: { type: "string" },
+        end_date: { type: "string" },
+        active: { type: "boolean" },
+      },
+      required: ["cycle_id"],
+    },
+    handler: async (params, auth) => {
+      const [existing] = await db.select().from(cycles).where(eq(cycles.id, params.cycle_id as string)).limit(1);
+      if (!existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Cycle not found");
+
+      const [project] = await db.select().from(projects).where(eq(projects.id, existing.projectId)).limit(1);
+      if (project) await verifyDomainAccess(project.domainId, auth.userId);
+
+      const updateData: Record<string, unknown> = { updatedAt: new Date() };
+      if (params.name !== undefined) updateData.name = params.name;
+      if (params.start_date !== undefined) updateData.startDate = params.start_date ? new Date(params.start_date as string) : null;
+      if (params.end_date !== undefined) updateData.endDate = params.end_date ? new Date(params.end_date as string) : null;
+      if (params.active !== undefined) updateData.active = params.active;
+
+      const [cycle] = await db.update(cycles)
+        .set(updateData)
+        .where(eq(cycles.id, params.cycle_id as string))
+        .returning();
+
+      if (project) {
+        await recordActivity({
+          actor: auth.userName,
+          action: "updated",
+          entityType: "cycle",
+          entityId: cycle.id,
+          changes: updateData,
+          workspaceId: project.domainId,
+        });
+      }
+
+      return cycle;
+    },
+  },
+  {
+    name: "cycles.delete",
+    description: "Delete a cycle and clear cycle_id on its tasks",
+    inputSchema: {
+      type: "object",
+      properties: { cycle_id: { type: "string" } },
+      required: ["cycle_id"],
+    },
+    handler: async (params, auth) => {
+      const [existing] = await db.select().from(cycles).where(eq(cycles.id, params.cycle_id as string)).limit(1);
+      if (!existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Cycle not found");
+
+      const [project] = await db.select().from(projects).where(eq(projects.id, existing.projectId)).limit(1);
+      if (project) await verifyDomainAccess(project.domainId, auth.userId);
+
+      await db.update(tasks)
+        .set({ cycleId: null, updatedAt: new Date() })
+        .where(eq(tasks.cycleId, params.cycle_id as string));
+
+      await db.delete(cycles).where(eq(cycles.id, params.cycle_id as string));
+
+      if (project) {
+        await recordActivity({
+          actor: auth.userName,
+          action: "deleted",
+          entityType: "cycle",
+          entityId: params.cycle_id as string,
+          changes: { name: existing.name },
+          workspaceId: project.domainId,
+        });
+      }
+
+      return { deleted: true, id: params.cycle_id };
+    },
+  },
+  {
+    name: "cycles.add-task",
+    description: "Add a task to a cycle",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cycle_id: { type: "string" },
+        task_id: { type: "string" },
+      },
+      required: ["cycle_id", "task_id"],
+    },
+    handler: async (params, auth) => {
+      const [cycle] = await db.select().from(cycles).where(eq(cycles.id, params.cycle_id as string)).limit(1);
+      if (!cycle) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Cycle not found");
+
+      const [project] = await db.select().from(projects).where(eq(projects.id, cycle.projectId)).limit(1);
+      if (project) await verifyDomainAccess(project.domainId, auth.userId);
+
+      const [task] = await db.select().from(tasks).where(and(eq(tasks.id, params.task_id as string), isNull(tasks.deletedAt))).limit(1);
+      if (!task) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Task not found");
+
+      await db.update(tasks)
+        .set({ cycleId: params.cycle_id as string, updatedAt: new Date() })
+        .where(eq(tasks.id, params.task_id as string));
+
+      if (project) {
+        await recordActivity({
+          actor: auth.userName,
+          action: "added_task",
+          entityType: "cycle",
+          entityId: params.cycle_id as string,
+          changes: { taskId: params.task_id, taskTitle: task.title },
+          workspaceId: project.domainId,
+        });
+      }
+
+      return { success: true };
+    },
+  },
+  {
+    name: "cycles.remove-task",
+    description: "Remove a task from a cycle",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cycle_id: { type: "string" },
+        task_id: { type: "string" },
+      },
+      required: ["cycle_id", "task_id"],
+    },
+    handler: async (params, auth) => {
+      const [cycle] = await db.select().from(cycles).where(eq(cycles.id, params.cycle_id as string)).limit(1);
+      if (!cycle) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Cycle not found");
+
+      const [project] = await db.select().from(projects).where(eq(projects.id, cycle.projectId)).limit(1);
+      if (project) await verifyDomainAccess(project.domainId, auth.userId);
+
+      await db.update(tasks)
+        .set({ cycleId: null, updatedAt: new Date() })
+        .where(and(eq(tasks.id, params.task_id as string), eq(tasks.cycleId, params.cycle_id as string)));
+
+      if (project) {
+        await recordActivity({
+          actor: auth.userName,
+          action: "removed_task",
+          entityType: "cycle",
+          entityId: params.cycle_id as string,
+          changes: { taskId: params.task_id },
+          workspaceId: project.domainId,
+        });
+      }
+
+      return { success: true };
+    },
+  },
+  {
+    name: "cycles.transfer-task",
+    description: "Transfer a task from one cycle to another",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from_cycle_id: { type: "string" },
+        to_cycle_id: { type: "string" },
+        task_id: { type: "string" },
+      },
+      required: ["from_cycle_id", "to_cycle_id", "task_id"],
+    },
+    handler: async (params, auth) => {
+      const [fromCycle] = await db.select().from(cycles).where(eq(cycles.id, params.from_cycle_id as string)).limit(1);
+      if (!fromCycle) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Source cycle not found");
+
+      const [project] = await db.select().from(projects).where(eq(projects.id, fromCycle.projectId)).limit(1);
+      if (project) await verifyDomainAccess(project.domainId, auth.userId);
+
+      const [task] = await db.select().from(tasks).where(and(eq(tasks.id, params.task_id as string), isNull(tasks.deletedAt))).limit(1);
+      if (!task) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Task not found");
+
+      await db.update(tasks)
+        .set({ cycleId: params.to_cycle_id as string, updatedAt: new Date() })
+        .where(eq(tasks.id, params.task_id as string));
+
+      if (project) {
+        await recordActivity({
+          actor: auth.userName,
+          action: "transferred_task",
+          entityType: "cycle",
+          entityId: params.from_cycle_id as string,
+          changes: { taskId: params.task_id, fromCycleId: params.from_cycle_id, toCycleId: params.to_cycle_id },
+          workspaceId: project.domainId,
+        });
+      }
+
+      return { success: true };
+    },
+  },
+  // ── Links ───────────────────────────────────────────────────────────────────────
+  {
+    name: "links.list",
+    description: "List links for an entity (bidirectional)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source_type: { type: "string", description: "Entity type (e.g. task, project)" },
+        source_id: { type: "string", description: "Entity UUID" },
+        target_type: { type: "string" },
+        target_id: { type: "string" },
+        link_type: { type: "string", enum: ["relates", "blocks", "parent-child", "created-from"] },
+        limit: { type: "number", default: 50 },
+      },
+    },
+    handler: async (params) => {
+      const conditions: any[] = [];
+      if (params.source_type && params.source_id) {
+        conditions.push(
+          or(
+            and(eq(links.sourceType, params.source_type as string), eq(links.sourceId, params.source_id as string)),
+            and(eq(links.targetType, params.source_type as string), eq(links.targetId, params.source_id as string)),
+          )!
+        );
+      } else if (params.target_type && params.target_id) {
+        conditions.push(
+          or(
+            and(eq(links.sourceType, params.target_type as string), eq(links.sourceId, params.target_id as string)),
+            and(eq(links.targetType, params.target_type as string), eq(links.targetId, params.target_id as string)),
+          )!
+        );
+      }
+      if (params.link_type) {
+        conditions.push(eq(links.linkType, params.link_type as any));
+      }
+
+      const items = await db.select()
+        .from(links)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(links.createdAt))
+        .limit(Math.min(Number(params.limit) || 50, 200));
+
+      return { items, total: items.length };
+    },
+  },
+  {
+    name: "links.create",
+    description: "Create a link between two entities",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source_type: { type: "string" },
+        source_id: { type: "string" },
+        target_type: { type: "string" },
+        target_id: { type: "string" },
+        link_type: { type: "string", enum: ["relates", "blocks", "parent-child", "created-from"] },
+        direction: { type: "string" },
+      },
+      required: ["source_type", "source_id", "target_type", "target_id", "link_type"],
+    },
+    handler: async (params) => {
+      const [existing] = await db.select()
+        .from(links)
+        .where(and(
+          eq(links.sourceType, params.source_type as string),
+          eq(links.sourceId, params.source_id as string),
+          eq(links.targetType, params.target_type as string),
+          eq(links.targetId, params.target_id as string),
+          eq(links.linkType, params.link_type as any),
+        ))
+        .limit(1);
+
+      if (existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Link already exists");
+
+      const [link] = await db.insert(links).values({
+        sourceType: params.source_type as string,
+        sourceId: params.source_id as string,
+        targetType: params.target_type as string,
+        targetId: params.target_id as string,
+        linkType: params.link_type as any,
+        direction: (params.direction as string) ?? null,
+      }).returning();
+
+      return link;
+    },
+  },
+  {
+    name: "links.delete",
+    description: "Delete a link",
+    inputSchema: {
+      type: "object",
+      properties: { link_id: { type: "string" } },
+      required: ["link_id"],
+    },
+    handler: async (params) => {
+      const [existing] = await db.select().from(links).where(eq(links.id, params.link_id as string)).limit(1);
+      if (!existing) throw new JsonRpcErrorResponse(JSONRPC_INTERNAL_ERROR, "Link not found");
+
+      await db.delete(links).where(eq(links.id, params.link_id as string));
+      return { deleted: true, id: params.link_id };
     },
   },
 ];
