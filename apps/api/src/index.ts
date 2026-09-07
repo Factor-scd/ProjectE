@@ -49,8 +49,9 @@ app.get("/api/health", async (c) => {
 app.route("/api/auth", authRoutes);
 app.route("/api/domains", domainRoutes);
 app.route("/api/projects/:projectId/modules", moduleRoutes);
-app.route("/api/projects/:projectId/cycles", cycleRoutes);
 app.route("/api/modules", moduleRoutes);
+app.route("/api/projects/:projectId/cycles", cycleRoutes);
+app.route("/api/cycles", cycleRoutes);
 app.route("/api/tasks", taskRoutes);
 app.route("/api/habits", habitRoutes);
 app.route("/api/projects", projectRoutes);
@@ -70,7 +71,6 @@ app.route("/api/analytics", analyticsRoutes);
 app.route("/api/activity", activityRoutes);
 app.route("/api/notifications", notificationRoutes);
 app.route("/api/states", stateRoutes);
-app.route("/api/cycles", cycleRoutes);
 app.route("/api/links", linkRoutes);
 app.route("/api", importExportRoutes);
 app.route("/api", realtimeRoutes);
