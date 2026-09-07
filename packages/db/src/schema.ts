@@ -184,9 +184,11 @@ export const modules = pgTable(
     sortOrder: integer('sort_order').default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => [
     index('modules_project_id_idx').on(table.projectId),
+    index('modules_deleted_at_idx').on(table.deletedAt),
   ]
 );
 
