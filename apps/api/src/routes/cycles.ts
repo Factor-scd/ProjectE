@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db, cycles, tasks, projects } from "@project-e/db";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
 import { requireAuth, requireWorkspaceAccess, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { enqueueWebhooks } from "../middleware/webhook-queue";
@@ -9,10 +9,11 @@ import { z } from "zod";
 export const cycleRoutes = new Hono();
 
 const createCycleSchema = z.object({
+  projectId: z.string().uuid("Invalid project id"),
   name: z.string().min(1, "Name is required"),
   startDate: z.string().datetime().optional().nullable(),
   endDate: z.string().datetime().optional().nullable(),
-  active: z.boolean().optional().default(false),
+  active: z.boolean().optional().default(true),
 });
 
 const updateCycleSchema = z.object({
@@ -27,10 +28,16 @@ cycleRoutes.get("/", async (c) => {
   try {
     const user = await requireAuth(c);
     const url = new URL(c.req.url);
-    const projectId = c.req.param("projectId") || url.searchParams.get("project_id");
+    const page = Math.max(1, parseInt(url.searchParams.get("page") || "1"));
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 200);
+    const offset = parseInt(url.searchParams.get("offset") || "0");
+    const search = url.searchParams.get("search");
+    const active = url.searchParams.get("active");
+    const sort = url.searchParams.get("sort") || "-created";
 
+    const projectId = url.searchParams.get("projectId") || url.searchParams.get("project_id");
     if (!projectId || !isUuid(projectId)) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "project_id is required" } }, 400);
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "projectId query parameter is required" } }, 400);
     }
 
     const [project] = await db.select({ id: projects.id, domainId: projects.domainId })
@@ -44,12 +51,54 @@ cycleRoutes.get("/", async (c) => {
 
     await requireWorkspaceAccess(c, project.domainId);
 
-    const items = await db.select()
-      .from(cycles)
-      .where(eq(cycles.projectId, projectId))
-      .orderBy(asc(cycles.createdAt));
+    const conditions: any[] = [eq(cycles.projectId, projectId)];
 
-    return c.json({ items });
+    if (search) {
+      conditions.push(ilike(cycles.name, `%${search}%`));
+    }
+    if (active === "true" || active === "false") {
+      conditions.push(eq(cycles.active, active === "true"));
+    }
+
+    const sortDir = sort.startsWith("-") ? "desc" : "asc";
+    const sortField = sort.replace(/^-/, "");
+    const sortColumns: Record<string, any> = {
+      created: cycles.createdAt,
+      updated: cycles.updatedAt,
+      name: cycles.name,
+      active: cycles.active,
+      start_date: cycles.startDate,
+      end_date: cycles.endDate,
+      created_at: cycles.createdAt,
+      updated_at: cycles.updatedAt,
+    };
+    const orderColumn = sortDir === "asc"
+      ? asc(sortColumns[sortField] || cycles.createdAt)
+      : desc(sortColumns[sortField] || cycles.createdAt);
+
+    const [items, countResult] = await Promise.all([
+      db.select()
+        .from(cycles)
+        .where(and(...conditions))
+        .orderBy(orderColumn)
+        .limit(limit)
+        .offset(offset || (page - 1) * limit),
+      db.select({ count: sql<number>`count(*)` })
+        .from(cycles)
+        .where(and(...conditions)),
+    ]);
+
+    const totalItems = Number(countResult[0]?.count || 0);
+
+    return c.json({
+      items,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+      page,
+      perPage: limit,
+      limit,
+      offset: offset || (page - 1) * limit,
+    });
   } catch (error) {
     if (error instanceof AuthError) {
       return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
@@ -66,14 +115,9 @@ cycleRoutes.post("/", async (c) => {
     const body = await c.req.json();
     const data = createCycleSchema.parse(body);
 
-    const projectId = c.req.param("projectId");
-    if (!projectId || !isUuid(projectId)) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "project_id is required in URL path" } }, 400);
-    }
-
     const [project] = await db.select({ id: projects.id, domainId: projects.domainId })
       .from(projects)
-      .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
+      .where(and(eq(projects.id, data.projectId), isNull(projects.deletedAt)))
       .limit(1);
 
     if (!project) {
@@ -84,10 +128,10 @@ cycleRoutes.post("/", async (c) => {
 
     const [cycle] = await db.insert(cycles).values({
       name: data.name,
-      projectId,
+      projectId: data.projectId,
       startDate: data.startDate ? new Date(data.startDate) : null,
       endDate: data.endDate ? new Date(data.endDate) : null,
-      active: data.active,
+      active: data.active ?? true,
     }).returning();
 
     await recordActivity({
@@ -95,11 +139,11 @@ cycleRoutes.post("/", async (c) => {
       action: "created",
       entityType: "cycle",
       entityId: cycle.id,
-      changes: { name: cycle.name, projectId },
+      changes: { name: cycle.name, active: cycle.active, projectId: data.projectId },
       workspaceId: project.domainId,
     });
 
-    await enqueueWebhooks({ workspaceId: project.domainId, event: "cycle.created", entityType: "cycle", entityId: cycle.id, data: { name: cycle.name, projectId } });
+    await enqueueWebhooks({ workspaceId: project.domainId, event: "cycle.created", entityType: "cycle", entityId: cycle.id, data: { name: cycle.name, projectId: data.projectId } });
 
     return c.json(cycle, 201);
   } catch (error) {
@@ -114,7 +158,7 @@ cycleRoutes.post("/", async (c) => {
   }
 });
 
-// GET /:id — Get a single cycle with its tasks
+// GET /:id — Get a single cycle
 cycleRoutes.get("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
@@ -217,7 +261,7 @@ cycleRoutes.patch("/:id", async (c) => {
   }
 });
 
-// DELETE /:id — Delete a cycle
+// DELETE /:id — Delete a cycle (clears cycleId on tasks)
 cycleRoutes.delete("/:id", async (c) => {
   try {
     const user = await requireAuth(c);
@@ -298,6 +342,23 @@ cycleRoutes.post("/:id/tasks", async (c) => {
 
     await requireWorkspaceAccess(c, project?.domainId || "");
 
+    const [task] = await db.select()
+      .from(tasks)
+      .where(and(eq(tasks.id, taskId), isNull(tasks.deletedAt)))
+      .limit(1);
+
+    if (!task) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
+    }
+
+    // Single-cycle constraint: if the task is already in another cycle, remove it first
+    if (task.cycleId && task.cycleId !== cycleId) {
+      await db.update(tasks)
+        .set({ cycleId: null, updatedAt: new Date() })
+        .where(eq(tasks.id, taskId));
+    }
+
+    // Assign task to this cycle
     await db.update(tasks)
       .set({ cycleId, updatedAt: new Date() })
       .where(eq(tasks.id, taskId));
@@ -307,7 +368,7 @@ cycleRoutes.post("/:id/tasks", async (c) => {
       action: "added_task",
       entityType: "cycle",
       entityId: cycleId,
-      changes: { taskId },
+      changes: { taskId, taskTitle: task.title, previousCycleId: task.cycleId },
       workspaceId: project?.domainId || "",
     });
 
@@ -350,6 +411,19 @@ cycleRoutes.delete("/:id/tasks/:taskId", async (c) => {
 
     await requireWorkspaceAccess(c, project?.domainId || "");
 
+    const [task] = await db.select()
+      .from(tasks)
+      .where(and(eq(tasks.id, taskId), isNull(tasks.deletedAt)))
+      .limit(1);
+
+    if (!task) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
+    }
+
+    if (task.cycleId !== cycleId) {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "Task is not in this cycle" } }, 400);
+    }
+
     await db.update(tasks)
       .set({ cycleId: null, updatedAt: new Date() })
       .where(eq(tasks.id, taskId));
@@ -359,7 +433,7 @@ cycleRoutes.delete("/:id/tasks/:taskId", async (c) => {
       action: "removed_task",
       entityType: "cycle",
       entityId: cycleId,
-      changes: { taskId },
+      changes: { taskId, taskTitle: task.title },
       workspaceId: project?.domainId || "",
     });
 
@@ -370,5 +444,108 @@ cycleRoutes.delete("/:id/tasks/:taskId", async (c) => {
     }
     console.error("[cycles] DELETE /:id/tasks/:taskId error:", error);
     return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to remove task from cycle" } }, 500);
+  }
+});
+
+// POST /:id/transfer — Move tasks from this cycle to a target cycle
+cycleRoutes.post("/:id/transfer", async (c) => {
+  try {
+    const user = await requireAuth(c);
+    const sourceCycleId = c.req.param("id");
+    if (!isUuid(sourceCycleId)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
+    const body = await c.req.json();
+    const { target_cycle_id, task_ids } = z.object({
+      target_cycle_id: z.string().uuid("Invalid target cycle id"),
+      task_ids: z.array(z.string().uuid("Invalid task id")).min(1, "At least one task id is required"),
+    }).parse(body);
+
+    const [sourceCycle] = await db.select()
+      .from(cycles)
+      .where(eq(cycles.id, sourceCycleId))
+      .limit(1);
+
+    if (!sourceCycle) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Source cycle not found" } }, 404);
+    }
+
+    const [targetCycle] = await db.select()
+      .from(cycles)
+      .where(eq(cycles.id, target_cycle_id))
+      .limit(1);
+
+    if (!targetCycle) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Target cycle not found" } }, 404);
+    }
+
+    if (sourceCycle.projectId !== targetCycle.projectId) {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "Target cycle must be in the same project" } }, 400);
+    }
+
+    const [project] = await db.select({ domainId: projects.domainId })
+      .from(projects)
+      .where(eq(projects.id, sourceCycle.projectId))
+      .limit(1);
+
+    const workspaceId = project?.domainId || "";
+    await requireWorkspaceAccess(c, workspaceId);
+
+    // Validate all tasks exist, are not deleted, and belong to the source cycle
+    const taskRows = await db.select()
+      .from(tasks)
+      .where(and(inArray(tasks.id, task_ids), isNull(tasks.deletedAt)));
+
+    if (taskRows.length !== task_ids.length) {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "One or more tasks not found or are deleted" } }, 400);
+    }
+
+    const nonMemberTasks = taskRows.filter((t) => t.cycleId !== sourceCycleId);
+    if (nonMemberTasks.length > 0) {
+      return c.json({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "One or more tasks do not belong to the source cycle",
+          details: { task_ids: nonMemberTasks.map((t) => t.id) },
+        },
+      }, 400);
+    }
+
+    // Move all tasks to the target cycle
+    await db.update(tasks)
+      .set({ cycleId: target_cycle_id, updatedAt: new Date() })
+      .where(inArray(tasks.id, task_ids));
+
+    await recordActivity({
+      actor: user.name,
+      action: "transferred_tasks",
+      entityType: "cycle",
+      entityId: sourceCycleId,
+      changes: {
+        targetCycleId: target_cycle_id,
+        taskIds: task_ids,
+        count: task_ids.length,
+      },
+      workspaceId,
+    });
+
+    await enqueueWebhooks({
+      workspaceId,
+      event: "cycle.tasks_transferred",
+      entityType: "cycle",
+      entityId: sourceCycleId,
+      data: { targetCycleId: target_cycle_id, taskIds: task_ids, count: task_ids.length },
+    });
+
+    return c.json({ success: true, transferred: task_ids.length });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    }
+    if (error instanceof z.ZodError) {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid input", details: error.issues } }, 400);
+    }
+    console.error("[cycles] POST /:id/transfer error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to transfer tasks" } }, 500);
   }
 });
