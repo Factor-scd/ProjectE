@@ -1,13 +1,13 @@
 /**
  * Note Link Service
  *
- * Handles wikilink resolution and note_links / note_entity_links management.
+ * Handles wikilink resolution and links management.
  * On note save, parses content for [[wikilinks]], resolves each to a note_id or entity_id,
  * and diffs the existing links to produce idempotent deletes+inserts.
  */
 
-import { db, noteLinks, noteEntityLinks, notes, tasks, habits, projects, sections, tags as tagsTable } from "@project-e/db";
-import { and, eq, inArray, isNull, desc } from "drizzle-orm";
+import { db, links, notes, tasks, habits, projects, sections, tags as tagsTable } from "@project-e/db";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { extractLinkTargets } from "./wikilink-parser";
 
 /**
@@ -103,59 +103,39 @@ export async function syncNoteLinks(noteId: string, content: string, domainId: s
     }
   }
 
-  const noteToNoteLinks = resolvedTargets.filter(t => t.entityType === "note");
-  const entityLinks = resolvedTargets.filter(t => t.entityType !== "note");
+  // --- Sync all links from this note via the canonical links table ---
+  const existingLinks = await db
+    .select({ targetId: links.targetId, targetType: links.targetType })
+    .from(links)
+    .where(and(eq(links.sourceId, noteId), eq(links.sourceType, "note")));
 
-  // --- Sync note_links ---
-  const existingNoteLinks = await db
-    .select({ targetNoteId: noteLinks.targetNoteId })
-    .from(noteLinks)
-    .where(eq(noteLinks.sourceNoteId, noteId));
+  const existingKeySet = new Set(existingLinks.map(l => `${l.targetType}:${l.targetId}`));
+  const newKeySet = new Set(resolvedTargets.map(l => `${l.entityType}:${l.entityId}`));
 
-  const existingTargetIds = new Set(existingNoteLinks.map(l => l.targetNoteId));
-  const newTargetIds = new Set(noteToNoteLinks.map(l => l.entityId));
-
-  const staleTargetIds = [...existingTargetIds].filter(id => !newTargetIds.has(id));
-  if (staleTargetIds.length > 0) {
+  // Delete stale links
+  const staleLinks = existingLinks.filter(l => !newKeySet.has(`${l.targetType}:${l.targetId}`));
+  if (staleLinks.length > 0) {
+    const staleIds = staleLinks.map(l => l.targetId);
     await db
-      .delete(noteLinks)
+      .delete(links)
       .where(and(
-        eq(noteLinks.sourceNoteId, noteId),
-        inArray(noteLinks.targetNoteId, staleTargetIds),
+        eq(links.sourceId, noteId),
+        eq(links.sourceType, "note"),
+        inArray(links.targetId, staleIds),
       ));
   }
 
-  const missingTargetIds = [...newTargetIds].filter(id => !existingTargetIds.has(id));
-  if (missingTargetIds.length > 0) {
-    await db.insert(noteLinks).values(
-      missingTargetIds.map(targetNoteId => ({ sourceNoteId: noteId, targetNoteId }))
-    );
-  }
-
-  // --- Sync note_entity_links ---
-  const existingEntityLinks = await db
-    .select({ entityType: noteEntityLinks.entityType, entityId: noteEntityLinks.entityId })
-    .from(noteEntityLinks)
-    .where(eq(noteEntityLinks.noteId, noteId));
-
-  const existingEntityKeySet = new Set(existingEntityLinks.map(l => `${l.entityType}:${l.entityId}`));
-  const newEntityKeySet = new Set(entityLinks.map(l => `${l.entityType}:${l.entityId}`));
-
-  const staleEntityLinks = existingEntityLinks.filter(l => !newEntityKeySet.has(`${l.entityType}:${l.entityId}`));
-  for (const link of staleEntityLinks) {
-    await db
-      .delete(noteEntityLinks)
-      .where(and(
-        eq(noteEntityLinks.noteId, noteId),
-        eq(noteEntityLinks.entityType, link.entityType),
-        eq(noteEntityLinks.entityId, link.entityId),
-      ));
-  }
-
-  const missingEntityLinks = entityLinks.filter(l => !existingEntityKeySet.has(`${l.entityType}:${l.entityId}`));
-  if (missingEntityLinks.length > 0) {
-    await db.insert(noteEntityLinks).values(
-      missingEntityLinks.map(l => ({ noteId, entityType: l.entityType, entityId: l.entityId }))
+  // Insert missing links
+  const missingTargets = resolvedTargets.filter(l => !existingKeySet.has(`${l.entityType}:${l.entityId}`));
+  if (missingTargets.length > 0) {
+    await db.insert(links).values(
+      missingTargets.map(l => ({
+        sourceType: "note",
+        sourceId: noteId,
+        targetType: l.entityType,
+        targetId: l.entityId,
+        linkType: "relates" as const,
+      }))
     );
   }
 }
@@ -170,10 +150,12 @@ export async function getBacklinks(noteId: string): Promise<{ id: string; title:
       title: notes.title,
       content: notes.content,
     })
-    .from(noteLinks)
-    .innerJoin(notes, eq(noteLinks.sourceNoteId, notes.id))
+    .from(links)
+    .innerJoin(notes, eq(links.sourceId, notes.id))
     .where(and(
-      eq(noteLinks.targetNoteId, noteId),
+      eq(links.targetId, noteId),
+      eq(links.sourceType, "note"),
+      eq(links.targetType, "note"),
       isNull(notes.deletedAt),
     ));
 
@@ -205,51 +187,52 @@ export async function getOutgoingLinks(noteId: string): Promise<{
   noteLinks: { id: string; title: string }[];
   entityLinks: { entityType: string; entityId: string; title: string | null }[];
 }> {
-  const noteLinkRows = await db
-    .select({ id: notes.id, title: notes.title })
-    .from(noteLinks)
-    .innerJoin(notes, eq(noteLinks.targetNoteId, notes.id))
-    .where(and(
-      eq(noteLinks.sourceNoteId, noteId),
-      isNull(notes.deletedAt),
-    ));
+  const outgoingLinks = await db
+    .select({ targetId: links.targetId, targetType: links.targetType })
+    .from(links)
+    .where(and(eq(links.sourceId, noteId), eq(links.sourceType, "note")));
 
-  const entityLinkRows = await db
-    .select({ entityType: noteEntityLinks.entityType, entityId: noteEntityLinks.entityId })
-    .from(noteEntityLinks)
-    .where(eq(noteEntityLinks.noteId, noteId));
-
+  const noteLinkRows: { id: string; title: string }[] = [];
   const entityLinksWithTitles: { entityType: string; entityId: string; title: string | null }[] = [];
-  for (const link of entityLinkRows) {
-    let title: string | null = null;
-    switch (link.entityType) {
-      case "task": {
-        const [t] = await db.select({ title: tasks.title }).from(tasks).where(eq(tasks.id, link.entityId)).limit(1);
-        title = t?.title ?? null;
-        break;
+
+  for (const link of outgoingLinks) {
+    if (link.targetType === "note") {
+      const [note] = await db.select({ id: notes.id, title: notes.title })
+        .from(notes)
+        .where(and(eq(notes.id, link.targetId), isNull(notes.deletedAt)))
+        .limit(1);
+      if (note) noteLinkRows.push({ id: note.id, title: note.title });
+    } else {
+      let title: string | null = null;
+      switch (link.targetType) {
+        case "task": {
+          const [t] = await db.select({ title: tasks.title }).from(tasks).where(eq(tasks.id, link.targetId)).limit(1);
+          title = t?.title ?? null;
+          break;
+        }
+        case "habit": {
+          const [h] = await db.select({ name: habits.name }).from(habits).where(eq(habits.id, link.targetId)).limit(1);
+          title = h?.name ?? null;
+          break;
+        }
+        case "project": {
+          const [p] = await db.select({ name: projects.name }).from(projects).where(eq(projects.id, link.targetId)).limit(1);
+          title = p?.name ?? null;
+          break;
+        }
+        case "section": {
+          const [s] = await db.select({ name: sections.name }).from(sections).where(eq(sections.id, link.targetId)).limit(1);
+          title = s?.name ?? null;
+          break;
+        }
+        case "tag": {
+          const [t] = await db.select({ name: tagsTable.name }).from(tagsTable).where(eq(tagsTable.id, link.targetId)).limit(1);
+          title = t?.name ?? null;
+          break;
+        }
       }
-      case "habit": {
-        const [h] = await db.select({ name: habits.name }).from(habits).where(eq(habits.id, link.entityId)).limit(1);
-        title = h?.name ?? null;
-        break;
-      }
-      case "project": {
-        const [p] = await db.select({ name: projects.name }).from(projects).where(eq(projects.id, link.entityId)).limit(1);
-        title = p?.name ?? null;
-        break;
-      }
-      case "section": {
-        const [s] = await db.select({ name: sections.name }).from(sections).where(eq(sections.id, link.entityId)).limit(1);
-        title = s?.name ?? null;
-        break;
-      }
-      case "tag": {
-        const [t] = await db.select({ name: tagsTable.name }).from(tagsTable).where(eq(tagsTable.id, link.entityId)).limit(1);
-        title = t?.name ?? null;
-        break;
-      }
+      entityLinksWithTitles.push({ entityType: link.targetType, entityId: link.targetId, title });
     }
-    entityLinksWithTitles.push({ entityType: link.entityType, entityId: link.entityId, title });
   }
 
   return {

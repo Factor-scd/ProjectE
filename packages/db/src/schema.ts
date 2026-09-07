@@ -23,7 +23,6 @@ export const tsvector = customType<{ data: string }>({
 
 // ── Enums ──────────────────────────────────────────────────────────────────────
 
-export const taskStatusEnum = pgEnum('task_status', ['todo', 'in_progress', 'done', 'cancelled']);
 export const taskPriorityEnum = pgEnum('task_priority', ['low', 'medium', 'high', 'urgent']);
 export const habitFrequencyEnum = pgEnum('habit_frequency', ['daily', 'weekly', 'custom']);
 export const habitDifficultyEnum = pgEnum('habit_difficulty', ['easy', 'medium', 'hard']);
@@ -32,6 +31,9 @@ export const sectionKindEnum = pgEnum('section_kind', ['section', 'milestone']);
 export const sectionStatusEnum = pgEnum('section_status', ['planned', 'in_progress', 'complete']);
 export const tagScopeEnum = pgEnum('tag_scope', ['global', 'tasks', 'habits', 'projects', 'notes']);
 export const jobStatusEnum = pgEnum('job_status', ['pending', 'processing', 'completed', 'failed']);
+export const stateGroupEnum = pgEnum('state_group', ['backlog', 'unstarted', 'started', 'completed', 'cancelled']);
+export const moduleStatusEnum = pgEnum('module_status', ['planned', 'in_progress', 'completed', 'cancelled']);
+export const linkTypeEnum = pgEnum('link_type', ['relates', 'blocks', 'parent-child', 'created-from']);
 
 // ── Users ──────────────────────────────────────────────────────────────────────
 
@@ -143,6 +145,72 @@ export const sections = pgTable(
   ]
 );
 
+// ── States (per-project workflow states) ────────────────────────────────────────
+
+export const states = pgTable(
+  'states',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    color: text('color'),
+    group: stateGroupEnum('group').notNull().default('unstarted'),
+    projectId: uuid('project_id')
+      .notNull()
+      .references((): any => projects.id, { onDelete: 'cascade' }),
+    sortOrder: integer('sort_order').default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('states_project_id_idx').on(table.projectId),
+    index('states_sort_order_idx').on(table.projectId, table.sortOrder),
+  ]
+);
+
+// ── Modules (project-scoped planning buckets) ──────────────────────────────────
+
+export const modules = pgTable(
+  'modules',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    description: text('description'),
+    projectId: uuid('project_id')
+      .notNull()
+      .references((): any => projects.id, { onDelete: 'cascade' }),
+    status: moduleStatusEnum('status').notNull().default('planned'),
+    startDate: timestamp('start_date', { withTimezone: true }),
+    targetDate: timestamp('target_date', { withTimezone: true }),
+    sortOrder: integer('sort_order').default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('modules_project_id_idx').on(table.projectId),
+  ]
+);
+
+// ── Cycles (time-boxed sprints) ────────────────────────────────────────────────
+
+export const cycles = pgTable(
+  'cycles',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references((): any => projects.id, { onDelete: 'cascade' }),
+    startDate: timestamp('start_date', { withTimezone: true }),
+    endDate: timestamp('end_date', { withTimezone: true }),
+    active: boolean('active').default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('cycles_project_id_idx').on(table.projectId),
+  ]
+);
+
 // ── Tasks ───────────────────────────────────────────────────────────────────────
 
 export const tasks = pgTable(
@@ -151,13 +219,15 @@ export const tasks = pgTable(
     id: uuid('id').defaultRandom().primaryKey(),
     title: text('title').notNull(),
     description: text('description'),
-    status: taskStatusEnum('status').notNull().default('todo'),
     priority: taskPriorityEnum('priority').notNull().default('medium'),
     domainId: uuid('domain_id')
       .notNull()
       .references((): any => domains.id, { onDelete: 'cascade' }),
     projectId: uuid('project_id').references((): any => projects.id, { onDelete: 'set null' }),
     sectionId: uuid('section_id').references((): any => sections.id, { onDelete: 'set null' }),
+    stateId: uuid('state_id').references((): any => states.id, { onDelete: 'set null' }),
+    moduleId: uuid('module_id').references((): any => modules.id, { onDelete: 'set null' }),
+    cycleId: uuid('cycle_id').references((): any => cycles.id, { onDelete: 'set null' }),
     parentId: uuid('parent_id').references((): any => tasks.id, { onDelete: 'set null' }),
     dueDate: timestamp('due_date', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
@@ -175,8 +245,10 @@ export const tasks = pgTable(
     index('tasks_domain_id_idx').on(table.domainId),
     index('tasks_project_id_idx').on(table.projectId),
     index('tasks_section_id_idx').on(table.sectionId),
+    index('tasks_state_id_idx').on(table.stateId),
+    index('tasks_module_id_idx').on(table.moduleId),
+    index('tasks_cycle_id_idx').on(table.cycleId),
     index('tasks_parent_id_idx').on(table.parentId),
-    index('tasks_status_idx').on(table.status),
     index('tasks_priority_idx').on(table.priority),
     index('tasks_due_date_idx').on(table.dueDate),
     index('tasks_order_idx').on(table.order),
@@ -200,24 +272,6 @@ export const taskTags = pgTable(
   (table) => [
     primaryKey({ columns: [table.taskId, table.tagId] }),
     index('task_tags_tag_id_idx').on(table.tagId),
-  ]
-);
-
-// ── Task Dependencies (junction) ───────────────────────────────────────────────
-
-export const taskDependencies = pgTable(
-  'task_dependencies',
-  {
-    taskId: uuid('task_id')
-      .notNull()
-      .references((): any => tasks.id, { onDelete: 'cascade' }),
-    dependsOnTaskId: uuid('depends_on_task_id')
-      .notNull()
-      .references((): any => tasks.id, { onDelete: 'cascade' }),
-  },
-  (table) => [
-    primaryKey({ columns: [table.taskId, table.dependsOnTaskId] }),
-    index('task_dependencies_depends_on_idx').on(table.dependsOnTaskId),
   ]
 );
 
@@ -321,41 +375,6 @@ export const notes = pgTable(
   ]
 );
 
-// ── Note Links (wikilinks / backlinks) ─────────────────────────────────────────
-
-export const noteLinks = pgTable(
-  'note_links',
-  {
-    sourceNoteId: uuid('source_note_id')
-      .notNull()
-      .references((): any => notes.id, { onDelete: 'cascade' }),
-    targetNoteId: uuid('target_note_id')
-      .notNull()
-      .references((): any => notes.id, { onDelete: 'cascade' }),
-  },
-  (table) => [
-    primaryKey({ columns: [table.sourceNoteId, table.targetNoteId] }),
-    index('note_links_target_note_id_idx').on(table.targetNoteId),
-  ]
-);
-
-// ── Note Entity Links (cross-entity linking) ────────────────────────────────────
-
-export const noteEntityLinks = pgTable(
-  'note_entity_links',
-  {
-    noteId: uuid('note_id')
-      .notNull()
-      .references((): any => notes.id, { onDelete: 'cascade' }),
-    entityType: text('entity_type').notNull(),
-    entityId: uuid('entity_id').notNull(),
-  },
-  (table) => [
-    index('note_entity_links_entity_idx').on(table.entityType, table.entityId),
-    index('note_entity_links_note_id_idx').on(table.noteId),
-  ]
-);
-
 // ── Note Tags (junction) ────────────────────────────────────────────────────────
 
 export const noteTags = pgTable(
@@ -371,6 +390,26 @@ export const noteTags = pgTable(
   (table) => [
     primaryKey({ columns: [table.noteId, table.tagId] }),
     index('note_tags_tag_id_idx').on(table.tagId),
+  ]
+);
+
+// ── Links (canonical cross-entity mesh) ────────────────────────────────────────
+
+export const links = pgTable(
+  'links',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sourceType: text('source_type').notNull(),
+    sourceId: uuid('source_id').notNull(),
+    targetType: text('target_type').notNull(),
+    targetId: uuid('target_id').notNull(),
+    linkType: linkTypeEnum('link_type').notNull(),
+    direction: text('direction'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('links_source_idx').on(table.sourceType, table.sourceId),
+    index('links_target_idx').on(table.targetType, table.targetId),
   ]
 );
 

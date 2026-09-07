@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { db, projects, tasks, sections, projectTags, tags as tagsTable, activityFeed } from "@project-e/db";
-import { and, asc, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
+import { db, projects, tasks, sections, projectTags, tags as tagsTable, activityFeed, states } from "@project-e/db";
+import { and, asc, desc, eq, ilike, inArray, isNull, isNotNull, sql } from "drizzle-orm";
 import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { enqueueWebhooks } from "../middleware/webhook-queue";
@@ -144,7 +144,7 @@ projectRoutes.get("/", async (c) => {
 
         const [completedResult] = await db.select({ count: sql<number>`count(*)` })
           .from(tasks)
-          .where(and(eq(tasks.projectId, projectId), eq(tasks.status, "done"), isNull(tasks.deletedAt)));
+          .where(and(eq(tasks.projectId, projectId), isNotNull(tasks.completedAt), isNull(tasks.deletedAt)));
 
         taskCountMap.set(projectId, {
           total: Number(totalResult?.count || 0),
@@ -209,6 +209,24 @@ projectRoutes.post("/", async (c) => {
         data.tagIds.map(tagId => ({ projectId: project.id, tagId }))
       );
     }
+
+    // Seed 5 default workflow states for the new project (Decision 10)
+    const defaultStates = [
+      { name: 'Backlog', color: '#94a3b8', group: 'backlog' as const, sortOrder: 0 },
+      { name: 'Todo', color: '#60a5fa', group: 'unstarted' as const, sortOrder: 1 },
+      { name: 'In Progress', color: '#facc15', group: 'started' as const, sortOrder: 2 },
+      { name: 'Done', color: '#4ade80', group: 'completed' as const, sortOrder: 3 },
+      { name: 'Cancelled', color: '#f87171', group: 'cancelled' as const, sortOrder: 4 },
+    ];
+    await db.insert(states).values(
+      defaultStates.map(s => ({
+        name: s.name,
+        color: s.color,
+        group: s.group,
+        sortOrder: s.sortOrder,
+        projectId: project.id,
+      }))
+    );
 
     await recordActivity({
       actor: user.name,
@@ -277,7 +295,7 @@ projectRoutes.get("/:id", async (c) => {
       .where(eq(projectTags.projectId, id));
 
     const totalTasks = projectTasks.length;
-    const completedTasks = projectTasks.filter(t => t.status === "done").length;
+    const completedTasks = projectTasks.filter(t => t.completedAt !== null).length;
     const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
     return c.json({
