@@ -20,7 +20,7 @@ import type { GraphNode, GraphEdge } from "@/lib/types";
 import ForceGraph2D from "react-force-graph-2d";
 
 const ENTITY_TYPES = ["task", "habit", "project", "note", "section", "tag", "domain"];
-const RELATIONSHIP_TYPES = ["depends_on", "related_to", "part_of", "references", "parent_of", "child_of", "connects_to"];
+const RELATIONSHIP_TYPES = ["depends_on", "related_to", "part_of", "references", "parent_of", "child_of", "connects_to", "relates", "blocks", "parent-child", "created-from", "task_project", "task_domain", "habit_domain", "project_domain", "note_domain", "section_project"];
 
 const ENTITY_COLORS: Record<string, string> = {
   task: "#3b82f6",
@@ -30,6 +30,20 @@ const ENTITY_COLORS: Record<string, string> = {
   section: "#ec4899",
   tag: "#6b7280",
   domain: "#6366f1",
+};
+
+const LINK_TYPE_COLORS: Record<string, string> = {
+  relates: "#94a3b8",
+  blocks: "#ef4444",
+  "parent-child": "#8b5cf6",
+  "created-from": "#10b981",
+  depends_on: "#ef4444",
+  related_to: "#94a3b8",
+  part_of: "#8b5cf6",
+  references: "#f59e0b",
+  parent_of: "#8b5cf6",
+  child_of: "#10b981",
+  connects_to: "#3b82f6",
 };
 
 // Graph node types that have a detail page. section/tag/domain nodes appear in
@@ -265,11 +279,17 @@ function GraphPage() {
       const isHighlighted = highlightLinks.size === 0 || highlightLinks.has(`${link.source.id}-${link.target.id}`);
       const width = isHighlighted ? 1.5 / globalScale : 0.5 / globalScale;
       const opacity = isHighlighted ? 0.6 : 0.1;
+      const linkType = link.type || "relates";
+      const baseColor = LINK_TYPE_COLORS[linkType] || "#94a3b8";
+
+      const r = parseInt(baseColor.slice(1, 3), 16);
+      const g = parseInt(baseColor.slice(3, 5), 16);
+      const b = parseInt(baseColor.slice(5, 7), 16);
 
       ctx.beginPath();
       ctx.moveTo(link.source.x, link.source.y);
       ctx.lineTo(link.target.x, link.target.y);
-      ctx.strokeStyle = `rgba(148, 163, 184, ${opacity})`;
+      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
       ctx.lineWidth = width;
       ctx.stroke();
 
@@ -289,7 +309,7 @@ function GraphPage() {
           ctx.lineTo(midX - ux * arrowSize + uy * arrowSize * 0.5, midY - uy * arrowSize - ux * arrowSize * 0.5);
           ctx.lineTo(midX - ux * arrowSize - uy * arrowSize * 0.5, midY - uy * arrowSize + ux * arrowSize * 0.5);
           ctx.closePath();
-          ctx.fillStyle = `rgba(148, 163, 184, ${opacity})`;
+          ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
           ctx.fill();
         }
       }
@@ -425,8 +445,9 @@ function GraphPage() {
                       checked={enabledRelationships.has(type)}
                       onCheckedChange={() => toggleRelationship(type)}
                     />
-                    <Label htmlFor={"rel-" + type} className="text-sm cursor-pointer">
-                      {type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                    <Label htmlFor={"rel-" + type} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: LINK_TYPE_COLORS[type] || "#94a3b8" }} />
+                      {type.replace(/_/g, " ").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                     </Label>
                   </div>
                 ))}

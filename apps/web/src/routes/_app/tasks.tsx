@@ -2,14 +2,14 @@ import { useState, useCallback, useMemo } from "react";
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, useApiQuery, useApiMutation } from "@/lib/api";
+import { api, useApiQuery } from "@/lib/api";
 import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
 import { useOpenCreateDialog } from "@/hooks/use-open-create-dialog";
 import { DndContext, DragOverlay, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, useDroppable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Plus, GripVertical, Pencil, Trash2, Calendar, Clock, ListTodo, Layout as LayoutIcon, Search, Filter, MoreHorizontal } from "lucide-react";
+import { Plus, GripVertical, Pencil, Trash2, Calendar, ListTodo, Layout as LayoutIcon, Search, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -20,27 +20,26 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { EntityDetailPanel } from "@/components/entities/entity-detail-panel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { LoadingState, EmptyState, ErrorState } from "@/components/state";
 import { CustomFieldInputs } from "@/components/custom-fields/custom-field-inputs";
-import { TASK_STATUS, PRIORITY } from "@/lib/status-colors";
-import type { Task, PaginatedResponse } from "@/lib/types";
+import { PRIORITY } from "@/lib/status-colors";
+import type { Task, State, StateGroup, PaginatedResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { parseTaskInput } from "@/lib/nlp";
 import { RecurrencePicker } from "@/components/tasks/recurrence-picker";
 
-const STATUS_COLUMNS = [
-  { id: "todo", label: "Todo" },
-  { id: "in_progress", label: "In Progress" },
-  { id: "done", label: "Done" },
-  { id: "cancelled", label: "Cancelled" },
+const STATE_GROUP_COLUMNS: { id: StateGroup; label: string; colorClass: string }[] = [
+  { id: "backlog", label: "Backlog", colorClass: "bg-slate-400" },
+  { id: "unstarted", label: "Unstarted", colorClass: "bg-slate-500" },
+  { id: "started", label: "Started", colorClass: "bg-blue-500" },
+  { id: "completed", label: "Completed", colorClass: "bg-green-500" },
+  { id: "cancelled", label: "Cancelled", colorClass: "bg-red-500" },
 ];
 
-function SortableTaskCard({ task, onClick, onEdit }: { task: Task; onClick: () => void; onEdit?: () => void }) {
+function SortableTaskCard({ task, stateName, stateColor, onClick, onEdit }: { task: Task; stateName?: string; stateColor?: string | null; onClick: () => void; onEdit?: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
 
   const style = {
@@ -58,6 +57,12 @@ function SortableTaskCard({ task, onClick, onEdit }: { task: Task; onClick: () =
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{task.title}</p>
               <div className="flex flex-wrap gap-1.5 mt-2">
+                {stateName && (
+                  <Badge variant="secondary" className="text-[10px] gap-1" style={stateColor ? { backgroundColor: stateColor + "20", color: stateColor } : undefined}>
+                    <span className="h-1.5 w-1.5 rounded-full" style={stateColor ? { backgroundColor: stateColor } : undefined} />
+                    {stateName}
+                  </Badge>
+                )}
                 {task.dueDate && (
                   <Badge variant="outline" className="text-[10px]">
                     <Calendar className="h-3 w-3 mr-1" />
@@ -101,17 +106,27 @@ function ColumnDroppable({ id, className, children }: { id: string; className?: 
   );
 }
 
-function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
+function TaskForm({ task, onClose, projectId }: { task?: Task; onClose: () => void; projectId?: string | null }) {
   const queryClient = useQueryClient();
   const activeDomainId = useApiDomain();
   const [title, setTitle] = useState(task?.title || "");
   const [description, setDescription] = useState(task?.description || "");
-  const [status, setStatus] = useState(task?.status || "todo");
   const [priority, setPriority] = useState(task?.priority || "medium");
   const [dueDate, setDueDate] = useState(task?.dueDate ? task.dueDate.slice(0, 10) : "");
   const [recurrenceRule, setRecurrenceRule] = useState(task?.recurrenceRule || "");
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>(() => ({ ...(task?.customFields ?? {}) }));
   const parsed = !task ? parseTaskInput(title) : null;
+
+  const effectiveProjectId = task?.projectId || projectId;
+
+  const { data: statesData } = useApiQuery<{ items: State[] }>(
+    ["states", effectiveProjectId || ""],
+    "/states?projectId=" + effectiveProjectId,
+    { enabled: !!effectiveProjectId }
+  );
+  const projectStates = statesData?.items || [];
+
+  const [selectedStateId, setSelectedStateId] = useState(task?.stateId || "");
 
   const createMutation = useMutation({
     mutationFn: (data: any) => api.post<Task>("/tasks", data),
@@ -143,7 +158,8 @@ function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
       if (p.priority) finalPriority = p.priority;
       tagNames = p.tags;
     }
-    const data: any = { title: finalTitle, description: description || null, status, priority: finalPriority, tagNames };
+    const data: any = { title: finalTitle, description: description || null, priority: finalPriority, tagNames };
+    if (selectedStateId) data.stateId = selectedStateId || null;
     if (finalDueDate) data.dueDate = finalDueDate;
     if (recurrenceRule) data.recurrenceRule = recurrenceRule;
     const customFields = { ...customFieldValues };
@@ -173,18 +189,25 @@ function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
         <Textarea id="desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description (optional)" rows={3} />
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="status">Status</Label>
-          <Select value={status} onValueChange={(v) => setStatus(v as "todo" | "in_progress" | "done" | "cancelled")}>
-            <SelectTrigger id="status"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todo">Todo</SelectItem>
-              <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="done">Done</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        {projectStates.length > 0 && (
+          <div>
+            <Label htmlFor="state">State</Label>
+            <Select value={selectedStateId} onValueChange={setSelectedStateId}>
+              <SelectTrigger id="state"><SelectValue placeholder="No state" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">No state</SelectItem>
+                {projectStates.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    <span className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color || "#94a3b8" }} />
+                      {s.name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div>
           <Label htmlFor="priority">Priority</Label>
           <Select value={priority} onValueChange={(v) => setPriority(v as "low" | "medium" | "high" | "urgent")}>
@@ -219,7 +242,7 @@ function TasksPage() {
   const queryClient = useQueryClient();
   const [view, setView] = useState<"board" | "list">("board");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [selectedStateId, setSelectedStateId] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -231,16 +254,44 @@ function TasksPage() {
 
   const activeDomainId = useApiDomain();
 
+  const { data: projectsData } = useApiQuery<PaginatedResponse<{ id: string; name: string }>>(
+    ["projects", activeDomainId],
+    "/projects?limit=200" + (activeDomainId ? "&domain=" + activeDomainId : "")
+  );
+  const projects = projectsData?.items || [];
+
+  const [filterProjectId, setFilterProjectId] = useState("");
+
+  const { data: statesData } = useApiQuery<{ items: State[] }>(
+    ["states", filterProjectId],
+    "/states?projectId=" + filterProjectId,
+    { enabled: !!filterProjectId }
+  );
+  const projectStates = statesData?.items || [];
+
+  const stateGroupOf = useMemo(() => {
+    const map = new Map<string, StateGroup>();
+    for (const s of projectStates) map.set(s.id, s.group);
+    return map;
+  }, [projectStates]);
+
+  const stateById = useMemo(() => {
+    const map = new Map<string, State>();
+    for (const s of projectStates) map.set(s.id, s);
+    return map;
+  }, [projectStates]);
+
   const taskQueryParams = () =>
     new URLSearchParams({
       limit: "200",
       ...(activeDomainId ? { domain: activeDomainId } : {}),
       ...(search ? { search } : {}),
-      ...(statusFilter && statusFilter !== "all" ? { status: statusFilter } : {}),
+      ...(filterProjectId ? { project_id: filterProjectId } : {}),
+      ...(selectedStateId ? { state_id: selectedStateId } : {}),
     }).toString();
 
   const { data: tasksData, isLoading, isError, refetch } = useApiQuery<PaginatedResponse<Task>>(
-    ["tasks", activeDomainId, search, statusFilter],
+    ["tasks", activeDomainId, search, filterProjectId, selectedStateId],
     "/tasks?" + taskQueryParams()
   );
 
@@ -255,7 +306,7 @@ function TasksPage() {
       const next = await api.get<PaginatedResponse<Task>>(
         "/tasks?" + new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(taskQueryParams())), offset: String(tasks.length) }).toString()
       );
-      queryClient.setQueryData<PaginatedResponse<Task>>(["tasks", activeDomainId, search, statusFilter], (old) => {
+      queryClient.setQueryData<PaginatedResponse<Task>>(["tasks", activeDomainId, search, filterProjectId, selectedStateId], (old) => {
         if (!old) return old;
         const seen = new Set(old.items.map((t) => t.id));
         return { ...old, items: [...old.items, ...next.items.filter((t) => !seen.has(t.id))] };
@@ -265,9 +316,9 @@ function TasksPage() {
     }
   };
 
-  const statusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
-      api.post("/tasks/" + id + "/status", { status }),
+  const stateUpdateMutation = useMutation({
+    mutationFn: ({ taskId, stateId }: { taskId: string; stateId: string }) =>
+      api.patch<Task>("/tasks/" + taskId, { stateId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
@@ -300,6 +351,17 @@ function TasksPage() {
     useSensor(KeyboardSensor)
   );
 
+  const taskGroupOf = useCallback(
+    (task: Task): StateGroup => {
+      if (task.stateId) {
+        const group = stateGroupOf.get(task.stateId);
+        if (group) return group;
+      }
+      return "unstarted";
+    },
+    [stateGroupOf]
+  );
+
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string);
   };
@@ -315,30 +377,25 @@ function TasksPage() {
     const draggedTask = tasks.find((t) => t.id === taskId);
     if (!draggedTask) return;
 
-    // Tasks of a column in persisted order
-    const columnTasks = (status: string) =>
+    const columnTasks = (group: StateGroup) =>
       tasks
-        .filter((t) => t.status === status)
+        .filter((t) => taskGroupOf(t) === group)
         .sort((a, b) => a.order - b.order);
 
-    // Decide the target column and insertion index:
-    // - over a column id  => drop at the end of that column (handles empty columns)
-    // - over a task id    => drop at that task's position within its column
-    let targetColumn: string;
+    let targetGroup: StateGroup;
     let insertIndex: number;
-    if (STATUS_COLUMNS.some((c) => c.id === overId)) {
-      targetColumn = overId;
+    if (STATE_GROUP_COLUMNS.some((c) => c.id === overId)) {
+      targetGroup = overId as StateGroup;
       insertIndex = -1;
     } else {
       const overTask = tasks.find((t) => t.id === overId);
       if (!overTask) return;
-      targetColumn = overTask.status;
-      const overIndex = columnTasks(targetColumn).findIndex((t) => t.id === overId);
+      targetGroup = taskGroupOf(overTask);
+      const overIndex = columnTasks(targetGroup).findIndex((t) => t.id === overId);
       insertIndex = overIndex === -1 ? -1 : overIndex;
     }
 
-    // Build the new ordered id list for the target column
-    const targetIds = columnTasks(targetColumn)
+    const targetIds = columnTasks(targetGroup)
       .map((t) => t.id)
       .filter((id) => id !== taskId);
     if (insertIndex === -1) {
@@ -347,32 +404,30 @@ function TasksPage() {
       targetIds.splice(Math.min(insertIndex, targetIds.length), 0, taskId);
     }
 
-    // No-op when the task is already in that exact spot
-    const currentIds = columnTasks(targetColumn).map((t) => t.id);
+    const currentIds = columnTasks(targetGroup).map((t) => t.id);
     const unchanged =
       currentIds.length === targetIds.length &&
       currentIds.every((id, i) => id === targetIds[i]);
     if (unchanged) return;
 
-    // Optimistic local update so the board reorders immediately
-    const statusChanged = draggedTask.status !== targetColumn;
+    const groupChanged = taskGroupOf(draggedTask) !== targetGroup;
     const orderById = new Map(targetIds.map((id, i) => [id, i]));
-    queryClient.setQueryData<PaginatedResponse<Task>>(["tasks", activeDomainId, search, statusFilter], (old) => {
+    queryClient.setQueryData<PaginatedResponse<Task>>(["tasks", activeDomainId, search, filterProjectId, selectedStateId], (old) => {
       if (!old) return old;
       return {
         ...old,
         items: old.items.map((t) => {
-          if (t.id === taskId && statusChanged) {
-            return { ...t, status: targetColumn as Task["status"], order: orderById.get(t.id) ?? t.order };
-          }
           const order = orderById.get(t.id);
           return order !== undefined ? { ...t, order } : t;
         }),
       };
     });
 
-    if (statusChanged) {
-      statusMutation.mutate({ id: taskId, status: targetColumn });
+    if (groupChanged && draggedTask.projectId) {
+      const firstStateInGroup = projectStates.find((s) => s.group === targetGroup && s.projectId === draggedTask.projectId);
+      if (firstStateInGroup) {
+        stateUpdateMutation.mutate({ taskId, stateId: firstStateInGroup.id });
+      }
     }
     reorderMutation.mutate({ orderedIds: targetIds });
   };
@@ -387,14 +442,13 @@ function TasksPage() {
   };
 
   const columns = useMemo(() => {
-    return STATUS_COLUMNS.map((col) => ({
+    return STATE_GROUP_COLUMNS.map((col) => ({
       ...col,
-      color: TASK_STATUS[col.id].dot,
       tasks: tasks
-        .filter((t) => t.status === col.id)
+        .filter((t) => taskGroupOf(t) === col.id)
         .sort((a, b) => a.order - b.order),
     }));
-  }, [tasks]);
+  }, [tasks, taskGroupOf]);
 
   return (
     <div className="space-y-4">
@@ -415,27 +469,42 @@ function TasksPage() {
               <DialogHeader>
                 <DialogTitle>New Task</DialogTitle>
               </DialogHeader>
-              <TaskForm onClose={() => setCreateOpen(false)} />
+              <TaskForm onClose={() => setCreateOpen(false)} projectId={filterProjectId || undefined} />
             </DialogContent>
           </Dialog>
         </div>
       </div>
 
-      {/* Search + filter bar */}
-      <div className="flex gap-2">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Search tasks..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-36"><SelectValue placeholder="All statuses" /></SelectTrigger>
+        <Select value={filterProjectId} onValueChange={setFilterProjectId}>
+          <SelectTrigger className="w-44"><SelectValue placeholder="All projects" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            {STATUS_COLUMNS.map((c) => (
-              <SelectItem key={c.id} value={c.id}>{c.label}</SelectItem>
+            <SelectItem value="">All projects</SelectItem>
+            {projects.map((p) => (
+              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
+        {filterProjectId && projectStates.length > 0 && (
+          <Select value={selectedStateId} onValueChange={setSelectedStateId}>
+            <SelectTrigger className="w-40"><SelectValue placeholder="All states" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All states</SelectItem>
+              {projectStates.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  <span className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color || "#94a3b8" }} />
+                    {s.name}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {isLoading ? (
@@ -444,21 +513,31 @@ function TasksPage() {
         <ErrorState message="Failed to load tasks." onRetry={() => refetch()} />
       ) : view === "board" ? (
         <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             {columns.map((col) => (
               <ColumnDroppable key={col.id} id={col.id} className="bg-muted/50 rounded-lg p-3">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <div className={cn("w-2 h-2 rounded-full", col.color)} />
+                    <div className={cn("w-2 h-2 rounded-full", col.colorClass)} />
                     <h3 className="font-semibold text-sm">{col.label}</h3>
                     <Badge variant="secondary" className="text-[10px]">{col.tasks.length}</Badge>
                   </div>
                 </div>
                 <SortableContext items={col.tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
                   <div className="space-y-2 min-h-[100px]">
-                    {col.tasks.map((task) => (
-                      <SortableTaskCard key={task.id} task={task} onClick={() => openTaskDetail(task)} onEdit={() => openTaskPanel(task)} />
-                    ))}
+                    {col.tasks.map((task) => {
+                      const st = task.stateId ? stateById.get(task.stateId) : undefined;
+                      return (
+                        <SortableTaskCard
+                          key={task.id}
+                          task={task}
+                          stateName={st?.name}
+                          stateColor={st?.color}
+                          onClick={() => openTaskDetail(task)}
+                          onEdit={() => openTaskPanel(task)}
+                        />
+                      );
+                    })}
                     {col.tasks.length === 0 && (
                       <p className="text-xs text-muted-foreground text-center py-4">No tasks</p>
                     )}
@@ -477,7 +556,7 @@ function TasksPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Title</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>State</TableHead>
                 <TableHead>Priority</TableHead>
                 <TableHead>Due Date</TableHead>
                 <TableHead></TableHead>
@@ -490,32 +569,42 @@ function TasksPage() {
                     <EmptyState title="No tasks found" />
                   </TableCell>
                 </TableRow>
-              ) : tasks.map((task) => (
-                <TableRow key={task.id} className="cursor-pointer" onClick={() => openTaskDetail(task)}>
-                  <TableCell className="font-medium">{task.title}</TableCell>
-                  <TableCell>
-                    <Badge className={cn("text-[10px]", TASK_STATUS[task.status]?.badge)}>{task.status.replace("_", " ")}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={cn("text-[10px]", PRIORITY[task.priority]?.badge)}>{task.priority}</Badge>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "-"}
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                        <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openTaskPanel(task)}>Edit</DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate(task.id)}>Delete</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
+              ) : tasks.map((task) => {
+                const st = task.stateId ? stateById.get(task.stateId) : undefined;
+                return (
+                  <TableRow key={task.id} className="cursor-pointer" onClick={() => openTaskDetail(task)}>
+                    <TableCell className="font-medium">{task.title}</TableCell>
+                    <TableCell>
+                      {st ? (
+                        <Badge variant="secondary" className="text-[10px] gap-1" style={st.color ? { backgroundColor: st.color + "20", color: st.color } : undefined}>
+                          <span className="h-1.5 w-1.5 rounded-full" style={st.color ? { backgroundColor: st.color } : undefined} />
+                          {st.name}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={cn("text-[10px]", PRIORITY[task.priority]?.badge)}>{task.priority}</Badge>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "-"}
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openTaskPanel(task)}>Edit</DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate(task.id)}>Delete</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
