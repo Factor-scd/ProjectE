@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db, tasks, states as statesTable, taskTags, tags as tagsTable, activityFeed, scheduledJobs, projects, sections } from "@project-e/db";
+import { db, tasks, states as statesTable, taskTags, tags as tagsTable, activityFeed, scheduledJobs, projects, sections, links } from "@project-e/db";
 import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
@@ -768,6 +768,21 @@ taskRoutes.delete("/:id/tags/:tagId", async (c) => {
     console.error("[tasks] DELETE /:id/tags/:tagId error:", error);
     return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to remove tag" } }, 500);
   }
+});
+
+// POST /api/tasks/:id/dependencies — Deprecated: use links table instead (Phase 2)
+taskRoutes.post("/:id/dependencies", async (c) => {
+  return c.json({ error: { code: "NOT_FOUND", message: "Dependencies moved to links table (Phase 2)" } }, 404);
+});
+
+// DELETE /api/tasks/:id/dependencies/:depId — Deprecated: use links table instead (Phase 2)
+taskRoutes.delete("/:id/dependencies/:depId", async (c) => {
+  return c.json({ error: { code: "NOT_FOUND", message: "Dependencies moved to links table (Phase 2)" } }, 404);
+});
+
+// POST /api/tasks/:id/status — Deprecated: use state_id instead (Phase 2)
+taskRoutes.post("/:id/status", async (c) => {
+  return c.json({ error: { code: "NOT_FOUND", message: "Status endpoint replaced by state assignment (Phase 2)" } }, 404);
 });
 
 // GET /api/tasks/:id/history — State change log (from activity feed)

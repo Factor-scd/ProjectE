@@ -9,9 +9,13 @@ export interface Task {
   domainId: string;
   projectId: string | null;
   sectionId: string | null;
+  stateId: string | null;
+  moduleId: string | null;
+  cycleId: string | null;
   parentId: string | null;
   dueDate: string | null;
   estimatedMinutes: number | null;
+  trackedMinutes: number | null;
   recurrenceRule: string | null;
   order: number;
   completedAt: string | null;
@@ -23,6 +27,61 @@ export interface Task {
   subtasks?: Task[];
   dependencies?: { id: string; title: string; status: string }[];
   dependents?: { id: string; title: string; status: string }[];
+}
+
+export type StateGroup = "backlog" | "unstarted" | "started" | "completed" | "cancelled";
+
+export interface State {
+  id: string;
+  name: string;
+  color: string | null;
+  group: StateGroup;
+  projectId: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export type ModuleStatus = "planned" | "in_progress" | "completed" | "cancelled";
+
+export interface Module {
+  id: string;
+  name: string;
+  description: string | null;
+  projectId: string;
+  status: ModuleStatus;
+  startDate: string | null;
+  targetDate: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  tasks?: Task[];
+}
+
+export interface Cycle {
+  id: string;
+  name: string;
+  projectId: string;
+  startDate: string | null;
+  endDate: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type LinkType = "relates" | "blocks" | "parent-child" | "created-from";
+
+export interface Link {
+  id: string;
+  sourceType: string;
+  sourceId: string;
+  targetType: string;
+  targetId: string;
+  linkType: LinkType;
+  direction: string | null;
+  createdAt: string;
 }
 
 export interface Habit {

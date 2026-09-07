@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db, domains, notes, tasks, habits, projects, sections, tags as tagsTable, links } from "@project-e/db";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { requireAuth, requireWorkspaceAccess, AuthError } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { z } from "zod";
@@ -57,11 +57,11 @@ async function getGraphData(domainId: string): Promise<{ nodes: GraphNode[]; edg
   for (const s of sectionRows) addNode(s.id, s.name, 'section');
   for (const t of tagRows) addNode(t.id, t.name, 'tag');
 
-  // Read links from the canonical links table
-  const allIds = [...noteRows.map(n => n.id), ...taskRows.map(t => t.id)];
+  // Read links from the canonical links table (both directions)
+  const allIds = [...noteRows.map(n => n.id), ...taskRows.map(t => t.id), ...projectRows.map(p => p.id), ...sectionRows.map(s => s.id)];
   if (allIds.length > 0) {
     const linkRows = await db.select().from(links)
-      .where(inArray(links.sourceId, allIds));
+      .where(or(inArray(links.sourceId, allIds), inArray(links.targetId, allIds)));
     for (const l of linkRows) addEdge(l.sourceId, l.targetId, l.linkType);
   }
 
