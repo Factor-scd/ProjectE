@@ -27,6 +27,9 @@ import { analyticsRoutes } from "./routes/analytics";
 import { activityRoutes } from "./routes/activity";
 import { importExportRoutes } from "./routes/import-export";
 import { notificationRoutes } from "./routes/notifications";
+import { moduleRoutes } from "./routes/modules";
+import { cycleRoutes } from "./routes/cycles";
+import { linkRoutes } from "./routes/links";
 import { healthHandler } from "./routes/health";
 
 const app = new Hono();
@@ -45,6 +48,10 @@ app.get("/api/health", async (c) => {
 // Routes
 app.route("/api/auth", authRoutes);
 app.route("/api/domains", domainRoutes);
+app.route("/api/projects/:projectId/modules", moduleRoutes);
+app.route("/api/modules", moduleRoutes);
+app.route("/api/projects/:projectId/cycles", cycleRoutes);
+app.route("/api/cycles", cycleRoutes);
 app.route("/api/tasks", taskRoutes);
 app.route("/api/habits", habitRoutes);
 app.route("/api/projects", projectRoutes);
@@ -64,6 +71,7 @@ app.route("/api/error-log", errorLogRoutes);
 app.route("/api/analytics", analyticsRoutes);
 app.route("/api/activity", activityRoutes);
 app.route("/api/notifications", notificationRoutes);
+app.route("/api/links", linkRoutes);
 app.route("/api", importExportRoutes);
 app.route("/api", realtimeRoutes);
 app.route("/api/mcp", mcpRoutes);

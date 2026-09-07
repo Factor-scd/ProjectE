@@ -64,20 +64,6 @@
       "when": 1788800393149,
       "tag": "0008_plane-lift-schema",
       "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1786392464857,
-      "tag": "0006_minor_doctor_octopus",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1786392464858,
-      "tag": "0007_drop_canvas_reports",
-      "breakpoints": true
     }
   ]
 }

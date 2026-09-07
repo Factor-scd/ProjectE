@@ -1046,7 +1046,7 @@ Requests and responses use the JSON-RPC 2.0 envelope:
 {
   "jsonrpc": "2.0",
   "method": "tools/call",
-  "params": { "name": "tasks.list", "arguments": { "domain_id": "b2c3d4e5-...", "status": "todo" } },
+  "params": { "name": "tasks.list", "arguments": { "domain_id": "b2c3d4e5-...", "state_group": "unstarted" } },
   "id": 1
 }
 ```

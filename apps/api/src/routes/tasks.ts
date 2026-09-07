@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db, tasks, taskTags, tags as tagsTable, taskDependencies, activityFeed, scheduledJobs, projects, sections } from "@project-e/db";
+import { db, tasks, states as statesTable, taskTags, tags as tagsTable, taskDependencies, activityFeed, scheduledJobs, projects, sections } from "@project-e/db";
 import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
@@ -9,17 +9,16 @@ import { RRule } from "rrule";
 
 export const taskRoutes = new Hono();
 
-const taskStatusEnum = z.enum(["todo", "in_progress", "done", "cancelled"]);
 const taskPriorityEnum = z.enum(["low", "medium", "high", "urgent"]);
 
 const createTaskSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional().nullable(),
-  status: taskStatusEnum.optional().default("todo"),
   priority: taskPriorityEnum.optional().default("medium"),
   domain: z.string().min(1, "Domain is required"),
   projectId: z.string().uuid().optional().nullable(),
   sectionId: z.string().uuid().optional().nullable(),
+  stateId: z.string().uuid().optional().nullable(),
   parentId: z.string().uuid().optional().nullable(),
   dueDate: z.string().datetime().optional().nullable(),
   estimatedMinutes: z.number().int().positive().optional().nullable(),
@@ -33,10 +32,10 @@ const createTaskSchema = z.object({
 const updateTaskSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
-  status: taskStatusEnum.optional(),
   priority: taskPriorityEnum.optional(),
   projectId: z.string().uuid().optional().nullable(),
   sectionId: z.string().uuid().optional().nullable(),
+  stateId: z.string().uuid().optional().nullable(),
   parentId: z.string().uuid().optional().nullable(),
   dueDate: z.string().datetime().optional().nullable(),
   estimatedMinutes: z.number().int().positive().optional().nullable(),
@@ -86,7 +85,10 @@ taskRoutes.get("/", async (c) => {
     const perPage = Math.min(100, Math.max(1, parseInt(url.searchParams.get("perPage") || "50")));
     const filter = url.searchParams.get("filter") || undefined;
     const sort = url.searchParams.get("sort") || "-created";
-    const status = url.searchParams.get("status");
+    const stateId = url.searchParams.get("state_id");
+    const stateGroup = url.searchParams.get("state_group");
+    const moduleId = url.searchParams.get("module_id");
+    const cycleId = url.searchParams.get("cycle_id");
     const priority = url.searchParams.get("priority");
     const tag = url.searchParams.get("tag");
     const search = url.searchParams.get("search");
@@ -111,10 +113,6 @@ taskRoutes.get("/", async (c) => {
       isNull(tasks.deletedAt),
     ];
 
-    if (status) {
-      const statuses = status.split(",");
-      conditions.push(inArray(tasks.status, statuses as any));
-    }
     if (priority) {
       const priorities = priority.split(",");
       conditions.push(inArray(tasks.priority, priorities as any));
@@ -141,6 +139,25 @@ taskRoutes.get("/", async (c) => {
     if (sectionId) {
       conditions.push(eq(tasks.sectionId, sectionId));
     }
+    if (stateId) {
+      conditions.push(eq(tasks.stateId, stateId));
+    }
+    if (moduleId) {
+      conditions.push(eq(tasks.moduleId, moduleId));
+    }
+    if (cycleId) {
+      conditions.push(eq(tasks.cycleId, cycleId));
+    }
+    if (stateGroup) {
+      const groups = stateGroup.split(",") as any[];
+      conditions.push(
+        exists(
+          db.select({ one: sql`1` })
+            .from(statesTable)
+            .where(and(eq(statesTable.id, tasks.stateId), inArray(statesTable.group, groups)))
+        )
+      );
+    }
     // Tag filter applied in SQL (EXISTS on the junction table) so it runs over
     // the full dataset before pagination — filtering in-memory after fetching a
     // page would miss tasks beyond the limit and report a wrong totalItems.
@@ -165,7 +182,6 @@ taskRoutes.get("/", async (c) => {
       created: tasks.createdAt,
       updated: tasks.updatedAt,
       title: tasks.title,
-      status: tasks.status,
       priority: tasks.priority,
       order: tasks.order,
       due_date: tasks.dueDate,
@@ -294,20 +310,36 @@ taskRoutes.post("/", async (c) => {
       }
     }
 
+    // Validate stateId exists and compute completedAt
+    let completedAt: Date | null = null;
+    if (data.stateId) {
+      const [state] = await db.select({ id: statesTable.id, group: statesTable.group })
+        .from(statesTable)
+        .where(eq(statesTable.id, data.stateId))
+        .limit(1);
+      if (!state) {
+        return c.json({ error: { code: "NOT_FOUND", message: "State not found" } }, 404);
+      }
+      if (state.group === "completed") {
+        completedAt = new Date();
+      }
+    }
+
     const [task] = await db.insert(tasks).values({
       title: data.title,
       description: data.description ?? null,
-      status: data.status,
       priority: data.priority,
       domainId: data.domain,
       projectId: data.projectId ?? null,
       sectionId: data.sectionId ?? null,
+      stateId: data.stateId ?? null,
       parentId: data.parentId ?? null,
       dueDate: data.dueDate ? new Date(data.dueDate) : null,
       estimatedMinutes: data.estimatedMinutes ?? null,
       order: data.order ?? 0,
       customFields: data.customFields ?? {},
       recurrenceRule: data.recurrenceRule ?? null,
+      completedAt,
     }).returning();
 
     const tagIdsToLink: string[] = [...(data.tagIds || [])];
@@ -334,7 +366,7 @@ taskRoutes.post("/", async (c) => {
       action: "created",
       entityType: "task",
       entityId: task.id,
-      changes: { title: task.title, status: task.status, priority: task.priority },
+      changes: { title: task.title, priority: task.priority },
       workspaceId: data.domain,
     });
 
@@ -462,7 +494,6 @@ taskRoutes.get("/:id", async (c) => {
     const depRows = await db.select({
       id: tasks.id,
       title: tasks.title,
-      status: tasks.status,
     })
       .from(taskDependencies)
       .innerJoin(tasks, eq(taskDependencies.dependsOnTaskId, tasks.id))
@@ -472,7 +503,6 @@ taskRoutes.get("/:id", async (c) => {
     const dependentRows = await db.select({
       id: tasks.id,
       title: tasks.title,
-      status: tasks.status,
     })
       .from(taskDependencies)
       .innerJoin(tasks, eq(taskDependencies.taskId, tasks.id))
@@ -539,7 +569,6 @@ taskRoutes.patch("/:id", async (c) => {
     const updateValues: Record<string, unknown> = {};
     if (data.title !== undefined) updateValues.title = data.title;
     if (data.description !== undefined) updateValues.description = data.description;
-    if (data.status !== undefined) updateValues.status = data.status;
     if (data.priority !== undefined) updateValues.priority = data.priority;
     if (data.projectId !== undefined) updateValues.projectId = data.projectId;
     if (data.sectionId !== undefined) updateValues.sectionId = data.sectionId;
@@ -549,6 +578,25 @@ taskRoutes.patch("/:id", async (c) => {
     if (data.order !== undefined) updateValues.order = data.order;
     if (data.customFields !== undefined) updateValues.customFields = data.customFields;
     if (data.recurrenceRule !== undefined) updateValues.recurrenceRule = data.recurrenceRule;
+
+    // Validate stateId and compute completedAt when state changes
+    if (data.stateId !== undefined) {
+      if (data.stateId !== null) {
+        const [state] = await db.select({ id: statesTable.id, group: statesTable.group })
+          .from(statesTable)
+          .where(eq(statesTable.id, data.stateId))
+          .limit(1);
+        if (!state) {
+          return c.json({ error: { code: "NOT_FOUND", message: "State not found" } }, 404);
+        }
+        updateValues.stateId = data.stateId;
+        updateValues.completedAt = state.group === "completed" ? new Date() : null;
+      } else {
+        updateValues.stateId = null;
+        updateValues.completedAt = null;
+      }
+    }
+
     updateValues.updatedAt = new Date();
 
     const [updated] = await db.update(tasks)
@@ -561,11 +609,11 @@ taskRoutes.patch("/:id", async (c) => {
       action: "updated",
       entityType: "task",
       entityId: id,
-      changes: { ...data, previousStatus: existing.status },
+      changes: { ...data },
       workspaceId: existing.domainId,
     });
 
-    await enqueueWebhooks({ workspaceId: existing.domainId, event: "task.updated", entityType: "task", entityId: id, data: { ...data, previousStatus: existing.status } });
+    await enqueueWebhooks({ workspaceId: existing.domainId, event: "task.updated", entityType: "task", entityId: id, data: { ...data } });
 
     if (data.recurrenceRule !== undefined) {
       await syncScheduledJob(id, data.recurrenceRule);
@@ -852,66 +900,7 @@ taskRoutes.delete("/:id/dependencies/:depId", async (c) => {
   }
 });
 
-// POST /api/tasks/:id/status — Change task status (Kanban drag)
-taskRoutes.post("/:id/status", async (c) => {
-  try {
-    const user = await requireAuth(c);
-    const id = c.req.param("id");
-    if (!isUuid(id)) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
-    }
-    const body = await c.req.json();
-    const { status: newStatus } = z.object({
-      status: taskStatusEnum,
-    }).parse(body);
-
-    const [existing] = await db.select()
-      .from(tasks)
-      .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
-      .limit(1);
-
-    if (!existing) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
-    }
-
-    await requireWorkspaceAccess(c, existing.domainId);
-
-    const updateValues: Record<string, unknown> = {
-      status: newStatus,
-      updatedAt: new Date(),
-    };
-    if (newStatus === "done") {
-      updateValues.completedAt = new Date();
-    }
-
-    const [updated] = await db.update(tasks)
-      .set(updateValues)
-      .where(eq(tasks.id, id))
-      .returning();
-
-    await recordActivity({
-      actor: user.name,
-      action: newStatus === "done" ? "completed" : "updated",
-      entityType: "task",
-      entityId: id,
-      changes: { previousStatus: existing.status, newStatus },
-      workspaceId: existing.domainId,
-    });
-
-    return c.json(updated);
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
-    }
-    if (error instanceof z.ZodError) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid input", details: error.issues } }, 400);
-    }
-    console.error("[tasks] POST /:id/status error:", error);
-    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to update task status" } }, 500);
-  }
-});
-
-// GET /api/tasks/:id/history — Status change log (from activity feed)
+// GET /api/tasks/:id/history — State change log (from activity feed)
 taskRoutes.get("/:id/history", async (c) => {
   try {
     const user = await requireAuth(c);

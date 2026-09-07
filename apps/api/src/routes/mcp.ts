@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { createHash } from "node:crypto";
-import { db, apiKeys, users, tasks, taskTags, tags as tagsTable, habits, habitCompletions, projects, notes, domains, activityFeed, webhooks, webhookDeliveries } from "@project-e/db";
-import { and, asc, desc, eq, ilike, isNull, or } from "drizzle-orm";
+import { db, apiKeys, users, tasks, taskTags, tags as tagsTable, habits, habitCompletions, projects, notes, domains, states as statesTable, activityFeed, webhooks, webhookDeliveries } from "@project-e/db";
+import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { recordActivity } from "../middleware/activity";
 
 export const mcpRoutes = new Hono();
@@ -81,7 +81,7 @@ const tools: ToolDefinition[] = [
       type: "object",
       properties: {
         domain_id: { type: "string", description: "Workspace/domain ID" },
-        status: { type: "string", enum: ["todo", "in_progress", "done", "cancelled"] },
+        state_group: { type: "string", enum: ["backlog", "unstarted", "started", "completed", "cancelled"], description: "Filter by workflow state group" },
         priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
         project_id: { type: "string" },
         search: { type: "string" },
@@ -95,7 +95,16 @@ const tools: ToolDefinition[] = [
         eq(tasks.domainId, params.domain_id as string),
         isNull(tasks.deletedAt),
       ];
-      // TODO(phase-2): filter by state_group / state_id instead of old status
+      if (params.state_group) {
+        const groups = (params.state_group as string).split(",") as any[];
+        conditions.push(
+          exists(
+            db.select({ one: sql`1` })
+              .from(statesTable)
+              .where(and(eq(statesTable.id, tasks.stateId), inArray(statesTable.group, groups)))
+          )
+        );
+      }
       if (params.priority) conditions.push(eq(tasks.priority, params.priority as any));
       if (params.project_id) conditions.push(eq(tasks.projectId, params.project_id as string));
       if (params.search) conditions.push(ilike(tasks.title, `%${params.search}%`));
@@ -119,7 +128,6 @@ const tools: ToolDefinition[] = [
         domain_id: { type: "string", description: "Workspace/domain ID" },
         title: { type: "string" },
         description: { type: "string" },
-        status: { type: "string" },
         priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
         due_date: { type: "string" },
         project_id: { type: "string" },
@@ -157,7 +165,6 @@ const tools: ToolDefinition[] = [
         task_id: { type: "string" },
         title: { type: "string" },
         description: { type: "string" },
-        status: { type: "string" },
         priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
         due_date: { type: "string" },
       },
