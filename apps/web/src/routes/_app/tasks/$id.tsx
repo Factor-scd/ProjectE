@@ -55,16 +55,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { LoadingState, ErrorState } from "@/components/state";
-import { TASK_STATUS, PRIORITY } from "@/lib/status-colors";
-import type { PaginatedResponse, Project, Task } from "@/lib/types";
+import { PRIORITY } from "@/lib/status-colors";
+import type { PaginatedResponse, Project, State, Task } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const STATUS_OPTIONS: InlineSelectOption[] = [
-  { value: "todo", label: "Todo" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "done", label: "Done" },
-  { value: "cancelled", label: "Cancelled" },
-];
 
 const PRIORITY_OPTIONS: InlineSelectOption[] = [
   { value: "low", label: "Low" },
@@ -120,16 +113,31 @@ function TaskDetail() {
   });
 
   const toggleComplete = useMutation({
-    mutationFn: () =>
-      api.post<Task>(`/tasks/${id}/status`, {
-        status: task?.status === "done" ? "todo" : "done",
-      }),
+    mutationFn: () => {
+      const completedStates = projectStates.filter((s) => s.group === "completed");
+      const uncompletedStates = projectStates.filter((s) => s.group !== "completed");
+      const isDone = task?.status === "done";
+      if (isDone && uncompletedStates.length > 0) {
+        return api.patch<Task>(`/tasks/${id}`, { stateId: uncompletedStates[0].id });
+      } else if (!isDone && completedStates.length > 0) {
+        return api.patch<Task>(`/tasks/${id}`, { stateId: completedStates[0].id });
+      }
+      return api.patch<Task>(`/tasks/${id}`, { stateId: null });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["task", id] });
       for (const key of LIST_KEYS) queryClient.invalidateQueries({ queryKey: key });
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
+
+  const { data: statesData } = useApiQuery<{ items: State[] }>(
+    ["states", task?.projectId || ""],
+    "/states?projectId=" + (task?.projectId || ""),
+    { enabled: !!task?.projectId }
+  );
+  const projectStates = statesData?.items || [];
+  const currentState = task?.stateId ? projectStates.find((s) => s.id === task.stateId) : null;
 
   const deleteMutation = useMutation({
     mutationFn: () => api.delete(`/tasks/${id}`),
@@ -152,7 +160,7 @@ function TaskDetail() {
   }
   if (!task) return <ErrorState message="Task not found" />;
 
-  const isDone = task.status === "done";
+  const isDone = currentState?.group === "completed";
 
   return (
     <EntityDetailPage
@@ -167,16 +175,28 @@ function TaskDetail() {
       icon={<ListTodo className="h-6 w-6" />}
       badges={
         <>
-          <InlineSelect
-            value={task.status}
-            options={STATUS_OPTIONS}
-            displayValue={(v) => (
-              <Badge className={TASK_STATUS[v]?.badge}>
-                {TASK_STATUS[v]?.label ?? v}
-              </Badge>
-            )}
-            onSave={(status) => patch({ id, data: { status } })}
-          />
+          {projectStates.length > 0 ? (
+            <InlineSelect
+              value={task.stateId ?? ""}
+              options={projectStates.map((s) => ({ value: s.id, label: s.name }))}
+              displayValue={(v) => {
+                if (!v) return <Badge variant="secondary">No state</Badge>;
+                const st = projectStates.find((s) => s.id === v);
+                if (!st) return <Badge variant="secondary">Unknown</Badge>;
+                return (
+                  <Badge variant="secondary" className="gap-1" style={st.color ? { backgroundColor: st.color + "20", color: st.color } : undefined}>
+                    <span className="h-1.5 w-1.5 rounded-full" style={st.color ? { backgroundColor: st.color } : undefined} />
+                    {st.name}
+                  </Badge>
+                );
+              }}
+              onSave={(stateId) => patch({ id, data: { stateId: stateId || null } })}
+            />
+          ) : (
+            <Badge variant="secondary">
+              {currentState?.name || task.status.replace("_", " ")}
+            </Badge>
+          )}
           <InlineSelect
             value={task.priority}
             options={PRIORITY_OPTIONS}
@@ -265,6 +285,20 @@ function Overview({ task, patch }: { task: Task; patch: PatchFn }) {
     ...projects.map((p) => ({ value: p.id, label: p.name })),
   ];
 
+  const { data: statesData } = useApiQuery<{ items: State[] }>(
+    ["states", task.projectId || ""],
+    "/states?projectId=" + (task.projectId || ""),
+    { enabled: !!task.projectId }
+  );
+  const projectStates = statesData?.items || [];
+
+  const stateOptions: InlineSelectOption[] = [
+    { value: "", label: "No state" },
+    ...projectStates.map((s) => ({ value: s.id, label: s.name })),
+  ];
+
+  const currentState = task.stateId ? projectStates.find((s) => s.id === task.stateId) : null;
+
   return (
     <div className="space-y-6">
       <div>
@@ -330,6 +364,29 @@ function Overview({ task, patch }: { task: Task; patch: PatchFn }) {
             }
           />
         </div>
+        {projectStates.length > 0 && (
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <InlineSelect
+              value={task.stateId ?? ""}
+              options={stateOptions}
+              displayValue={(v) => {
+                if (!v) return <span className="text-muted-foreground/70">No state</span>;
+                const st = projectStates.find((s) => s.id === v);
+                if (!st) return <span>{v}</span>;
+                return (
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: st.color || "#94a3b8" }} />
+                    {st.name}
+                  </span>
+                );
+              }}
+              onSave={(stateId) =>
+                patch({ id: task.id, data: { stateId: stateId || null } })
+              }
+            />
+          </div>
+        )}
         {task.recurrenceRule ? (
           <div className="flex items-center gap-2">
             <RepeatIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -381,8 +438,8 @@ function Subtasks({ task }: { task: Task }) {
   });
 
   const toggleMutation = useMutation({
-    mutationFn: ({ subId, status }: { subId: string; status: Task["status"] }) =>
-      api.post<Task>(`/tasks/${subId}/status`, { status }),
+    mutationFn: ({ subId, completed }: { subId: string; completed: boolean }) =>
+      api.patch<Task>(`/tasks/${subId}`, { stateId: completed ? null : null }),
     onMutate: (vars) => setPendingId(vars.subId),
     onSettled: () => setPendingId(null),
     onSuccess: refresh,
@@ -432,12 +489,12 @@ function Subtasks({ task }: { task: Task }) {
                 onCheckedChange={() =>
                   toggleMutation.mutate({
                     subId: sub.id,
-                    status: sub.status === "done" ? "todo" : "done",
+                    completed: sub.status === "done",
                   })
                 }
                 aria-label={"Mark " + sub.title + " " + (sub.status === "done" ? "as not done" : "as done")}
               />
-              <span className={cn("h-2 w-2 shrink-0 rounded-full", TASK_STATUS[sub.status]?.dot)} />
+              <span className="h-2 w-2 shrink-0 rounded-full bg-slate-400" />
               <button
                 type="button"
                 onClick={() => navigate({ to: "/tasks/$id", params: { id: sub.id } })}
@@ -460,7 +517,13 @@ function Dependencies({ task }: { task: Task }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const activeDomainId = useApiDomain();
-  const [depValue, setDepValue] = useState("");
+  const [targetEntityId, setTargetEntityId] = useState("");
+  const [linkType, setLinkType] = useState<string>("blocks");
+
+  const { data: linksData, isLoading: linksLoading } = useApiQuery<{ items: import("@/lib/types").Link[] }>(
+    ["links", "task", task.id],
+    "/links?entityType=task&entityId=" + task.id
+  );
 
   const { data: tasksData, isLoading: tasksLoading } = useApiQuery<PaginatedResponse<Task>>(
     ["tasks", activeDomainId, "dependency-picker"],
@@ -468,43 +531,55 @@ function Dependencies({ task }: { task: Task }) {
   );
 
   const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["links", "task", task.id] });
     queryClient.invalidateQueries({ queryKey: ["task", task.id] });
     queryClient.invalidateQueries({ queryKey: ["tasks"] });
   };
 
-  const addDependency = useMutation({
-    mutationFn: (dependsOnTaskId: string) =>
-      api.post(`/tasks/${task.id}/dependencies`, { dependsOnTaskId }),
+  const addLink = useMutation({
+    mutationFn: (vars: { sourceId: string; targetId: string; linkType: string }) =>
+      api.post("/links", {
+        sourceType: "task",
+        sourceId: vars.sourceId,
+        targetType: "task",
+        targetId: vars.targetId,
+        linkType: vars.linkType,
+      }),
     onSuccess: () => {
-      setDepValue("");
-      toast.success("Dependency added");
+      setTargetEntityId("");
+      toast.success("Link added");
       refresh();
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
 
-  const removeDependency = useMutation({
-    mutationFn: ({ taskId, depId }: { taskId: string; depId: string }) =>
-      api.delete(`/tasks/${taskId}/dependencies/${depId}`),
+  const removeLink = useMutation({
+    mutationFn: (linkId: string) => api.delete(`/links/${linkId}`),
     onSuccess: refresh,
     onError: (err) => toast.error(errorMessage(err)),
   });
 
-  const dependencies = task.dependencies || [];
-  const dependents = task.dependents || [];
+  const links = linksData?.items || [];
 
-  const availableTasks = (tasksData?.items ?? []).filter(
-    (t) => t.id !== task.id && !dependencies.some((d) => d.id === t.id)
+  const incomingLinks = links.filter((l) => l.targetId === task.id && l.sourceType === "task");
+  const outgoingLinks = links.filter((l) => l.sourceId === task.id && l.targetType === "task");
+
+  const allTaskIds = new Set((tasksData?.items || []).map((t) => t.id));
+  const linkedTaskIds = new Set([...incomingLinks.map((l) => l.sourceId), ...outgoingLinks.map((l) => l.targetId), task.id]);
+  const availableTasks = (tasksData?.items || []).filter(
+    (t) => t.id !== task.id && !linkedTaskIds.has(t.id)
   );
   const depPlaceholder = tasksLoading
     ? "Loading tasks..."
     : availableTasks.length === 0
       ? "No tasks to add"
-      : "Add dependency...";
+      : "Add link...";
 
-  const handleAddDependency = (value: string) => {
+  const taskTitleById = new Map((tasksData?.items || []).map((t) => [t.id, t.title]));
+
+  const handleAddLink = (value: string) => {
     if (!value) return;
-    addDependency.mutate(value);
+    addLink.mutate({ sourceId: task.id, targetId: value, linkType });
   };
 
   return (
@@ -512,35 +587,32 @@ function Dependencies({ task }: { task: Task }) {
       <div>
         <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
           <Link2 className="h-4 w-4 text-muted-foreground" />
-          Blocked by
+          Links to this task
         </h3>
-        {dependencies.length === 0 ? (
-          <p className="py-4 text-sm text-muted-foreground">Nothing blocks this task.</p>
+        {incomingLinks.length === 0 ? (
+          <p className="py-4 text-sm text-muted-foreground">No incoming links.</p>
         ) : (
           <div className="space-y-0.5">
-            {dependencies.map((dep) => (
+            {incomingLinks.map((link) => (
               <div
-                key={dep.id}
+                key={link.id}
                 className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
               >
-                <span className={cn("h-2 w-2 shrink-0 rounded-full", TASK_STATUS[dep.status]?.dot)} />
                 <button
                   type="button"
-                  onClick={() => navigate({ to: "/tasks/$id", params: { id: dep.id } })}
+                  onClick={() => navigate({ to: "/tasks/$id", params: { id: link.sourceId } })}
                   className="min-w-0 flex-1 truncate text-left text-sm hover:underline"
                 >
-                  {dep.title}
+                  {taskTitleById.get(link.sourceId) || link.sourceId}
                 </button>
-                <Badge className={cn("text-[10px]", TASK_STATUS[dep.status]?.badge)}>
-                  {TASK_STATUS[dep.status]?.label ?? dep.status}
-                </Badge>
+                <Badge variant="outline" className="text-[10px]">{link.linkType}</Badge>
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => removeDependency.mutate({ taskId: task.id, depId: dep.id })}
-                  aria-label={"Remove dependency on " + dep.title}
-                  title="Remove dependency"
+                  onClick={() => removeLink.mutate(link.id)}
+                  aria-label="Remove link"
+                  title="Remove link"
                 >
                   <X className="h-3.5 w-3.5" />
                 </Button>
@@ -548,13 +620,63 @@ function Dependencies({ task }: { task: Task }) {
             ))}
           </div>
         )}
-        <div className="mt-3">
+      </div>
+
+      <div>
+        <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+          <Link2 className="h-4 w-4 text-muted-foreground" />
+          Links from this task
+        </h3>
+        {outgoingLinks.length === 0 ? (
+          <p className="py-4 text-sm text-muted-foreground">No outgoing links.</p>
+        ) : (
+          <div className="space-y-0.5">
+            {outgoingLinks.map((link) => (
+              <div
+                key={link.id}
+                className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
+              >
+                <button
+                  type="button"
+                  onClick={() => navigate({ to: "/tasks/$id", params: { id: link.targetId } })}
+                  className="min-w-0 flex-1 truncate text-left text-sm hover:underline"
+                >
+                  {taskTitleById.get(link.targetId) || link.targetId}
+                </button>
+                <Badge variant="outline" className="text-[10px]">{link.linkType}</Badge>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeLink.mutate(link.id)}
+                  aria-label="Remove link"
+                  title="Remove link"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-3 flex gap-2">
+          <Select value={linkType} onValueChange={setLinkType}>
+            <SelectTrigger className="h-8 w-32 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="blocks">Blocks</SelectItem>
+              <SelectItem value="relates">Relates to</SelectItem>
+              <SelectItem value="parent-child">Parent/Child</SelectItem>
+              <SelectItem value="created-from">Created from</SelectItem>
+            </SelectContent>
+          </Select>
           <Select
-            value={depValue}
-            onValueChange={handleAddDependency}
+            value={targetEntityId}
+            onValueChange={handleAddLink}
             disabled={availableTasks.length === 0}
           >
-            <SelectTrigger className="h-8 w-full text-sm" aria-label="Add dependency">
+            <SelectTrigger className="h-8 flex-1 text-sm" aria-label="Add link">
               <SelectValue placeholder={depPlaceholder} />
             </SelectTrigger>
             <SelectContent>
@@ -566,47 +688,6 @@ function Dependencies({ task }: { task: Task }) {
             </SelectContent>
           </Select>
         </div>
-      </div>
-
-      <div>
-        <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
-          <Link2 className="h-4 w-4 text-muted-foreground" />
-          Blocks
-        </h3>
-        {dependents.length === 0 ? (
-          <p className="py-4 text-sm text-muted-foreground">Nothing depends on this task.</p>
-        ) : (
-          <div className="space-y-0.5">
-            {dependents.map((dep) => (
-              <div
-                key={dep.id}
-                className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
-              >
-                <span className={cn("h-2 w-2 shrink-0 rounded-full", TASK_STATUS[dep.status]?.dot)} />
-                <button
-                  type="button"
-                  onClick={() => navigate({ to: "/tasks/$id", params: { id: dep.id } })}
-                  className="min-w-0 flex-1 truncate text-left text-sm hover:underline"
-                >
-                  {dep.title}
-                </button>
-                <Badge className={cn("text-[10px]", TASK_STATUS[dep.status]?.badge)}>
-                  {TASK_STATUS[dep.status]?.label ?? dep.status}
-                </Badge>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => removeDependency.mutate({ taskId: dep.id, depId: task.id })}
-                  aria-label={"Remove this task from " + dep.title + "'s dependencies"}
-                  title="Remove dependency"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

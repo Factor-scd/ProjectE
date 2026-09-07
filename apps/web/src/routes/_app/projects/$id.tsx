@@ -8,8 +8,10 @@ import {
   Clock,
   Flag,
   FolderKanban,
+  LayoutGrid,
   ListTodo,
   Plus,
+  Repeat,
   Trash2,
   X,
 } from "lucide-react";
@@ -42,6 +44,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -51,10 +54,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { LoadingState, ErrorState } from "@/components/state";
-import { PRIORITY, PROJECT_STATUS, TASK_STATUS } from "@/lib/status-colors";
-import type { Project, Section, Task } from "@/lib/types";
+import { PRIORITY, PROJECT_STATUS } from "@/lib/status-colors";
+import type { Cycle, Module, PaginatedResponse, Project, Section, State, Task } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const PROJECT_STATUS_OPTIONS: InlineSelectOption[] = [
@@ -70,14 +74,26 @@ const SECTION_STATUS_OPTIONS: InlineSelectOption[] = [
   { value: "complete", label: "Complete" },
 ];
 
-/** Section lifecycle colors (no shared token exists for section statuses). */
+const MODULE_STATUS_OPTIONS: InlineSelectOption[] = [
+  { value: "planned", label: "Planned" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
+const MODULE_STATUS: Record<string, { label: string; badge: string; dot: string }> = {
+  planned: { label: "Planned", badge: "bg-slate-500 text-white", dot: "bg-slate-400" },
+  in_progress: { label: "In Progress", badge: "bg-blue-500 text-white", dot: "bg-blue-500" },
+  completed: { label: "Completed", badge: "bg-green-500 text-white", dot: "bg-green-500" },
+  cancelled: { label: "Cancelled", badge: "bg-red-500 text-white", dot: "bg-red-400" },
+};
+
 const SECTION_STATUS: Record<string, { label: string; badge: string; dot: string }> = {
   planned: { label: "Planned", badge: "bg-slate-500 text-white", dot: "bg-slate-400" },
   in_progress: { label: "In Progress", badge: "bg-blue-500 text-white", dot: "bg-blue-500" },
   complete: { label: "Complete", badge: "bg-green-500 text-white", dot: "bg-green-500" },
 };
 
-/** Sentinel for the "No section" option in the task composer select. */
 const NO_SECTION = "__none__";
 
 type PatchFn = (vars: { id: string; data: Record<string, unknown> }) => void;
@@ -226,6 +242,8 @@ function ProjectDetail() {
         },
         { value: "tasks", label: "Tasks", content: <ProjectTasks project={project} /> },
         { value: "sections", label: "Sections", content: <Sections project={project} /> },
+        { value: "modules", label: "Modules", content: <ProjectModules project={project} /> },
+        { value: "cycles", label: "Cycles", content: <ProjectCycles project={project} /> },
         {
           value: "activity",
           label: "Activity",
@@ -319,6 +337,15 @@ function ProjectTasks({ project }: { project: Project }) {
   const sections = project.sections || [];
   const tasks = project.tasks || [];
 
+  const { data: statesData } = useApiQuery<{ items: State[] }>(
+    ["states", project.id],
+    "/states?projectId=" + project.id,
+    { enabled: !!project.id }
+  );
+  const projectStates = statesData?.items || [];
+  const completedStateId = projectStates.find((s) => s.group === "completed")?.id;
+  const uncompletedStateId = projectStates.find((s) => s.group !== "completed" && s.group !== "cancelled")?.id;
+
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["project", project.id] });
     queryClient.invalidateQueries({ queryKey: ["projects"] });
@@ -342,8 +369,8 @@ function ProjectTasks({ project }: { project: Project }) {
   });
 
   const toggleMutation = useMutation({
-    mutationFn: ({ taskId, status }: { taskId: string; status: Task["status"] }) =>
-      api.post<Task>(`/tasks/${taskId}/status`, { status }),
+    mutationFn: ({ taskId, completed }: { taskId: string; completed: boolean }) =>
+      api.patch<Task>(`/tasks/${taskId}`, { stateId: completed ? completedStateId || null : uncompletedStateId || null }),
     onMutate: (vars) => setPendingId(vars.taskId),
     onSettled: () => setPendingId(null),
     onSuccess: refresh,
@@ -359,8 +386,6 @@ function ProjectTasks({ project }: { project: Project }) {
     });
   };
 
-  // Group tasks by section, keeping sections in API sort order. Tasks whose
-  // sectionId is null or points at a hard-deleted section land in Unassigned.
   const sectionIdSet = new Set(sections.map((s) => s.id));
   const tasksBySection = new Map<string, Task[]>();
   const unassigned: Task[] = [];
@@ -439,6 +464,7 @@ function ProjectTasks({ project }: { project: Project }) {
                   key={task.id}
                   task={task}
                   pending={pendingId === task.id}
+                  projectStates={projectStates}
                   onToggle={(vars) => toggleMutation.mutate(vars)}
                   onOpen={() => openTask(task.id)}
                 />
@@ -461,6 +487,7 @@ function ProjectTasks({ project }: { project: Project }) {
                   key={task.id}
                   task={task}
                   pending={pendingId === task.id}
+                  projectStates={projectStates}
                   onToggle={(vars) => toggleMutation.mutate(vars)}
                   onOpen={() => openTask(task.id)}
                 />
@@ -476,36 +503,45 @@ function ProjectTasks({ project }: { project: Project }) {
 function TaskRow({
   task,
   pending,
+  projectStates,
   onToggle,
   onOpen,
 }: {
   task: Task;
   pending: boolean;
-  onToggle: (vars: { taskId: string; status: Task["status"] }) => void;
+  projectStates: State[];
+  onToggle: (vars: { taskId: string; completed: boolean }) => void;
   onOpen: () => void;
 }) {
+  const state = task.stateId ? projectStates.find((s) => s.id === task.stateId) : null;
+  const isCompleted = state?.group === "completed";
+
   return (
     <div className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-muted/50">
       <Checkbox
-        checked={task.status === "done"}
+        checked={isCompleted}
         disabled={pending}
         onCheckedChange={() =>
           onToggle({
             taskId: task.id,
-            status: task.status === "done" ? "todo" : "done",
+            completed: isCompleted,
           })
         }
         aria-label={
-          "Mark " + task.title + " " + (task.status === "done" ? "as not done" : "as done")
+          "Mark " + task.title + " " + (isCompleted ? "as not done" : "as done")
         }
       />
-      <span className={cn("h-2 w-2 shrink-0 rounded-full", TASK_STATUS[task.status]?.dot)} />
+      {state ? (
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: state.color || "#94a3b8" }} />
+      ) : (
+        <span className="h-2 w-2 shrink-0 rounded-full bg-slate-300" />
+      )}
       <button
         type="button"
         onClick={onOpen}
         className={cn(
           "min-w-0 flex-1 truncate text-left text-sm hover:underline",
-          task.status === "done" && "text-muted-foreground line-through"
+          isCompleted && "text-muted-foreground line-through"
         )}
       >
         {task.title}
@@ -686,6 +722,465 @@ function Sections({ project }: { project: Project }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function ProjectModules({ project }: { project: Project }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editModule, setEditModule] = useState<Module | null>(null);
+  const [newName, setNewName] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
+
+  const { data: modulesData, isLoading } = useApiQuery<PaginatedResponse<Module>>(
+    ["modules", project.id],
+    "/projects/" + project.id + "/modules?limit=200"
+  );
+  const modules = modulesData?.items || [];
+
+  const { data: moduleDetail } = useApiQuery<Module & { tasks: Task[] }>(
+    ["module", selectedModuleId || ""],
+    "/projects/" + project.id + "/modules/" + selectedModuleId,
+    { enabled: !!selectedModuleId }
+  );
+
+  const { data: statesData } = useApiQuery<{ items: State[] }>(
+    ["states", project.id],
+    "/states?projectId=" + project.id,
+    { enabled: !!project.id }
+  );
+  const projectStates = statesData?.items || [];
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["modules", project.id] });
+    if (selectedModuleId) queryClient.invalidateQueries({ queryKey: ["module", selectedModuleId] });
+    queryClient.invalidateQueries({ queryKey: ["tasks"] });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: (data: { name: string; description?: string }) =>
+      api.post<Module>(`/projects/${project.id}/modules`, data),
+    onSuccess: () => {
+      setCreateOpen(false);
+      setNewName("");
+      setNewDescription("");
+      toast.success("Module created");
+      refresh();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      api.patch<Module>(`/projects/${project.id}/modules/${id}`, data),
+    onSuccess: () => {
+      setEditModule(null);
+      toast.success("Module updated");
+      refresh();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/projects/${project.id}/modules/${id}`),
+    onSuccess: () => {
+      toast.success("Module deleted");
+      if (selectedModuleId === editModule?.id) setSelectedModuleId(null);
+      setEditModule(null);
+      refresh();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const addTaskMutation = useMutation({
+    mutationFn: ({ moduleId, taskId }: { moduleId: string; taskId: string }) =>
+      api.post(`/projects/${project.id}/modules/${moduleId}/tasks`, { taskId }),
+    onSuccess: refresh,
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const removeTaskMutation = useMutation({
+    mutationFn: ({ moduleId, taskId }: { moduleId: string; taskId: string }) =>
+      api.delete(`/projects/${project.id}/modules/${moduleId}/tasks/${taskId}`),
+    onSuccess: refresh,
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const tasks = project.tasks || [];
+  const moduleTasks = moduleDetail?.tasks || [];
+  const moduleTaskIds = new Set(moduleTasks.map((t) => t.id));
+  const unassignedTasks = tasks.filter((t) => !t.moduleId && !moduleTaskIds.has(t.id));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Modules</h3>
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
+          <Plus className="h-4 w-4 mr-1" /> New Module
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <LoadingState label="Loading modules..." />
+      ) : modules.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">No modules yet. Create one to organize tasks.</p>
+      ) : (
+        <div className="space-y-2">
+          {modules.map((mod) => (
+            <div
+              key={mod.id}
+              className={cn(
+                "rounded-lg border p-3 cursor-pointer hover:bg-muted/50 transition-colors",
+                selectedModuleId === mod.id && "bg-muted/50 ring-1 ring-primary/30"
+              )}
+              onClick={() => setSelectedModuleId(selectedModuleId === mod.id ? null : mod.id)}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <LayoutGrid className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium text-sm">{mod.name}</span>
+                  <Badge variant="secondary" className={cn("text-[10px]", MODULE_STATUS[mod.status]?.badge)}>
+                    {MODULE_STATUS[mod.status]?.label ?? mod.status}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); setEditModule(mod); }}>
+                    <Flag className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(mod.id); }}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+              {mod.description && (
+                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{mod.description}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {selectedModuleId && moduleDetail && (
+        <div className="rounded-lg border p-4 space-y-3">
+          <h4 className="text-sm font-semibold">Tasks in {moduleDetail.name}</h4>
+          {moduleTasks.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No tasks in this module.</p>
+          ) : (
+            <div className="space-y-1">
+              {moduleTasks.map((t) => (
+                <div key={t.id} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-muted/50">
+                  <button
+                    type="button"
+                    onClick={() => navigate({ to: "/tasks/$id", params: { id: t.id } })}
+                    className="min-w-0 flex-1 truncate text-left text-sm hover:underline"
+                  >
+                    {t.title}
+                  </button>
+                  <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeTaskMutation.mutate({ moduleId: selectedModuleId, taskId: t.id })}>
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          {unassignedTasks.length > 0 && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Add task:</p>
+              <div className="space-y-1">
+                {unassignedTasks.slice(0, 10).map((t) => (
+                  <div key={t.id} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-muted/50">
+                    <span className="min-w-0 flex-1 truncate text-sm">{t.title}</span>
+                    <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => addTaskMutation.mutate({ moduleId: selectedModuleId, taskId: t.id })}>
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>New Module</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <Input placeholder="Module name" value={newName} onChange={(e) => setNewName(e.target.value)} />
+            <Textarea placeholder="Description (optional)" value={newDescription} onChange={(e) => setNewDescription(e.target.value)} rows={3} />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+              <Button onClick={() => createMutation.mutate({ name: newName, description: newDescription || undefined })} disabled={!newName.trim() || createMutation.isPending}>Create</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editModule} onOpenChange={(o) => { if (!o) setEditModule(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Module</DialogTitle></DialogHeader>
+          {editModule && (
+            <ModuleEditForm
+              module={editModule}
+              onSave={(data) => updateMutation.mutate({ id: editModule.id, data })}
+              onClose={() => setEditModule(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function ModuleEditForm({ module: mod, onSave, onClose }: { module: Module; onSave: (data: Record<string, unknown>) => void; onClose: () => void }) {
+  const [name, setName] = useState(mod.name);
+  const [description, setDescription] = useState(mod.description || "");
+  const [status, setStatus] = useState(mod.status);
+
+  return (
+    <div className="space-y-4">
+      <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+      <Textarea placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
+      <Select value={status} onValueChange={(v) => setStatus(v as Module["status"])}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {MODULE_STATUS_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={onClose}>Cancel</Button>
+        <Button onClick={() => onSave({ name, description: description || null, status })} disabled={!name.trim()}>Save</Button>
+      </div>
+    </div>
+  );
+}
+
+function ProjectCycles({ project }: { project: Project }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editCycle, setEditCycle] = useState<Cycle | null>(null);
+  const [newName, setNewName] = useState("");
+  const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null);
+
+  const { data: cyclesData, isLoading } = useApiQuery<{ items: Cycle[] }>(
+    ["cycles", project.id],
+    "/projects/" + project.id + "/cycles"
+  );
+  const cycles = cyclesData?.items || [];
+
+  const { data: cycleDetail } = useApiQuery<Cycle & { tasks: Task[] }>(
+    ["cycle", selectedCycleId || ""],
+    "/projects/" + project.id + "/cycles/" + selectedCycleId,
+    { enabled: !!selectedCycleId }
+  );
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["cycles", project.id] });
+    if (selectedCycleId) queryClient.invalidateQueries({ queryKey: ["cycle", selectedCycleId] });
+    queryClient.invalidateQueries({ queryKey: ["tasks"] });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: (data: { name: string }) =>
+      api.post<Cycle>(`/projects/${project.id}/cycles`, data),
+    onSuccess: () => {
+      setCreateOpen(false);
+      setNewName("");
+      toast.success("Cycle created");
+      refresh();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      api.patch<Cycle>(`/projects/${project.id}/cycles/${id}`, data),
+    onSuccess: () => {
+      setEditCycle(null);
+      toast.success("Cycle updated");
+      refresh();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/projects/${project.id}/cycles/${id}`),
+    onSuccess: () => {
+      toast.success("Cycle deleted");
+      if (selectedCycleId === editCycle?.id) setSelectedCycleId(null);
+      setEditCycle(null);
+      refresh();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const addTaskMutation = useMutation({
+    mutationFn: ({ cycleId, taskId }: { cycleId: string; taskId: string }) =>
+      api.post(`/projects/${project.id}/cycles/${cycleId}/tasks`, { taskId }),
+    onSuccess: refresh,
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const removeTaskMutation = useMutation({
+    mutationFn: ({ cycleId, taskId }: { cycleId: string; taskId: string }) =>
+      api.delete(`/projects/${project.id}/cycles/${cycleId}/tasks/${taskId}`),
+    onSuccess: refresh,
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const tasks = project.tasks || [];
+  const cycleTasks = cycleDetail?.tasks || [];
+  const cycleTaskIds = new Set(cycleTasks.map((t) => t.id));
+  const backlogTasks = tasks.filter((t) => !t.cycleId && !cycleTaskIds.has(t.id));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Cycles</h3>
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
+          <Plus className="h-4 w-4 mr-1" /> New Cycle
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <LoadingState label="Loading cycles..." />
+      ) : cycles.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">No cycles yet. Create a sprint cycle to time-box work.</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {cycles.map((cycle) => (
+            <div
+              key={cycle.id}
+              className={cn(
+                "rounded-lg border p-3 cursor-pointer hover:bg-muted/50 transition-colors",
+                selectedCycleId === cycle.id && "bg-muted/50 ring-1 ring-primary/30"
+              )}
+              onClick={() => setSelectedCycleId(selectedCycleId === cycle.id ? null : cycle.id)}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Repeat className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium text-sm">{cycle.name}</span>
+                  {cycle.active && <Badge className="text-[10px] bg-green-500 text-white">Active</Badge>}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); setEditCycle(cycle); }}>
+                    <Flag className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(cycle.id); }}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+              <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
+                {cycle.startDate && <span>Start: {format(parseISO(cycle.startDate), "MMM d")}</span>}
+                {cycle.endDate && <span>End: {format(parseISO(cycle.endDate), "MMM d")}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {selectedCycleId && cycleDetail && (
+        <div className="rounded-lg border p-4 space-y-3">
+          <h4 className="text-sm font-semibold">Tasks in {cycleDetail.name}</h4>
+          {cycleTasks.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No tasks in this cycle.</p>
+          ) : (
+            <div className="space-y-1">
+              {cycleTasks.map((t) => (
+                <div key={t.id} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-muted/50">
+                  <button
+                    type="button"
+                    onClick={() => navigate({ to: "/tasks/$id", params: { id: t.id } })}
+                    className="min-w-0 flex-1 truncate text-left text-sm hover:underline"
+                  >
+                    {t.title}
+                  </button>
+                  <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => removeTaskMutation.mutate({ cycleId: selectedCycleId, taskId: t.id })}>
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          {backlogTasks.length > 0 && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Backlog — add task:</p>
+              <div className="space-y-1">
+                {backlogTasks.slice(0, 10).map((t) => (
+                  <div key={t.id} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-muted/50">
+                    <span className="min-w-0 flex-1 truncate text-sm">{t.title}</span>
+                    <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => addTaskMutation.mutate({ cycleId: selectedCycleId, taskId: t.id })}>
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>New Cycle</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <Input placeholder="Cycle name" value={newName} onChange={(e) => setNewName(e.target.value)} />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+              <Button onClick={() => createMutation.mutate({ name: newName })} disabled={!newName.trim() || createMutation.isPending}>Create</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editCycle} onOpenChange={(o) => { if (!o) setEditCycle(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Cycle</DialogTitle></DialogHeader>
+          {editCycle && (
+            <CycleEditForm
+              cycle={editCycle}
+              onSave={(data) => updateMutation.mutate({ id: editCycle.id, data })}
+              onClose={() => setEditCycle(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function CycleEditForm({ cycle, onSave, onClose }: { cycle: Cycle; onSave: (data: Record<string, unknown>) => void; onClose: () => void }) {
+  const [name, setName] = useState(cycle.name);
+  const [startDate, setStartDate] = useState(cycle.startDate ? cycle.startDate.slice(0, 10) : "");
+  const [endDate, setEndDate] = useState(cycle.endDate ? cycle.endDate.slice(0, 10) : "");
+  const [active, setActive] = useState(cycle.active);
+
+  return (
+    <div className="space-y-4">
+      <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-sm text-muted-foreground">Start Date</label>
+          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-sm text-muted-foreground">End Date</label>
+          <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Checkbox checked={active} onCheckedChange={(v) => setActive(!!v)} id="cycle-active" />
+        <label htmlFor="cycle-active" className="text-sm cursor-pointer">Active cycle</label>
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={onClose}>Cancel</Button>
+        <Button onClick={() => onSave({ name, startDate: startDate ? new Date(startDate).toISOString() : null, endDate: endDate ? new Date(endDate).toISOString() : null, active })} disabled={!name.trim()}>Save</Button>
+      </div>
     </div>
   );
 }
