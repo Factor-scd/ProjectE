@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db, tasks, taskTags, tags as tagsTable, taskDependencies, activityFeed, scheduledJobs, projects, sections } from "@project-e/db";
+import { db, tasks, taskTags, tags as tagsTable, activityFeed, scheduledJobs, projects, sections, links } from "@project-e/db";
 import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
@@ -9,17 +9,18 @@ import { RRule } from "rrule";
 
 export const taskRoutes = new Hono();
 
-const taskStatusEnum = z.enum(["todo", "in_progress", "done", "cancelled"]);
 const taskPriorityEnum = z.enum(["low", "medium", "high", "urgent"]);
 
 const createTaskSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional().nullable(),
-  status: taskStatusEnum.optional().default("todo"),
   priority: taskPriorityEnum.optional().default("medium"),
   domain: z.string().min(1, "Domain is required"),
   projectId: z.string().uuid().optional().nullable(),
   sectionId: z.string().uuid().optional().nullable(),
+  stateId: z.string().uuid().optional().nullable(),
+  moduleId: z.string().uuid().optional().nullable(),
+  cycleId: z.string().uuid().optional().nullable(),
   parentId: z.string().uuid().optional().nullable(),
   dueDate: z.string().datetime().optional().nullable(),
   estimatedMinutes: z.number().int().positive().optional().nullable(),
@@ -33,10 +34,12 @@ const createTaskSchema = z.object({
 const updateTaskSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
-  status: taskStatusEnum.optional(),
   priority: taskPriorityEnum.optional(),
   projectId: z.string().uuid().optional().nullable(),
   sectionId: z.string().uuid().optional().nullable(),
+  stateId: z.string().uuid().optional().nullable(),
+  moduleId: z.string().uuid().optional().nullable(),
+  cycleId: z.string().uuid().optional().nullable(),
   parentId: z.string().uuid().optional().nullable(),
   dueDate: z.string().datetime().optional().nullable(),
   estimatedMinutes: z.number().int().positive().optional().nullable(),
@@ -86,7 +89,7 @@ taskRoutes.get("/", async (c) => {
     const perPage = Math.min(100, Math.max(1, parseInt(url.searchParams.get("perPage") || "50")));
     const filter = url.searchParams.get("filter") || undefined;
     const sort = url.searchParams.get("sort") || "-created";
-    const status = url.searchParams.get("status");
+    const stateId = url.searchParams.get("state_id");
     const priority = url.searchParams.get("priority");
     const tag = url.searchParams.get("tag");
     const search = url.searchParams.get("search");
@@ -111,9 +114,9 @@ taskRoutes.get("/", async (c) => {
       isNull(tasks.deletedAt),
     ];
 
-    if (status) {
-      const statuses = status.split(",");
-      conditions.push(inArray(tasks.status, statuses as any));
+    if (stateId) {
+      const stateIds = stateId.split(",");
+      conditions.push(inArray(tasks.stateId, stateIds));
     }
     if (priority) {
       const priorities = priority.split(",");
@@ -165,7 +168,6 @@ taskRoutes.get("/", async (c) => {
       created: tasks.createdAt,
       updated: tasks.updatedAt,
       title: tasks.title,
-      status: tasks.status,
       priority: tasks.priority,
       order: tasks.order,
       due_date: tasks.dueDate,
@@ -297,11 +299,13 @@ taskRoutes.post("/", async (c) => {
     const [task] = await db.insert(tasks).values({
       title: data.title,
       description: data.description ?? null,
-      status: data.status,
       priority: data.priority,
       domainId: data.domain,
       projectId: data.projectId ?? null,
       sectionId: data.sectionId ?? null,
+      stateId: data.stateId ?? null,
+      moduleId: data.moduleId ?? null,
+      cycleId: data.cycleId ?? null,
       parentId: data.parentId ?? null,
       dueDate: data.dueDate ? new Date(data.dueDate) : null,
       estimatedMinutes: data.estimatedMinutes ?? null,
@@ -334,7 +338,7 @@ taskRoutes.post("/", async (c) => {
       action: "created",
       entityType: "task",
       entityId: task.id,
-      changes: { title: task.title, status: task.status, priority: task.priority },
+      changes: { title: task.title, priority: task.priority },
       workspaceId: data.domain,
     });
 
@@ -458,25 +462,9 @@ taskRoutes.get("/:id", async (c) => {
       .innerJoin(tagsTable, eq(taskTags.tagId, tagsTable.id))
       .where(eq(taskTags.taskId, id));
 
-    // Fetch dependencies (tasks this task depends on)
-    const depRows = await db.select({
-      id: tasks.id,
-      title: tasks.title,
-      status: tasks.status,
-    })
-      .from(taskDependencies)
-      .innerJoin(tasks, eq(taskDependencies.dependsOnTaskId, tasks.id))
-      .where(and(eq(taskDependencies.taskId, id), isNull(tasks.deletedAt)));
-
-    // Fetch dependents (tasks that depend on this task)
-    const dependentRows = await db.select({
-      id: tasks.id,
-      title: tasks.title,
-      status: tasks.status,
-    })
-      .from(taskDependencies)
-      .innerJoin(tasks, eq(taskDependencies.taskId, tasks.id))
-      .where(and(eq(taskDependencies.dependsOnTaskId, id), isNull(tasks.deletedAt)));
+    // Dependencies are now managed via the links table (Phase 2)
+    const depRows: { id: string; title: string }[] = [];
+    const dependentRows: { id: string; title: string }[] = [];
 
     return c.json({
       ...task,
@@ -539,10 +527,12 @@ taskRoutes.patch("/:id", async (c) => {
     const updateValues: Record<string, unknown> = {};
     if (data.title !== undefined) updateValues.title = data.title;
     if (data.description !== undefined) updateValues.description = data.description;
-    if (data.status !== undefined) updateValues.status = data.status;
     if (data.priority !== undefined) updateValues.priority = data.priority;
     if (data.projectId !== undefined) updateValues.projectId = data.projectId;
     if (data.sectionId !== undefined) updateValues.sectionId = data.sectionId;
+    if (data.stateId !== undefined) updateValues.stateId = data.stateId;
+    if (data.moduleId !== undefined) updateValues.moduleId = data.moduleId;
+    if (data.cycleId !== undefined) updateValues.cycleId = data.cycleId;
     if (data.parentId !== undefined) updateValues.parentId = data.parentId;
     if (data.dueDate !== undefined) updateValues.dueDate = data.dueDate ? new Date(data.dueDate) : null;
     if (data.estimatedMinutes !== undefined) updateValues.estimatedMinutes = data.estimatedMinutes;
@@ -561,11 +551,11 @@ taskRoutes.patch("/:id", async (c) => {
       action: "updated",
       entityType: "task",
       entityId: id,
-      changes: { ...data, previousStatus: existing.status },
+      changes: { ...data, previousStateId: existing.stateId },
       workspaceId: existing.domainId,
     });
 
-    await enqueueWebhooks({ workspaceId: existing.domainId, event: "task.updated", entityType: "task", entityId: id, data: { ...data, previousStatus: existing.status } });
+    await enqueueWebhooks({ workspaceId: existing.domainId, event: "task.updated", entityType: "task", entityId: id, data: { ...data, previousStateId: existing.stateId } });
 
     if (data.recurrenceRule !== undefined) {
       await syncScheduledJob(id, data.recurrenceRule);
@@ -728,187 +718,19 @@ taskRoutes.delete("/:id/tags/:tagId", async (c) => {
   }
 });
 
-// POST /api/tasks/:id/dependencies — Make this task depend on another task
+// POST /api/tasks/:id/dependencies — Deprecated: use links table instead (Phase 2)
 taskRoutes.post("/:id/dependencies", async (c) => {
-  try {
-    const user = await requireAuth(c);
-    const id = c.req.param("id");
-    if (!isUuid(id)) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
-    }
-    const body = await c.req.json();
-    const { dependsOnTaskId } = z.object({
-      dependsOnTaskId: z.string().uuid("Invalid task id"),
-    }).parse(body);
-
-    const [task] = await db.select({ id: tasks.id, domainId: tasks.domainId })
-      .from(tasks)
-      .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
-      .limit(1);
-    if (!task) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
-    }
-
-    await requireWorkspaceAccess(c, task.domainId);
-
-    // A task cannot depend on itself
-    if (dependsOnTaskId === id) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "A task cannot depend on itself" } }, 400);
-    }
-
-    const [depTask] = await db.select({ id: tasks.id, domainId: tasks.domainId })
-      .from(tasks)
-      .where(and(eq(tasks.id, dependsOnTaskId), isNull(tasks.deletedAt)))
-      .limit(1);
-    if (!depTask) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Dependency task not found" } }, 404);
-    }
-    if (depTask.domainId !== task.domainId) {
-      return c.json({ error: { code: "FORBIDDEN", message: "Dependency task does not belong to this workspace" } }, 403);
-    }
-
-    // Cycle guard: walk the dependency chain (X depends on Y, Y on Z, ...) from
-    // dependsOnTaskId; reaching id means adding this edge would create a cycle.
-    let currentId: string | null = dependsOnTaskId;
-    const visited = new Set<string>([id]);
-    while (currentId) {
-      if (visited.has(currentId)) {
-        return c.json({ error: { code: "VALIDATION_ERROR", message: "Circular dependency detected" } }, 400);
-      }
-      visited.add(currentId);
-      const [next] = await db.select({ dependsOnTaskId: taskDependencies.dependsOnTaskId })
-        .from(taskDependencies)
-        .where(eq(taskDependencies.taskId, currentId))
-        .limit(1);
-      currentId = next?.dependsOnTaskId ?? null;
-    }
-
-    // Junction table has a composite PK — ignore duplicate edges
-    await db.insert(taskDependencies).values({ taskId: id, dependsOnTaskId }).onConflictDoNothing();
-
-    await recordActivity({
-      actor: user.name,
-      action: "dependency_added",
-      entityType: "task",
-      entityId: id,
-      changes: { dependsOnTaskId },
-      workspaceId: task.domainId,
-    });
-
-    await enqueueWebhooks({ workspaceId: task.domainId, event: "task.updated", entityType: "task", entityId: id, data: { dependsOnTaskId } });
-
-    return c.json({ success: true }, 201);
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
-    }
-    if (error instanceof z.ZodError) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid input", details: error.issues } }, 400);
-    }
-    console.error("[tasks] POST /:id/dependencies error:", error);
-    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to add dependency" } }, 500);
-  }
+  return c.json({ error: { code: "NOT_FOUND", message: "Dependencies moved to links table (Phase 2)" } }, 404);
 });
 
-// DELETE /api/tasks/:id/dependencies/:depId — Remove a dependency
+// DELETE /api/tasks/:id/dependencies/:depId — Deprecated: use links table instead (Phase 2)
 taskRoutes.delete("/:id/dependencies/:depId", async (c) => {
-  try {
-    const user = await requireAuth(c);
-    const id = c.req.param("id");
-    if (!isUuid(id)) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
-    }
-    const depId = c.req.param("depId");
-
-    const [task] = await db.select({ id: tasks.id, domainId: tasks.domainId })
-      .from(tasks)
-      .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
-      .limit(1);
-    if (!task) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
-    }
-
-    await requireWorkspaceAccess(c, task.domainId);
-
-    // Junction table has no deleted_at — hard delete is correct here
-    await db.delete(taskDependencies).where(and(eq(taskDependencies.taskId, id), eq(taskDependencies.dependsOnTaskId, depId)));
-
-    await recordActivity({
-      actor: user.name,
-      action: "dependency_removed",
-      entityType: "task",
-      entityId: id,
-      changes: { removedDependsOnTaskId: depId },
-      workspaceId: task.domainId,
-    });
-
-    return c.body(null, 204);
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
-    }
-    console.error("[tasks] DELETE /:id/dependencies/:depId error:", error);
-    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to remove dependency" } }, 500);
-  }
+  return c.json({ error: { code: "NOT_FOUND", message: "Dependencies moved to links table (Phase 2)" } }, 404);
 });
 
-// POST /api/tasks/:id/status — Change task status (Kanban drag)
+// POST /api/tasks/:id/status — Deprecated: use state_id instead (Phase 2)
 taskRoutes.post("/:id/status", async (c) => {
-  try {
-    const user = await requireAuth(c);
-    const id = c.req.param("id");
-    if (!isUuid(id)) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
-    }
-    const body = await c.req.json();
-    const { status: newStatus } = z.object({
-      status: taskStatusEnum,
-    }).parse(body);
-
-    const [existing] = await db.select()
-      .from(tasks)
-      .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
-      .limit(1);
-
-    if (!existing) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
-    }
-
-    await requireWorkspaceAccess(c, existing.domainId);
-
-    const updateValues: Record<string, unknown> = {
-      status: newStatus,
-      updatedAt: new Date(),
-    };
-    if (newStatus === "done") {
-      updateValues.completedAt = new Date();
-    }
-
-    const [updated] = await db.update(tasks)
-      .set(updateValues)
-      .where(eq(tasks.id, id))
-      .returning();
-
-    await recordActivity({
-      actor: user.name,
-      action: newStatus === "done" ? "completed" : "updated",
-      entityType: "task",
-      entityId: id,
-      changes: { previousStatus: existing.status, newStatus },
-      workspaceId: existing.domainId,
-    });
-
-    return c.json(updated);
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
-    }
-    if (error instanceof z.ZodError) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid input", details: error.issues } }, 400);
-    }
-    console.error("[tasks] POST /:id/status error:", error);
-    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to update task status" } }, 500);
-  }
+  return c.json({ error: { code: "NOT_FOUND", message: "Status endpoint replaced by state assignment (Phase 2)" } }, 404);
 });
 
 // GET /api/tasks/:id/history — Status change log (from activity feed)

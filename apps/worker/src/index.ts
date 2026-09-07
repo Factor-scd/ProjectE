@@ -316,7 +316,6 @@ async function handleRecurringSpawn(job: typeof jobs.$inferSelect): Promise<void
       await db.insert(tasks).values({
         title: originalTask.title,
         description: originalTask.description,
-        status: 'todo',
         priority: originalTask.priority,
         domainId: originalTask.domainId,
         projectId: originalTask.projectId,

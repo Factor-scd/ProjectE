@@ -1,0 +1,69 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "dialect": "postgresql",
+      "tag": "0000_outstanding_zuras",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "dialect": "postgresql",
+      "tag": "0001_warm_eternity",
+      "createdAt": "2025-01-01T00:01:00.000Z"
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "dialect": "postgresql",
+      "tag": "0002_steep_black_widow",
+      "createdAt": "2025-01-01T00:02:00.000Z"
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "dialect": "postgresql",
+      "tag": "0003_amazing_saracen",
+      "createdAt": "2025-01-01T00:03:00.000Z"
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "dialect": "postgresql",
+      "tag": "0004_add_owner_id_to_domains",
+      "createdAt": "2025-01-01T00:04:00.000Z"
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "dialect": "postgresql",
+      "tag": "0005_search_vector_trigger",
+      "createdAt": "2025-01-01T00:05:00.000Z"
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "dialect": "postgresql",
+      "tag": "0006_minor_doctor_octopus",
+      "createdAt": "2025-01-01T00:06:00.000Z"
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "dialect": "postgresql",
+      "tag": "0007_drop_canvas_reports",
+      "createdAt": "2025-01-01T00:07:00.000Z"
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788800393149,
+      "tag": "0008_plane-lift-schema",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { createHash } from "node:crypto";
-import { db, apiKeys, users, tasks, taskTags, tags as tagsTable, habits, habitCompletions, projects, notes, noteLinks, domains, activityFeed, webhooks, webhookDeliveries } from "@project-e/db";
+import { db, apiKeys, users, tasks, taskTags, tags as tagsTable, habits, habitCompletions, projects, notes, domains, activityFeed, webhooks, webhookDeliveries } from "@project-e/db";
 import { and, asc, desc, eq, ilike, isNull, or } from "drizzle-orm";
 import { recordActivity } from "../middleware/activity";
 
@@ -95,7 +95,7 @@ const tools: ToolDefinition[] = [
         eq(tasks.domainId, params.domain_id as string),
         isNull(tasks.deletedAt),
       ];
-      if (params.status) conditions.push(eq(tasks.status, params.status as any));
+      // TODO(phase-2): filter by state_group / state_id instead of old status
       if (params.priority) conditions.push(eq(tasks.priority, params.priority as any));
       if (params.project_id) conditions.push(eq(tasks.projectId, params.project_id as string));
       if (params.search) conditions.push(ilike(tasks.title, `%${params.search}%`));
@@ -119,7 +119,7 @@ const tools: ToolDefinition[] = [
         domain_id: { type: "string", description: "Workspace/domain ID" },
         title: { type: "string" },
         description: { type: "string" },
-        status: { type: "string", enum: ["todo", "in_progress", "done", "cancelled"] },
+        status: { type: "string" },
         priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
         due_date: { type: "string" },
         project_id: { type: "string" },
@@ -130,7 +130,6 @@ const tools: ToolDefinition[] = [
       const [task] = await db.insert(tasks).values({
         title: params.title as string,
         description: (params.description as string) ?? null,
-        status: (params.status as any) ?? "todo",
         priority: (params.priority as any) ?? "medium",
         domainId: params.domain_id as string,
         projectId: (params.project_id as string) ?? null,
@@ -142,7 +141,7 @@ const tools: ToolDefinition[] = [
         action: "created",
         entityType: "task",
         entityId: task.id,
-        changes: { title: task.title, status: task.status },
+        changes: { title: task.title },
         workspaceId: params.domain_id as string,
       });
 
@@ -158,7 +157,7 @@ const tools: ToolDefinition[] = [
         task_id: { type: "string" },
         title: { type: "string" },
         description: { type: "string" },
-        status: { type: "string", enum: ["todo", "in_progress", "done", "cancelled"] },
+        status: { type: "string" },
         priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
         due_date: { type: "string" },
       },
@@ -172,7 +171,6 @@ const tools: ToolDefinition[] = [
       const updateData: Record<string, unknown> = {};
       if (params.title !== undefined) updateData.title = params.title;
       if (params.description !== undefined) updateData.description = params.description;
-      if (params.status !== undefined) updateData.status = params.status;
       if (params.priority !== undefined) updateData.priority = params.priority;
       if (params.due_date !== undefined) updateData.dueDate = params.due_date ? new Date(params.due_date as string) : null;
       updateData.updatedAt = new Date();
@@ -237,7 +235,7 @@ const tools: ToolDefinition[] = [
       await verifyDomainAccess(existing.domainId, auth.userId);
 
       const [task] = await db.update(tasks)
-        .set({ status: "done", completedAt: new Date(), updatedAt: new Date() })
+        .set({ completedAt: new Date(), updatedAt: new Date() })
         .where(and(eq(tasks.id, params.task_id as string), isNull(tasks.deletedAt)))
         .returning();
 
@@ -566,7 +564,7 @@ const tools: ToolDefinition[] = [
       const results: Record<string, unknown[]> = {};
 
       if (types.includes("tasks")) {
-        results.tasks = await db.select({ id: tasks.id, title: tasks.title, status: tasks.status, priority: tasks.priority }).from(tasks)
+        results.tasks = await db.select({ id: tasks.id, title: tasks.title, priority: tasks.priority }).from(tasks)
           .where(and(eq(tasks.domainId, domainId), isNull(tasks.deletedAt), ilike(tasks.title, `%${query}%`))).limit(limit);
       }
       if (types.includes("notes")) {
