@@ -275,6 +275,24 @@ export const taskTags = pgTable(
   ]
 );
 
+// ── Task Dependencies (junction) ───────────────────────────────────────────────
+
+export const taskDependencies = pgTable(
+  'task_dependencies',
+  {
+    taskId: uuid('task_id')
+      .notNull()
+      .references((): any => tasks.id, { onDelete: 'cascade' }),
+    dependsOnTaskId: uuid('depends_on_task_id')
+      .notNull()
+      .references((): any => tasks.id, { onDelete: 'cascade' }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.taskId, table.dependsOnTaskId] }),
+    index('task_dependencies_depends_on_idx').on(table.dependsOnTaskId),
+  ]
+);
+
 // ── Habits ──────────────────────────────────────────────────────────────────────
 
 export const habits = pgTable(
