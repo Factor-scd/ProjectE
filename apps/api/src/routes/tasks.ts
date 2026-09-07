@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db, tasks, states as statesTable, taskTags, tags as tagsTable, activityFeed, scheduledJobs, projects, sections, links } from "@project-e/db";
+import { db, tasks, states as statesTable, taskTags, tags as tagsTable, taskDependencies, activityFeed, scheduledJobs, projects, sections } from "@project-e/db";
 import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
@@ -19,8 +19,6 @@ const createTaskSchema = z.object({
   projectId: z.string().uuid().optional().nullable(),
   sectionId: z.string().uuid().optional().nullable(),
   stateId: z.string().uuid().optional().nullable(),
-  moduleId: z.string().uuid().optional().nullable(),
-  cycleId: z.string().uuid().optional().nullable(),
   parentId: z.string().uuid().optional().nullable(),
   dueDate: z.string().datetime().optional().nullable(),
   estimatedMinutes: z.number().int().positive().optional().nullable(),
@@ -38,8 +36,6 @@ const updateTaskSchema = z.object({
   projectId: z.string().uuid().optional().nullable(),
   sectionId: z.string().uuid().optional().nullable(),
   stateId: z.string().uuid().optional().nullable(),
-  moduleId: z.string().uuid().optional().nullable(),
-  cycleId: z.string().uuid().optional().nullable(),
   parentId: z.string().uuid().optional().nullable(),
   dueDate: z.string().datetime().optional().nullable(),
   estimatedMinutes: z.number().int().positive().optional().nullable(),
@@ -117,10 +113,6 @@ taskRoutes.get("/", async (c) => {
       isNull(tasks.deletedAt),
     ];
 
-    if (stateId) {
-      const stateIds = stateId.split(",");
-      conditions.push(inArray(tasks.stateId, stateIds));
-    }
     if (priority) {
       const priorities = priority.split(",");
       conditions.push(inArray(tasks.priority, priorities as any));
@@ -146,6 +138,9 @@ taskRoutes.get("/", async (c) => {
     }
     if (sectionId) {
       conditions.push(eq(tasks.sectionId, sectionId));
+    }
+    if (stateId) {
+      conditions.push(eq(tasks.stateId, stateId));
     }
     if (moduleId) {
       conditions.push(eq(tasks.moduleId, moduleId));
@@ -338,8 +333,6 @@ taskRoutes.post("/", async (c) => {
       projectId: data.projectId ?? null,
       sectionId: data.sectionId ?? null,
       stateId: data.stateId ?? null,
-      moduleId: data.moduleId ?? null,
-      cycleId: data.cycleId ?? null,
       parentId: data.parentId ?? null,
       dueDate: data.dueDate ? new Date(data.dueDate) : null,
       estimatedMinutes: data.estimatedMinutes ?? null,
@@ -497,9 +490,23 @@ taskRoutes.get("/:id", async (c) => {
       .innerJoin(tagsTable, eq(taskTags.tagId, tagsTable.id))
       .where(eq(taskTags.taskId, id));
 
-    // Dependencies are now managed via the links table (Phase 2)
-    const depRows: { id: string; title: string }[] = [];
-    const dependentRows: { id: string; title: string }[] = [];
+    // Fetch dependencies (tasks this task depends on)
+    const depRows = await db.select({
+      id: tasks.id,
+      title: tasks.title,
+    })
+      .from(taskDependencies)
+      .innerJoin(tasks, eq(taskDependencies.dependsOnTaskId, tasks.id))
+      .where(and(eq(taskDependencies.taskId, id), isNull(tasks.deletedAt)));
+
+    // Fetch dependents (tasks that depend on this task)
+    const dependentRows = await db.select({
+      id: tasks.id,
+      title: tasks.title,
+    })
+      .from(taskDependencies)
+      .innerJoin(tasks, eq(taskDependencies.taskId, tasks.id))
+      .where(and(eq(taskDependencies.dependsOnTaskId, id), isNull(tasks.deletedAt)));
 
     return c.json({
       ...task,
@@ -565,9 +572,6 @@ taskRoutes.patch("/:id", async (c) => {
     if (data.priority !== undefined) updateValues.priority = data.priority;
     if (data.projectId !== undefined) updateValues.projectId = data.projectId;
     if (data.sectionId !== undefined) updateValues.sectionId = data.sectionId;
-    if (data.stateId !== undefined) updateValues.stateId = data.stateId;
-    if (data.moduleId !== undefined) updateValues.moduleId = data.moduleId;
-    if (data.cycleId !== undefined) updateValues.cycleId = data.cycleId;
     if (data.parentId !== undefined) updateValues.parentId = data.parentId;
     if (data.dueDate !== undefined) updateValues.dueDate = data.dueDate ? new Date(data.dueDate) : null;
     if (data.estimatedMinutes !== undefined) updateValues.estimatedMinutes = data.estimatedMinutes;
@@ -585,8 +589,10 @@ taskRoutes.patch("/:id", async (c) => {
         if (!state) {
           return c.json({ error: { code: "NOT_FOUND", message: "State not found" } }, 404);
         }
+        updateValues.stateId = data.stateId;
         updateValues.completedAt = state.group === "completed" ? new Date() : null;
       } else {
+        updateValues.stateId = null;
         updateValues.completedAt = null;
       }
     }
@@ -603,11 +609,11 @@ taskRoutes.patch("/:id", async (c) => {
       action: "updated",
       entityType: "task",
       entityId: id,
-      changes: { ...data, previousStateId: existing.stateId },
+      changes: { ...data },
       workspaceId: existing.domainId,
     });
 
-    await enqueueWebhooks({ workspaceId: existing.domainId, event: "task.updated", entityType: "task", entityId: id, data: { ...data, previousStateId: existing.stateId } });
+    await enqueueWebhooks({ workspaceId: existing.domainId, event: "task.updated", entityType: "task", entityId: id, data: { ...data } });
 
     if (data.recurrenceRule !== undefined) {
       await syncScheduledJob(id, data.recurrenceRule);
@@ -770,19 +776,128 @@ taskRoutes.delete("/:id/tags/:tagId", async (c) => {
   }
 });
 
-// POST /api/tasks/:id/dependencies — Deprecated: use links table instead (Phase 2)
+// POST /api/tasks/:id/dependencies — Make this task depend on another task
 taskRoutes.post("/:id/dependencies", async (c) => {
-  return c.json({ error: { code: "NOT_FOUND", message: "Dependencies moved to links table (Phase 2)" } }, 404);
+  try {
+    const user = await requireAuth(c);
+    const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
+    const body = await c.req.json();
+    const { dependsOnTaskId } = z.object({
+      dependsOnTaskId: z.string().uuid("Invalid task id"),
+    }).parse(body);
+
+    const [task] = await db.select({ id: tasks.id, domainId: tasks.domainId })
+      .from(tasks)
+      .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
+      .limit(1);
+    if (!task) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, task.domainId);
+
+    // A task cannot depend on itself
+    if (dependsOnTaskId === id) {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "A task cannot depend on itself" } }, 400);
+    }
+
+    const [depTask] = await db.select({ id: tasks.id, domainId: tasks.domainId })
+      .from(tasks)
+      .where(and(eq(tasks.id, dependsOnTaskId), isNull(tasks.deletedAt)))
+      .limit(1);
+    if (!depTask) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Dependency task not found" } }, 404);
+    }
+    if (depTask.domainId !== task.domainId) {
+      return c.json({ error: { code: "FORBIDDEN", message: "Dependency task does not belong to this workspace" } }, 403);
+    }
+
+    // Cycle guard: walk the dependency chain (X depends on Y, Y on Z, ...) from
+    // dependsOnTaskId; reaching id means adding this edge would create a cycle.
+    let currentId: string | null = dependsOnTaskId;
+    const visited = new Set<string>([id]);
+    while (currentId) {
+      if (visited.has(currentId)) {
+        return c.json({ error: { code: "VALIDATION_ERROR", message: "Circular dependency detected" } }, 400);
+      }
+      visited.add(currentId);
+      const [next] = await db.select({ dependsOnTaskId: taskDependencies.dependsOnTaskId })
+        .from(taskDependencies)
+        .where(eq(taskDependencies.taskId, currentId))
+        .limit(1);
+      currentId = next?.dependsOnTaskId ?? null;
+    }
+
+    // Junction table has a composite PK — ignore duplicate edges
+    await db.insert(taskDependencies).values({ taskId: id, dependsOnTaskId }).onConflictDoNothing();
+
+    await recordActivity({
+      actor: user.name,
+      action: "dependency_added",
+      entityType: "task",
+      entityId: id,
+      changes: { dependsOnTaskId },
+      workspaceId: task.domainId,
+    });
+
+    await enqueueWebhooks({ workspaceId: task.domainId, event: "task.updated", entityType: "task", entityId: id, data: { dependsOnTaskId } });
+
+    return c.json({ success: true }, 201);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    }
+    if (error instanceof z.ZodError) {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid input", details: error.issues } }, 400);
+    }
+    console.error("[tasks] POST /:id/dependencies error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to add dependency" } }, 500);
+  }
 });
 
-// DELETE /api/tasks/:id/dependencies/:depId — Deprecated: use links table instead (Phase 2)
+// DELETE /api/tasks/:id/dependencies/:depId — Remove a dependency
 taskRoutes.delete("/:id/dependencies/:depId", async (c) => {
-  return c.json({ error: { code: "NOT_FOUND", message: "Dependencies moved to links table (Phase 2)" } }, 404);
-});
+  try {
+    const user = await requireAuth(c);
+    const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
+    const depId = c.req.param("depId");
 
-// POST /api/tasks/:id/status — Deprecated: use state_id instead (Phase 2)
-taskRoutes.post("/:id/status", async (c) => {
-  return c.json({ error: { code: "NOT_FOUND", message: "Status endpoint replaced by state assignment (Phase 2)" } }, 404);
+    const [task] = await db.select({ id: tasks.id, domainId: tasks.domainId })
+      .from(tasks)
+      .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
+      .limit(1);
+    if (!task) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, 404);
+    }
+
+    await requireWorkspaceAccess(c, task.domainId);
+
+    // Junction table has no deleted_at — hard delete is correct here
+    await db.delete(taskDependencies).where(and(eq(taskDependencies.taskId, id), eq(taskDependencies.dependsOnTaskId, depId)));
+
+    await recordActivity({
+      actor: user.name,
+      action: "dependency_removed",
+      entityType: "task",
+      entityId: id,
+      changes: { removedDependsOnTaskId: depId },
+      workspaceId: task.domainId,
+    });
+
+    return c.body(null, 204);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    }
+    console.error("[tasks] DELETE /:id/dependencies/:depId error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to remove dependency" } }, 500);
+  }
 });
 
 // GET /api/tasks/:id/history — State change log (from activity feed)

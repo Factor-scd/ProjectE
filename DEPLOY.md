@@ -1,6 +1,6 @@
 # Project E — Deploy Guide
 
-Production runs as a docker-compose stack on the deploy host (`10.0.0.52`). The stack has four services: PostgreSQL, the Hono API, the Vite SPA served by Caddy, and the Bun worker. Deploys are normally driven by Gitea Actions, but every step below can be run by hand.
+Production runs as a docker-compose stack on the deploy host (`10.0.0.52`). The stack has four services: PostgreSQL, the Hono API, the Vite SPA served by Caddy, and the Bun worker. **Komodo now owns builds and deploys** — Gitea Actions runs quality+e2e only.
 
 ## Architecture
 
@@ -18,189 +18,60 @@ Caddy (in the `spa` container) serves the built SPA and reverse-proxies `/api/*`
 
 ## Services
 
-| Service | Container | Image / Build | Ports | Notes |
-|---------|-----------|---------------|-------|-------|
-| `db` | `project-e-db` | `postgres:16-alpine` | 5432 | Data in the `project-e-pg-data` volume |
-| `api` | `project-e-api` | `Dockerfile.api` | 3001 → 3000 | Hono on Bun |
-| `spa` | `project-e-spa` | `Dockerfile.spa` | 3000 → 80 | Built Vite SPA + Caddy |
-| `worker` | `project-e-worker` | `Dockerfile.worker` | none | Bun worker |
+| Service | Container | Image | Ports | Notes |
+|---------|-----------|-------|-------|-------|
+| `db` | `project-e-db` | `postgres:16-alpine` | 5432 | Data in `project-e-pg-data` volume |
+| `api` | `project-e-api` | `git.buzzbee.dev/BuzzbeeSCD/projecte-api:{tag}` | 3001 → 3000 | Hono on Bun |
+| `spa` | `project-e-spa` | `git.buzzbee.dev/BuzzbeeSCD/projecte-spa:{tag}` | 3000 → 80 | Built Vite SPA + Caddy |
+| `worker` | `project-e-worker` | `git.buzzbee.dev/BuzzbeeSCD/projecte-worker:{tag}` | none | Bun worker |
 
 All services share the `project-e-network` bridge and restart unless stopped.
 
-## CI/CD pipeline (Gitea Actions)
+## CI/CD pipeline
 
-The workflow lives at `.gitea/workflows/ci.yml` and runs on the self-hosted runner `projecte-runner`, which is colocated with the deploy host. The runner must be registered once (see "Setting up the runner" below) before any job can run.
+### Gitea Actions (quality + e2e only)
 
-- **`quality`** — runs on every push and pull request: `bun install --frozen-lockfile` → `bun run typecheck` → web build (`cd apps/web && bun run build`) → `docker compose build`. A failed quality gate blocks the deploy job.
-- **`deploy`** — runs on pushes to `main` and on `workflow_dispatch`. It checks out the code and runs `bash script/deploy.sh` with `DEPLOY_DIR` defaulting to `/home/projecte/ProjectE`.
-- **`smoke`** — runs after `deploy` (also on deploy failure): API health at `http://localhost:3000/api/health`, SPA root returns HTML, and a login POST to `/api/auth/credentials` using `INITIAL_ADMIN_EMAIL`/`INITIAL_ADMIN_PASSWORD` from the host `.env`.
+The workflow lives at `.gitea/workflows/ci.yml` and runs on the self-hosted runner `projecte-runner`. It runs only quality checks and e2e tests:
 
-### What `script/deploy.sh` does
+- **`quality`** — runs on every push and PR: typecheck → web build → docker compose build
+- **`e2e`** — runs after quality: ephemeral Postgres → db:migrate → Playwright tests
 
-Idempotent, safe to re-run. It:
+### Komodo (build + deploy)
 
-1. Syncs the CI checkout into `DEPLOY_DIR` (rsync, excluding `.git`, `node_modules`, build artifacts, and `.env`)
-2. Loads secrets from the host `.env` (never overwrites it)
-3. Installs dependencies with `bun install --frozen-lockfile`
-4. Runs `bun run db:migrate`
-5. Runs `docker compose build` and `docker compose up -d`
-6. Waits up to 60s for `http://localhost:3000/api/health` to return HTTP 200, dumping recent API logs if it times out
+Komodo manages image builds and stack deploys:
 
-### Setting up the runner (one-time)
+- **Build trigger:** push a `v*` tag → Gitea webhook fires → Komodo builds images → pushes to Gitea registry
+- **Deploy trigger:** Komodo procedure `release-projecte` builds all three images, then deploys the stack on `10.0.0.52`
+- **Webhook URL:** `https://komodo.example.com/listener/github/repo/{id}/build`
+- **Rollback:** re-deploy a previous version tag via Komodo UI or API
 
-The workflow runs on the self-hosted runner `projecte-runner`, which must be
-registered on the Gitea instance before any job can start (otherwise jobs stay
-stuck at "Waiting to run"). Do this once on the deploy host (10.0.0.52), which
-is where the `deploy` and `smoke` jobs act on the local docker-compose stack:
+## Deploying
 
-1. **Install `act_runner`** — download the `act_runner` binary from the Gitea
-   Releases page matching your server version, or use the official
-   `gitea/act_runner` Docker image. (Gitea Actions uses `act_runner`; the exact
-   binary/URL depends on your Gitea version.)
-2. **Create a registration token** — in the Gitea web UI go to
-   **Repository → Settings → Actions → Runners → Create new runner** and copy
-   the token.
-3. **Register** with a label that matches the workflow's `runs-on`:
+### Primary: Komodo
 
-   ```bash
-   ./act_runner register \
-     --instance https://git.buzzbee.dev \
-     --token <REGISTRATION_TOKEN> \
-     --name projecte-runner \
-     --labels projecte-runner:host
-   ```
+1. Push a version tag: `git tag v1.0.0 && git push origin v1.0.0`
+2. Komodo builds images and deploys automatically
+3. Verify: `docker ps` on .52, health checks
 
-   The label name `projecte-runner` must match `.gitea/workflows/ci.yml`; the
-   executor (`host` or `docker`) is your choice — `host` is simplest for a
-   single colocated runner.
-4. **Start it** — run `./act_runner daemon` (or install it as a systemd service
-   so it survives reboots).
+### Break-glass: deploy.sh
 
-**Verify:** the Runners page shows it online, then re-trigger the pipeline (a
-push to `main`, or "Re-run" on the Actions tab). The `quality` job should leave
-"Waiting to run". If jobs stay queued, the runner is offline or its label does
-not match `runs-on: projecte-runner` — check the `act_runner` logs.
-
-## Secrets
-
-Secrets live in the host `.env` at `/home/projecte/ProjectE/.env`. This file is gitignored; never commit it. To set it up:
+If Komodo is unavailable, `script/deploy.sh` still works:
 
 ```bash
-cp .env.example .env
+ssh projecte
+cd /opt/app/ProjectE
+export PROJECTE_IMAGE_TAG=v1.0.0
+bash script/deploy.sh
 ```
 
-Fill in `POSTGRES_PASSWORD`, `DATABASE_URL`, `AUTH_SECRET` (or `NEXTAUTH_SECRET`), `INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD`, and, as needed, `NODE_ENV`, `PUBLIC_URL`, `COOKIE_SECURE`, and `ALLOWED_HOSTS`. `deploy.sh` sources it, and docker-compose reads the `POSTGRES_PASSWORD` and `DATABASE_URL` values from it.
-
-## Manual deploy
-
-On the deploy host:
-
-```bash
-cd /home/projecte/ProjectE
-
-# Pull latest
-git pull origin main
-
-# Install dependencies
-bun install
-
-# Apply schema + triggers (idempotent)
-bun run db:migrate
-
-# Build images
-docker compose build
-
-# Restart the stack
-docker compose up -d
-
-# Wait for API health
-until curl -s http://localhost:3000/api/health | grep -q '"status"'; do sleep 2; done
-
-# Check status
-docker compose ps
-```
-
-## Database migrations
-
-`bun run db:migrate` chains two idempotent steps:
-
-- `db:sync` — `drizzle-kit push --force`, which syncs the schema in `packages/db/src/schema.ts` to the database
-- `db:triggers` — `script/apply-triggers.ts`, which applies the search-vector triggers from `drizzle/0005_search_vector_trigger.sql` (`CREATE OR REPLACE FUNCTION` + `DROP TRIGGER IF EXISTS`)
-
-Both are safe to run on every deploy. Schema changes go through `bun run db:generate` in development, then land in `drizzle/` before the next deploy.
+This pulls images from the registry and redeploys. It no longer builds — that's Komodo's job.
 
 ## Rollback
 
-Compose images are rebuilt from the checkout, so there are no pinned image tags to restore. To roll back a bad release:
+1. In Komodo UI: Deployments → projecte → select previous version tag → Redeploy
+2. Or via API: `POST /execute/DeployStack` with the previous image tag
+3. Verify health checks pass
 
-1. Revert the checkout to the previous good commit: `git revert <sha>` (or `git checkout <sha>`) and push to `main`
-2. Re-run the manual deploy steps (`docker compose build`, `docker compose up -d`)
+## Secrets
 
-The `project-e-pg-data` volume is untouched by deploys and rollbacks, so the database survives both. If a deploy failed, `deploy.sh` exits non-zero with the recent API logs; do not force it past a failing health check.
-
-## Logs
-
-```bash
-# All services
-docker compose logs --tail=50 -f
-
-# Specific service
-docker compose logs --tail=50 -f api
-docker compose logs --tail=50 -f spa
-docker compose logs --tail=50 -f worker
-docker compose logs --tail=50 -f db
-```
-
-## Debugging
-
-### API health (direct, :3001)
-
-```bash
-curl http://localhost:3001/api/health
-```
-
-Returns `{"status":"ok", ...}` with a database ping (`database.connected`, `database.ping_ms`).
-
-### API health (through Caddy)
-
-```bash
-curl http://localhost:3000/api/health
-```
-
-### SPA health check
-
-```bash
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/
-```
-
-### Login test
-
-```bash
-curl -s -X POST http://localhost:3000/api/auth/credentials \
-  -H "Content-Type: application/json" \
-  -d '{"email":"<INITIAL_ADMIN_EMAIL>","password":"<INITIAL_ADMIN_PASSWORD>"}'
-```
-
-Expect HTTP 200 and a `session` cookie.
-
-### Container health
-
-```bash
-docker inspect project-e-db --format '{{.State.Health.Status}}'
-```
-
-### Restart or rebuild one service
-
-```bash
-docker compose restart api
-
-docker compose build spa
-docker compose up -d --force-recreate spa
-```
-
-## Important notes
-
-- The `project-e-pg-data` Docker volume contains the live database. **Do not delete it.** Back it up (volume snapshot or `pg_dump`) before major schema work.
-- Port 3000 is the SPA (Caddy); port 3001 is the API directly (for debugging).
-- The MCP endpoint requires a valid API key (separate from JWT auth).
-- The root `worker/` directory is legacy. The active worker is `apps/worker`.
+Komodo manages runtime secrets (POSTGRES_PASSWORD, AUTH_SECRET, etc.) as Komodo variables. The host `.env` is kept as break-glass fallback only.

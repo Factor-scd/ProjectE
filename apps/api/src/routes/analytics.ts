@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db, tasks, habits, habitCompletions, projects } from "@project-e/db";
-import { and, eq, gte, inArray, isNull, isNotNull, or } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { requireAuth, resolveActiveDomain, requireWorkspaceAccess, AuthError } from "../middleware/auth";
 
 export const analyticsRoutes = new Hono();
@@ -163,7 +163,7 @@ analyticsRoutes.get("/projects", async (c) => {
 
     const projectIds = allProjects.map((p) => p.id);
 
-    // Count tasks per project for the domain
+    // Count tasks per project (any status, including non-done) for the domain
     const taskRows = projectIds.length > 0
       ? await db.select({ projectId: tasks.projectId, completedAt: tasks.completedAt })
           .from(tasks)
