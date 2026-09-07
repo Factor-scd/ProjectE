@@ -28,6 +28,7 @@ import { importExportRoutes } from "./routes/import-export";
 import { notificationRoutes } from "./routes/notifications";
 import { stateRoutes } from "./routes/states";
 import { moduleRoutes } from "./routes/modules";
+import { cycleRoutes } from "./routes/cycles";
 import { healthHandler } from "./routes/health";
 
 const app = new Hono();
@@ -67,6 +68,7 @@ app.route("/api/analytics", analyticsRoutes);
 app.route("/api/activity", activityRoutes);
 app.route("/api/notifications", notificationRoutes);
 app.route("/api/states", stateRoutes);
+app.route("/api/cycles", cycleRoutes);
 app.route("/api", importExportRoutes);
 app.route("/api", realtimeRoutes);
 app.route("/api/mcp", mcpRoutes);
