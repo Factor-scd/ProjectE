@@ -53,11 +53,11 @@ async function resolveProject(c: any, projectId: string, user: { name: string })
 // This MUST be registered before /:id routes to avoid route conflicts.
 stateRoutes.post("/reorder", async (c) => {
   try {
-    await requireAuth(c);
+    const user = await requireAuth(c);
     const body = await c.req.json();
     const data = reorderSchema.parse(body);
 
-    const project = await resolveProject(c, data.projectId, { name: "" });
+    const project = await resolveProject(c, data.projectId, user);
 
     // Verify all state IDs belong to this project
     const existingStates = await db
@@ -82,6 +82,23 @@ stateRoutes.post("/reorder", async (c) => {
           .set({ sortOrder: i, updatedAt: new Date() })
           .where(eq(states.id, data.orderedIds[i]));
       }
+    });
+
+    await recordActivity({
+      actor: user.name,
+      action: "reordered",
+      entityType: "state",
+      entityId: data.projectId,
+      changes: { orderedIds: data.orderedIds },
+      workspaceId: project.domainId,
+    });
+
+    await enqueueWebhooks({
+      workspaceId: project.domainId,
+      event: "state.reordered",
+      entityType: "state",
+      entityId: data.projectId,
+      data: { orderedIds: data.orderedIds },
     });
 
     return c.json({ success: true });
