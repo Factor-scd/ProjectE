@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { createRoute } from "@tanstack/react-router";
-import { Route as appRoute } from "../_app";
+import { Route as rootRoute } from "../__root";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, useApiQuery, useApiMutation } from "@/lib/api";
 import { useRealtime } from "@/hooks/use-realtime";
@@ -505,7 +505,7 @@ function DashboardPage() {
 }
 
 export const Route = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => rootRoute,
   path: "/",
   component: DashboardPage,
 });
