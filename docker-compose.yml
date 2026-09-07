@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: git.buzzbee.dev/BuzzbeeSCD/projecte-api:${PROJECTE_IMAGE_TAG:?Set PROJECTE_IMAGE_TAG}
+    image: git.buzzbee.dev/buzzbeescd/projecte-api:${PROJECTE_IMAGE_TAG:?Set PROJECTE_IMAGE_TAG}
     container_name: project-e-api
     ports:
       - "3001:3000"
@@ -39,7 +39,7 @@ services:
     restart: unless-stopped
 
   spa:
-    image: git.buzzbee.dev/BuzzbeeSCD/projecte-spa:${PROJECTE_IMAGE_TAG:?Set PROJECTE_IMAGE_TAG}
+    image: git.buzzbee.dev/buzzbeescd/projecte-spa:${PROJECTE_IMAGE_TAG:?Set PROJECTE_IMAGE_TAG}
     container_name: project-e-spa
     ports:
       - "3000:80"
@@ -50,7 +50,7 @@ services:
     restart: unless-stopped
 
   worker:
-    image: git.buzzbee.dev/BuzzbeeSCD/projecte-worker:${PROJECTE_IMAGE_TAG:?Set PROJECTE_IMAGE_TAG}
+    image: git.buzzbee.dev/buzzbeescd/projecte-worker:${PROJECTE_IMAGE_TAG:?Set PROJECTE_IMAGE_TAG}
     container_name: project-e-worker
     environment:
       - NODE_ENV=production
