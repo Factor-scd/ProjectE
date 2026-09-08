@@ -2,7 +2,7 @@ import { createRouter } from "@tanstack/react-router";
 import { Route as rootRoute } from "./routes/__root";
 import { Route as loginRoute } from "./routes/login";
 import { Route as appRoute } from "./routes/_app";
-import { Route as dashboardRoute } from "./routes/_app/index";
+import { Route as dashboardRoute } from "./routes/_app/dashboard";
 import { Route as tasksRoute } from "./routes/_app/tasks";
 import { Route as habitsRoute } from "./routes/_app/habits";
 import { Route as projectsRoute } from "./routes/_app/projects";
