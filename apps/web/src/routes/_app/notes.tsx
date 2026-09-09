@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { showUndoToast } from "@/lib/undo/use-undo-toast";
 import type { Note, PaginatedResponse } from "@/lib/types";
 import { format, parseISO } from "date-fns";
 
@@ -218,7 +219,17 @@ function NotesPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete("/notes/" + id),
-    onSuccess: () => {
+    onSuccess: (_, deletedId) => {
+      const note = notes.find((n) => n.id === deletedId) || selectedNoteRef.current;
+      if (note) {
+        showUndoToast(
+          "note",
+          deletedId,
+          { title: note.title, content: note.content, domain: note.domainId || undefined },
+          queryClient,
+          ["notes"],
+        );
+      }
       queryClient.invalidateQueries({ queryKey: ["notes"] });
       selectedNoteRef.current = null;
       setSelectedNoteId(null);
