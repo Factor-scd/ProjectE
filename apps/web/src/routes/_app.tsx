@@ -5,14 +5,13 @@ import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { ShortcutsHelp } from "@/components/shell/shortcuts-help";
+import { QuickCapture } from "@/components/shell/quick-capture";
+import { StatusBar } from "@/components/shell/status-bar";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
 function AppLayout() {
   useKeyboardShortcuts();
 
-  // Apply persisted appearance preferences (density, reduced motion, font size)
-  // right after the first paint. The settings page updates these live while
-  // open; this covers reloads where the settings page was never visited.
   useEffect(() => {
     const root = document.documentElement;
     root.classList.remove("density-compact", "density-spacious", "reduce-motion");
@@ -38,9 +37,11 @@ function AppLayout() {
         >
           <Outlet />
         </main>
+        <StatusBar />
       </div>
       <CommandPalette />
       <ShortcutsHelp />
+      <QuickCapture />
     </div>
   );
 }
