@@ -171,6 +171,7 @@ function CalendarPage() {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [eventDetailOpen, setEventDetailOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [selectedEventIndex, setSelectedEventIndex] = useState<number>(-1);
 
   useRealtime({ enabled: true });
 
@@ -182,7 +183,6 @@ function CalendarPage() {
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
   }, []);
-
 
   const activeDomainId = useApiDomain();
   const [showTasks, setShowTasks] = useState(true);
@@ -226,6 +226,64 @@ function CalendarPage() {
       end: evt.endTime ? parseISO(evt.endTime) : addDays(parseISO(evt.startTime), 1),
     }));
   }, [events]);
+
+  // Keyboard navigation for calendar
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable ||
+        target.closest('[role="dialog"], [role="menu"], [role="listbox"], [role="combobox"]')
+      ) {
+        return;
+      }
+
+      switch (e.key) {
+        case "ArrowLeft":
+          e.preventDefault();
+          setDate((d) => addDays(d, -1));
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          setDate((d) => addDays(d, 1));
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          setDate((d) => addDays(d, -7));
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          setDate((d) => addDays(d, 7));
+          break;
+        case "t":
+          e.preventDefault();
+          setDate(new Date());
+          break;
+        case "n":
+          e.preventDefault();
+          setCreateOpen(true);
+          break;
+        case "Enter":
+          if (selectedEventIndex >= 0 && selectedEventIndex < calendarEvents.length) {
+            e.preventDefault();
+            setSelectedEvent(calendarEvents[selectedEventIndex]);
+            setEventDetailOpen(true);
+          }
+          break;
+        case "Escape":
+          if (eventDetailOpen) {
+            setEventDetailOpen(false);
+          }
+          break;
+      }
+    };
+
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [calendarEvents, selectedEventIndex, eventDetailOpen]);
 
   const handleSelectEvent = useCallback((event: any) => {
     setSelectedEvent(event as CalendarEvent);

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -10,6 +10,7 @@ import { DndContext, DragOverlay, closestCorners, KeyboardSensor, PointerSensor,
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Plus, GripVertical, Pencil, Trash2, Calendar, ListTodo, Layout as LayoutIcon, Search, MoreHorizontal } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +24,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { EntityDetailPanel } from "@/components/entities/entity-detail-panel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
 import { LoadingState, EmptyState, ErrorState } from "@/components/state";
 import { CustomFieldInputs } from "@/components/custom-fields/custom-field-inputs";
 import { PRIORITY } from "@/lib/status-colors";
@@ -30,6 +32,7 @@ import type { Task, State, StateGroup, PaginatedResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { parseTaskInput } from "@/lib/nlp";
 import { RecurrencePicker } from "@/components/tasks/recurrence-picker";
+import { BulkActionBar } from "@/components/tasks/bulk-action-bar";
 
 const STATE_GROUP_COLUMNS: { id: StateGroup; label: string; colorClass: string }[] = [
   { id: "backlog", label: "Backlog", colorClass: "bg-slate-400" },
@@ -247,6 +250,11 @@ function TasksPage() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedRowIndex, setSelectedRowIndex] = useState<number>(-1);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [showKbdHint, setShowKbdHint] = useState(true);
+  const [editTitle, setEditTitle] = useState<string>("");
 
   useRealtime({ enabled: true });
 
@@ -299,6 +307,126 @@ function TasksPage() {
   const hasMoreTasks = tasks.length < (tasksData?.totalItems || 0);
   const [loadingMoreTasks, setLoadingMoreTasks] = useState(false);
 
+  // Keyboard navigation for list view
+  useEffect(() => {
+    if (view !== "list") return;
+
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable ||
+        target.closest('[role="dialog"], [role="menu"], [role="listbox"], [role="combobox"]')
+      ) {
+        return;
+      }
+
+      setShowKbdHint(false);
+
+      const hasSelection = selectedTaskIds.size > 0;
+      const currentIdx = selectedRowIndex >= 0 ? selectedRowIndex : 0;
+
+      switch (e.key) {
+        case "j":
+          if (!e.shiftKey) {
+            e.preventDefault();
+            setSelectedRowIndex((prev) => {
+              const next = Math.min(prev + 1, tasks.length - 1);
+              const row = document.querySelector(`[data-row-index="${next}"]`);
+              row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+              return next;
+            });
+          }
+          break;
+        case "k":
+          if (!e.shiftKey) {
+            e.preventDefault();
+            setSelectedRowIndex((prev) => {
+              const next = Math.max(prev - 1, 0);
+              const row = document.querySelector(`[data-row-index="${next}"]`);
+              row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+              return next;
+            });
+          }
+          break;
+        case "J":
+          if (e.shiftKey) {
+            e.preventDefault();
+            if (tasks.length > 1) {
+              const newOrder = tasks.map((t) => t.id);
+              const idx = currentIdx;
+              const nextIdx = Math.min(idx + 1, tasks.length - 1);
+              if (idx !== nextIdx) {
+                [newOrder[idx], newOrder[nextIdx]] = [newOrder[nextIdx], newOrder[idx]];
+                reorderMutation.mutate({ orderedIds: newOrder });
+                setSelectedRowIndex(nextIdx);
+              }
+            }
+          }
+          break;
+        case "K":
+          if (e.shiftKey) {
+            e.preventDefault();
+            if (tasks.length > 1) {
+              const newOrder = tasks.map((t) => t.id);
+              const idx = currentIdx;
+              const nextIdx = Math.max(idx - 1, 0);
+              if (idx !== nextIdx) {
+                [newOrder[idx], newOrder[nextIdx]] = [newOrder[nextIdx], newOrder[idx]];
+                reorderMutation.mutate({ orderedIds: newOrder });
+                setSelectedRowIndex(nextIdx);
+              }
+            }
+          }
+          break;
+        case "Enter":
+          if (selectedRowIndex >= 0 && selectedRowIndex < tasks.length) {
+            e.preventDefault();
+            openTaskPanel(tasks[selectedRowIndex]);
+          }
+          break;
+        case "e":
+          if (selectedRowIndex >= 0 && selectedRowIndex < tasks.length) {
+            e.preventDefault();
+            const task = tasks[selectedRowIndex];
+            setEditingTaskId(task.id);
+            setEditTitle(task.title);
+          }
+          break;
+        case "x":
+          if (selectedRowIndex >= 0 && selectedRowIndex < tasks.length) {
+            e.preventDefault();
+            const task = tasks[selectedRowIndex];
+            const newStatus = task.status === "done" ? "todo" : "done";
+            stateUpdateMutation.mutate({ taskId: task.id, stateId: task.stateId || "" });
+            api.patch(`/tasks/${task.id}`, { status: newStatus }).then(() => {
+              queryClient.invalidateQueries({ queryKey: ["tasks"] });
+            });
+          }
+          break;
+        case "Escape":
+          if (hasSelection) {
+            setSelectedTaskIds(new Set());
+          } else {
+            setSelectedRowIndex(-1);
+          }
+          break;
+      }
+    };
+
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [view, tasks, selectedRowIndex, selectedTaskIds]);
+
+  // Hide kbd hint after 5 seconds
+  useEffect(() => {
+    if (!showKbdHint) return;
+    const timer = setTimeout(() => setShowKbdHint(false), 5000);
+    return () => clearTimeout(timer);
+  }, [showKbdHint]);
+
   const loadMoreTasks = async () => {
     if (!hasMoreTasks || loadingMoreTasks) return;
     setLoadingMoreTasks(true);
@@ -337,6 +465,52 @@ function TasksPage() {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
   });
+
+  // Bulk action handlers
+  const handleBulkComplete = useCallback(() => {
+    const ids = Array.from(selectedTaskIds);
+    Promise.all(ids.map((id) => api.patch(`/tasks/${id}`, { status: "done" }))).then(() => {
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      setSelectedTaskIds(new Set());
+      toast.success(`${ids.length} tasks marked as done`);
+    });
+  }, [selectedTaskIds, queryClient]);
+
+  const handleBulkUpdate = useCallback((updates: Partial<Task>) => {
+    const ids = Array.from(selectedTaskIds);
+    Promise.all(ids.map((id) => api.patch(`/tasks/${id}`, updates))).then(() => {
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      setSelectedTaskIds(new Set());
+      toast.success(`${ids.length} tasks updated`);
+    });
+  }, [selectedTaskIds, queryClient]);
+
+  const handleBulkDelete = useCallback(() => {
+    const ids = Array.from(selectedTaskIds);
+    Promise.all(ids.map((id) => api.delete(`/tasks/${id}`))).then(() => {
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      setSelectedTaskIds(new Set());
+      toast.success(`${ids.length} tasks deleted`);
+    });
+  }, [selectedTaskIds, queryClient]);
+
+  const handleSaveEdit = useCallback(() => {
+    if (editingTaskId && editTitle.trim()) {
+      api.patch(`/tasks/${editingTaskId}`, { title: editTitle.trim() }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ["tasks"] });
+        setEditingTaskId(null);
+        setEditTitle("");
+      });
+    }
+  }, [editingTaskId, editTitle, queryClient]);
+
+  const toggleAll = useCallback(() => {
+    if (selectedTaskIds.size === tasks.length) {
+      setSelectedTaskIds(new Set());
+    } else {
+      setSelectedTaskIds(new Set(tasks.map((t) => t.id)));
+    }
+  }, [selectedTaskIds, tasks]);
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete("/tasks/" + id),
@@ -551,10 +725,26 @@ function TasksPage() {
           </DragOverlay>
         </DndContext>
       ) : (
-        <div className="border rounded-lg">
+        <div className="border rounded-lg relative">
+          {view === "list" && showKbdHint && (
+            <div className="absolute top-0 right-0 text-[10px] text-muted-foreground flex gap-3 p-2 z-10">
+              <span><kbd className="px-1 py-0.5 rounded border bg-muted font-mono">j</kbd>/<kbd className="px-1 py-0.5 rounded border bg-muted font-mono">k</kbd> navigate</span>
+              <span><kbd className="px-1 py-0.5 rounded border bg-muted font-mono">Enter</kbd> open</span>
+              <span><kbd className="px-1 py-0.5 rounded border bg-muted font-mono">e</kbd> edit</span>
+              <span><kbd className="px-1 py-0.5 rounded border bg-muted font-mono">x</kbd> toggle</span>
+            </div>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
+                {selectedTaskIds.size > 0 && (
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={selectedTaskIds.size === tasks.length && tasks.length > 0}
+                      onCheckedChange={toggleAll}
+                    />
+                  </TableHead>
+                )}
                 <TableHead>Title</TableHead>
                 <TableHead>State</TableHead>
                 <TableHead>Priority</TableHead>
@@ -565,15 +755,77 @@ function TasksPage() {
             <TableBody>
               {tasks.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5}>
+                  <TableCell colSpan={selectedTaskIds.size > 0 ? 6 : 5}>
                     <EmptyState title="No tasks found" />
                   </TableCell>
                 </TableRow>
-              ) : tasks.map((task) => {
+              ) : tasks.map((task, idx) => {
                 const st = task.stateId ? stateById.get(task.stateId) : undefined;
                 return (
-                  <TableRow key={task.id} className="cursor-pointer hover:bg-muted/30 py-2" onClick={() => openTaskDetail(task)}>
-                    <TableCell className="font-medium py-2">{task.title}</TableCell>
+                  <TableRow
+                    key={task.id}
+                    data-row-index={idx}
+                    className={cn(
+                      "cursor-pointer hover:bg-muted/30 py-2",
+                      idx === selectedRowIndex && "bg-accent/50 ring-1 ring-[hsl(var(--accent-hsl))]"
+                    )}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                        setSelectedTaskIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(task.id)) {
+                            next.delete(task.id);
+                          } else {
+                            next.add(task.id);
+                          }
+                          return next;
+                        });
+                      } else {
+                        openTaskDetail(task);
+                      }
+                    }}
+                  >
+                    {selectedTaskIds.size > 0 && (
+                      <TableCell className="w-10 py-2">
+                        <Checkbox
+                          checked={selectedTaskIds.has(task.id)}
+                          onCheckedChange={(checked) => {
+                            setSelectedTaskIds((prev) => {
+                              const next = new Set(prev);
+                              if (checked) {
+                                next.add(task.id);
+                              } else {
+                                next.delete(task.id);
+                              }
+                              return next;
+                            });
+                          }}
+                        />
+                      </TableCell>
+                    )}
+                    <TableCell className="font-medium py-2">
+                      {editingTaskId === task.id ? (
+                        <Input
+                          autoFocus
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          className="h-7 text-sm"
+                          onBlur={handleSaveEdit}
+                          onKeyDown={(ev) => {
+                            if (ev.key === "Enter") {
+                              ev.preventDefault();
+                              handleSaveEdit();
+                            }
+                            if (ev.key === "Escape") {
+                              setEditingTaskId(null);
+                              setEditTitle("");
+                            }
+                          }}
+                        />
+                      ) : (
+                        <span className="font-medium">{task.title}</span>
+                      )}
+                    </TableCell>
                     <TableCell className="py-2">
                       {st ? (
                         <Badge variant="secondary" className="font-mono text-[10px] gap-1" style={st.color ? { backgroundColor: st.color + "20", color: st.color } : undefined}>
@@ -607,6 +859,17 @@ function TasksPage() {
               })}
             </TableBody>
           </Table>
+          {selectedTaskIds.size > 0 && (
+            <BulkActionBar
+              selectedCount={selectedTaskIds.size}
+              selectedIds={Array.from(selectedTaskIds)}
+              projectStates={projectStates}
+              onClearSelection={() => setSelectedTaskIds(new Set())}
+              onComplete={handleBulkComplete}
+              onBatchUpdate={handleBulkUpdate}
+              onBatchDelete={handleBulkDelete}
+            />
+          )}
         </div>
       )}
 
