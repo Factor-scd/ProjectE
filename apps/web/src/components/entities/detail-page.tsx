@@ -43,35 +43,35 @@ export function EntityDetailPage({
   const navigate = useNavigate();
 
   return (
-    <div className={cn("mx-auto space-y-6 p-0", containerClassName || "max-w-4xl")}>
-      <div className="sticky top-0 z-10 -mx-1 mb-4 border-b bg-background/95 py-3 backdrop-blur">
+    <div className={cn("mx-auto space-y-4 p-0", containerClassName || "max-w-4xl")}>
+      <div className="sticky top-0 z-10 -mx-1 mb-2 border-b bg-background/95 py-2 backdrop-blur">
         <Button
           variant="ghost"
           size="sm"
           onClick={() => navigate({ to: backTo.to })}
-          className="mb-3"
+          className="mb-2 h-7 text-xs"
         >
-          <ArrowLeft className="h-4 w-4 mr-2" />
+          <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
           {backTo.label}
         </Button>
         <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            {icon && <div className="mt-1 text-muted-foreground">{icon}</div>}
-            <div className="space-y-1.5">
-              <h1 className="text-2xl font-bold leading-tight">{title}</h1>
+          <div className="flex items-start gap-2.5">
+            {icon && <div className="mt-0.5 text-muted-foreground">{icon}</div>}
+            <div className="space-y-1">
+              <h1 className="text-xl font-bold leading-tight">{title}</h1>
               {badges && (
-                <div className="flex flex-wrap items-center gap-2">{badges}</div>
+                <div className="flex flex-wrap items-center gap-1.5">{badges}</div>
               )}
             </div>
           </div>
-          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+          {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
         </div>
       </div>
 
       <Tabs defaultValue={defaultTab || tabs[0]?.value}>
-        <TabsList className="flex-wrap gap-1">
+        <TabsList className="flex-wrap gap-0.5">
           {tabs.map((tab) => (
-            <TabsTrigger key={tab.value} value={tab.value}>
+            <TabsTrigger key={tab.value} value={tab.value} className="text-xs">
               {tab.label}
             </TabsTrigger>
           ))}

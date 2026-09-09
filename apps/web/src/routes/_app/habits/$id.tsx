@@ -225,7 +225,7 @@ function Overview({ habit, patch }: { habit: Habit; patch: PatchFn }) {
   const skipDays = habit.skipDays || [];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <p className="mb-1 text-sm font-semibold text-muted-foreground">Description</p>
         <InlineTextarea
@@ -237,7 +237,7 @@ function Overview({ habit, patch }: { habit: Habit; patch: PatchFn }) {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="flex items-center gap-2">
           <RepeatIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
           <InlineSelect
@@ -267,7 +267,7 @@ function Overview({ habit, patch }: { habit: Habit; patch: PatchFn }) {
               patch({ id: habit.id, data: { goalPerPeriod: Number(goal) || 1 } })
             }
             display={(goal) => (
-              <span>
+              <span className="font-mono text-xs">
                 {habit.unit ? `${goal} ${habit.unit} per period` : `${goal} per period`}
               </span>
             )}
@@ -297,7 +297,7 @@ function Overview({ habit, patch }: { habit: Habit; patch: PatchFn }) {
             }
             display={(time) =>
               time ? (
-                <span>Reminder {time}</span>
+                <span className="font-mono text-xs">Reminder {time}</span>
               ) : (
                 <span className="text-muted-foreground/70">No reminder</span>
               )
@@ -340,33 +340,33 @@ function Overview({ habit, patch }: { habit: Habit; patch: PatchFn }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 text-center">
-        <div className="rounded-lg bg-muted/50 p-3">
-          <p className="text-2xl font-bold">{habit.streakCount}</p>
-          <p className="text-xs text-muted-foreground">Current Streak</p>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-lg bg-muted/50 p-2.5">
+          <p className="text-xl font-bold font-mono">{habit.streakCount}</p>
+          <p className="text-[11px] text-muted-foreground">Current Streak</p>
         </div>
-        <div className="rounded-lg bg-muted/50 p-3">
-          <p className="text-2xl font-bold">{habit.bestStreak}</p>
-          <p className="text-xs text-muted-foreground">Best Streak</p>
+        <div className="rounded-lg bg-muted/50 p-2.5">
+          <p className="text-xl font-bold font-mono">{habit.bestStreak}</p>
+          <p className="text-[11px] text-muted-foreground">Best Streak</p>
         </div>
-        <div className="rounded-lg bg-muted/50 p-3">
-          <p className="text-2xl font-bold">{distinctCompletionDays}</p>
-          <p className="text-xs text-muted-foreground">Completion This Period</p>
+        <div className="rounded-lg bg-muted/50 p-2.5">
+          <p className="text-xl font-bold font-mono">{distinctCompletionDays}</p>
+          <p className="text-[11px] text-muted-foreground">Completion This Period</p>
         </div>
       </div>
 
-      <div className="border-t pt-4">
+      <div className="border-t pt-3">
         <TagManager entityType="habit" entityId={habit.id} tags={habit.tags || []} />
       </div>
 
-      <div className="flex items-center gap-4 border-t pt-4 text-xs text-muted-foreground">
+      <div className="flex items-center gap-4 border-t pt-3 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
           <Clock className="h-3 w-3" />
-          Created {format(parseISO(habit.createdAt), "MMM d, yyyy HH:mm")}
+          Created <span className="font-mono">{format(parseISO(habit.createdAt), "MMM d, yyyy HH:mm")}</span>
         </span>
         <span className="flex items-center gap-1">
           <Clock className="h-3 w-3" />
-          Updated {format(parseISO(habit.updatedAt), "MMM d, yyyy HH:mm")}
+          Updated <span className="font-mono">{format(parseISO(habit.updatedAt), "MMM d, yyyy HH:mm")}</span>
         </span>
       </div>
     </div>
@@ -389,7 +389,7 @@ function Stats({
   const completionRate = Math.round((distinctCompletionDays / days) * 100);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center gap-2">
         <Select value={String(days)} onValueChange={(v) => setDays(Number(v))}>
           <SelectTrigger className="h-8 w-40 text-sm" aria-label="Range">
@@ -404,26 +404,26 @@ function Stats({
         </Select>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 text-center">
-        <div className="rounded-lg bg-muted/50 p-3">
-          <p className="text-2xl font-bold">{habit.streakCount}</p>
-          <p className="text-xs text-muted-foreground">Current Streak</p>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-lg bg-muted/50 p-2.5">
+          <p className="text-xl font-bold font-mono">{habit.streakCount}</p>
+          <p className="text-[11px] text-muted-foreground">Current Streak</p>
         </div>
-        <div className="rounded-lg bg-muted/50 p-3">
-          <p className="text-2xl font-bold">{habit.bestStreak}</p>
-          <p className="text-xs text-muted-foreground">Best Streak</p>
+        <div className="rounded-lg bg-muted/50 p-2.5">
+          <p className="text-xl font-bold font-mono">{habit.bestStreak}</p>
+          <p className="text-[11px] text-muted-foreground">Best Streak</p>
         </div>
-        <div className="rounded-lg bg-muted/50 p-3">
-          <p className="text-2xl font-bold">{completionRate}%</p>
-          <p className="text-xs text-muted-foreground">Completion Rate</p>
+        <div className="rounded-lg bg-muted/50 p-2.5">
+          <p className="text-xl font-bold font-mono">{completionRate}%</p>
+          <p className="text-[11px] text-muted-foreground">Completion Rate</p>
         </div>
       </div>
 
-      <div className="rounded-lg border bg-muted/30 p-4">
+      <div className="rounded-lg border bg-muted/30 p-3">
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-muted-foreground" />
           <p className="text-sm font-semibold">Completion Heatmap</p>
-          <span className="ml-auto text-xs text-muted-foreground">
+          <span className="ml-auto font-mono text-[11px] text-muted-foreground">
             Last {days} days
           </span>
         </div>

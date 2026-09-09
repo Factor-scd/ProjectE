@@ -105,7 +105,7 @@ function SearchPage() {
   }, {} as Record<string, SearchResult[]>);
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-4">
       {/* Search bar */}
       <div className="relative">
         <SearchIcon className="absolute left-3.5 top-3.5 h-5 w-5 text-muted-foreground" />
@@ -153,7 +153,7 @@ function SearchPage() {
           </h3>
           <div className="flex flex-wrap gap-2">
             {recentSearches.map((s, i) => (
-              <Button key={i} variant="ghost" size="sm" onClick={() => handleSearch(s)} className="text-sm">
+              <Button key={i} variant="ghost" size="sm" onClick={() => handleSearch(s)} className="text-sm font-mono">
                 {s}
               </Button>
             ))}
@@ -163,46 +163,51 @@ function SearchPage() {
 
       {/* Results */}
       {debouncedQuery && (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {isLoading ? (
             <div className="text-center py-8 text-muted-foreground">Searching...</div>
           ) : results.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              No results found for "{debouncedQuery}"
+              No results found for "<span className="font-mono">{debouncedQuery}</span>"
             </div>
           ) : (
-            Object.entries(groupedResults).map(([type, typeResults]) => {
-              const typeDef = SEARCH_TYPES.find((t) => t.id === type);
-              return (
-                <div key={type}>
-                  <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                    <div className={cn("w-2 h-2 rounded-full", typeDef?.color)} />
-                    {typeDef?.label || type}
-                    <Badge variant="secondary" className="text-[10px]">{typeResults.length}</Badge>
-                  </h3>
-                  <div className="space-y-1">
-                    {typeResults.map((result) => (
-                      <div
-                        key={result.id + result.type}
-                        className="flex items-center justify-between p-3 rounded-lg hover:bg-accent cursor-pointer transition-colors"
-                        onClick={() => navigate({ to: result.type === "domain" ? "/settings" : (result.link as any) })}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-sm truncate">{result.title}</p>
-                          {result.snippet && (
-                            <p
-                              className="text-xs text-muted-foreground mt-0.5 line-clamp-2"
-                              dangerouslySetInnerHTML={{ __html: sanitizeSnippet(result.snippet) }}
-                            />
-                          )}
+            <>
+              <p className="text-xs text-muted-foreground font-mono">
+                <span className="font-semibold">{results.length}</span> result{results.length === 1 ? "" : "s"} · <span className="font-semibold">{Object.keys(groupedResults).length}</span> type{Object.keys(groupedResults).length === 1 ? "" : "s"}
+              </p>
+              {Object.entries(groupedResults).map(([type, typeResults]) => {
+                const typeDef = SEARCH_TYPES.find((t) => t.id === type);
+                return (
+                  <div key={type}>
+                    <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
+                      <div className={cn("w-2 h-2 rounded-full", typeDef?.color)} />
+                      {typeDef?.label || type}
+                      <Badge variant="secondary" className="text-[10px] font-mono">{typeResults.length}</Badge>
+                    </h3>
+                    <div className="space-y-0.5">
+                      {typeResults.map((result) => (
+                        <div
+                          key={result.id + result.type}
+                          className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/20 border border-transparent hover:border-border cursor-pointer transition-colors"
+                          onClick={() => navigate({ to: result.type === "domain" ? "/settings" : (result.link as any) })}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-sm truncate">{result.title}</p>
+                            {result.snippet && (
+                              <p
+                                className="text-xs text-muted-foreground mt-0.5 line-clamp-2"
+                                dangerouslySetInnerHTML={{ __html: sanitizeSnippet(result.snippet) }}
+                              />
+                            )}
+                          </div>
+                          <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground ml-2" />
                         </div>
-                        <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground ml-2" />
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              );
-            })
+                );
+              })}
+            </>
           )}
         </div>
       )}

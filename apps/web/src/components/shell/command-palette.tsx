@@ -14,8 +14,9 @@ import {
   Search,
   Sun,
   Moon,
-  Palette,
   LogOut,
+  Inbox,
+  FileBarChart,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -27,7 +28,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { useThemeStore, type AccentColor, ACCENT_PALETTE } from "@/lib/stores/use-theme-store";
+import { useThemeStore } from "@/lib/stores/use-theme-store";
 import { useCreateDialogStore } from "@/lib/stores/use-create-dialog-store";
 import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 
@@ -38,6 +39,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
+  { label: "Inbox", href: "/inbox", icon: Inbox },
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Tasks", href: "/tasks", icon: ListTodo },
   { label: "Habits", href: "/habits", icon: Flame },
@@ -45,6 +47,8 @@ const navItems: NavItem[] = [
   { label: "Notes", href: "/notes", icon: NotebookPen },
   { label: "Graph", href: "/graph", icon: Share2 },
   { label: "Calendar", href: "/calendar", icon: CalendarDays },
+  { label: "Analytics", href: "/analytics", icon: LayoutDashboard },
+  { label: "Reports", href: "/reports", icon: FileBarChart },
   { label: "Agent Activity", href: "/agents/activity", icon: Bot },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
@@ -73,7 +77,7 @@ function addRecentPage(href: string) {
 export function CommandPalette() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { mode, setMode, accent, setAccent } = useThemeStore();
+  const { mode, setMode } = useThemeStore();
   const activeDomainId = useApiDomain();
   const [open, setOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<
@@ -152,13 +156,6 @@ export function CommandPalette() {
       icon: mode === "dark" ? Sun : Moon,
       action: () => setMode(mode === "dark" ? "light" : "dark"),
     },
-    ...(Object.entries(ACCENT_PALETTE) as [AccentColor, { name: string; hsl: string }][]).map(
-      ([key, val]) => ({
-        label: `Accent: ${val.name}`,
-        icon: Palette,
-        action: () => setAccent(key),
-      })
-    ),
   ];
 
   // Settings actions

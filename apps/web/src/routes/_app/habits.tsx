@@ -50,7 +50,7 @@ function HabitForm({ habit, onClose }: { habit?: Habit; onClose: () => void }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3">
       <div>
         <Label htmlFor="name">Name</Label>
         <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Habit name" required />
@@ -59,7 +59,7 @@ function HabitForm({ habit, onClose }: { habit?: Habit; onClose: () => void }) {
         <Label htmlFor="desc">Description</Label>
         <Textarea id="desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description (optional)" rows={2} />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         <div>
           <Label htmlFor="freq">Frequency</Label>
           <Select value={frequency} onValueChange={(v) => setFrequency(v as "daily" | "weekly" | "custom")}>
@@ -108,7 +108,7 @@ function MiniGrid({ completions, days = 7 }: { completions: HabitCompletion[]; d
     cells.push(
       <div
         key={key}
-        className={cn("w-3 h-3 rounded-sm", done ? "bg-green-500" : "bg-muted")}
+        className={cn("w-2.5 h-2.5 rounded-sm", done ? "bg-green-500" : "bg-muted")}
         title={key + (done ? " ✓" : "")}
       />
     );
@@ -183,7 +183,7 @@ function HabitsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Habits</h1>
+        <h1 className="text-xl font-bold">Habits</h1>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button aria-label="New habit"><Plus className="h-4 w-4 mr-2" />New Habit</Button>
@@ -200,24 +200,24 @@ function HabitsPage() {
       ) : isError ? (
         <ErrorState message="Failed to load habits." onRetry={() => refetch()} />
       ) : habits.length === 0 ? (
-        <EmptyState icon={Flame} title="No habits yet" description="Create your first one!" />
+        <EmptyState icon={Flame} title="No habits yet" description="Create your first one to get started." />
       ) : (
         <div className="space-y-2">
           {habits.map((habit) => (
-            <Card key={habit.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => openHabitDetail(habit)}>
-              <CardContent className="p-4">
+            <Card key={habit.id} className="cursor-pointer border hover:bg-muted/20 transition-colors" onClick={() => openHabitDetail(habit)}>
+              <CardContent className="p-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <Flame className={cn("h-5 w-5 shrink-0", habit.streakCount > 0 ? "text-orange-500" : "text-muted-foreground")} />
                     <div className="min-w-0">
                       <p className="font-medium truncate">{habit.name}</p>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="text-sm text-muted-foreground">
+                        <span className="font-mono text-xs text-muted-foreground">
                           <Flame className="h-3 w-3 inline mr-0.5" />
                           {habit.streakCount} day streak
                         </span>
-                        <Badge variant="secondary" className="text-[10px]">{habit.frequency}</Badge>
-                        <Badge variant="outline" className="text-[10px]">{habit.difficulty}</Badge>
+                        <Badge variant="secondary" className="font-mono text-[10px]">{habit.frequency}</Badge>
+                        <Badge variant="outline" className="font-mono text-[10px]">{habit.difficulty}</Badge>
                       </div>
                     </div>
                   </div>
@@ -233,6 +233,11 @@ function HabitsPage() {
                       })}
                       onClick={(e) => { e.stopPropagation(); completeMutation.mutate(habit.id); }}
                       aria-label={"Mark " + habit.name + " complete"}
+                      className={(habit.recentCompletions || []).some((c) => {
+                        const d = new Date(c.date);
+                        const t = new Date();
+                        return d.getUTCFullYear() === t.getUTCFullYear() && d.getUTCMonth() === t.getUTCMonth() && d.getUTCDate() === t.getUTCDate();
+                      }) ? "bg-green-500/10 text-green-600 border-green-500/20" : ""}
                     >
                       <Check className="h-4 w-4 mr-1" />Complete
                     </Button>
@@ -263,15 +268,15 @@ function HabitsPage() {
 
       <EntityDetailPanel open={panelOpen} onOpenChange={(o) => { setPanelOpen(o); if (!o) setDetailTab("overview"); }} title={selectedHabit?.name || "Habit Details"}>
         {selectedHabit && (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <Tabs value={detailTab} onValueChange={setDetailTab}>
               <TabsList className="w-full">
                 <TabsTrigger value="overview" className="flex-1">Overview</TabsTrigger>
                 <TabsTrigger value="history" className="flex-1">History</TabsTrigger>
               </TabsList>
-              <TabsContent value="overview" className="space-y-4 pt-4">
+              <TabsContent value="overview" className="space-y-3 pt-3">
                 <HabitForm habit={selectedHabit} onClose={() => setPanelOpen(false)} />
-                <div className="pt-4 border-t">
+                <div className="pt-3 border-t">
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button variant="destructive" size="sm"><Trash2 className="h-4 w-4 mr-2" />Delete Habit</Button>
@@ -289,7 +294,7 @@ function HabitsPage() {
                   </AlertDialog>
                 </div>
               </TabsContent>
-              <TabsContent value="history" className="pt-4">
+              <TabsContent value="history" className="pt-3">
                 <div className="space-y-2">
                   <h3 className="font-semibold text-sm">Completion History</h3>
                   {selectedHabit.recentCompletions?.length ? (

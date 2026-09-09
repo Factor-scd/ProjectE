@@ -1,44 +1,50 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    /* Typography — Inter via Google Fonts @import above; falls back to system-ui */
+    /* Typography */
     --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
       "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "Source Code Pro", Menlo,
+      Consolas, "DejaVu Sans Mono", monospace;
 
-    /* Density — scales content spacing (see the density utilities below and the
-       calc() padding on <main> in the app layout). 1 = comfortable. */
-    --density-scale: 1;
+    /* Density — compact is the new default */
+    --density-scale: 0.85;
 
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Light mode — clean, near-white with subtle warmth */
+    --background: 0 0% 99%;
+    --foreground: 222 47% 5%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 222 47% 5%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
+    --popover-foreground: 222 47% 5%;
+    --primary: 222 47% 11%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 220 14% 96%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 217 91% 60%;
+    --radius: 0.375rem;
+
+    /* Interactive accent — pinned vibrant blue */
     --accent-hsl: 217 91% 60%;
+
+    /* Shell surfaces */
+    --sidebar-bg: 0 0% 100%;
+    --sidebar-border: 220 13% 91%;
+    --topbar-bg: 0 0% 99%;
   }
 
-  /* Density modes: toggled on <html> by the settings page (and applied from
-     localStorage on app load). They only flip --density-scale, which the
-     layout padding and the space-y utilities below multiply by. */
+  /* Density modes */
   .density-compact {
     --density-scale: 0.85;
   }
@@ -47,27 +53,33 @@
     --density-scale: 1.15;
   }
 
+  /* Dark mode — deep navy with elevated surfaces */
   .dark {
-    --background: 222.2 84% 4.9%;
+    --background: 222 47% 5%;
     --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
+    --card: 222 40% 8%;
     --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
+    --popover: 222 40% 8%;
     --popover-foreground: 210 40% 98%;
     --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 217 33% 14%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
+    --muted: 217 33% 14%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 33% 14%;
     --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 63% 31%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 217 91% 60%;
     --accent-hsl: 217 91% 60%;
+
+    /* Shell surfaces — slightly elevated from background */
+    --sidebar-bg: 222 42% 7%;
+    --sidebar-border: 217 33% 17%;
+    --topbar-bg: 222 47% 5%;
   }
 }
 
@@ -83,9 +95,7 @@
   }
 }
 
-/* Real reduced-motion support: the settings page toggles `.reduce-motion` on
-   <html>. This standard override collapses animation/transition durations so
-   users who enable it get an effectively static UI. */
+/* Reduced motion */
 .reduce-motion *,
 .reduce-motion *::before,
 .reduce-motion *::after {
@@ -95,11 +105,7 @@
 }
 
 @layer utilities {
-  /* Density: multiply the vertical rhythm between stacked sections inside page
-     content. Mirrors Tailwind's own `.space-y-*` selector shape and is scoped
-     to <main> so the sidebar and topbar stay fixed. Combined with the calc()
-     padding on <main> in the app layout, the Density setting now visibly
-     changes spacing (0.85x compact, 1.15x spacious). */
+  /* Density: multiply vertical rhythm inside <main> */
   .density-compact main .space-y-1 > :not([hidden]) ~ :not([hidden]),
   .density-spacious main .space-y-1 > :not([hidden]) ~ :not([hidden]) {
     margin-top: calc(0.25rem * var(--density-scale));

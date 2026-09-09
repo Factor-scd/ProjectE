@@ -300,7 +300,7 @@ function Overview({ task, patch }: { task: Task; patch: PatchFn }) {
   const currentState = task.stateId ? projectStates.find((s) => s.id === task.stateId) : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <p className="mb-1 text-sm font-semibold text-muted-foreground">Description</p>
         <InlineTextarea
@@ -312,7 +312,7 @@ function Overview({ task, patch }: { task: Task; patch: PatchFn }) {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
           <InlineDate
@@ -327,7 +327,7 @@ function Overview({ task, patch }: { task: Task; patch: PatchFn }) {
             options={ESTIMATE_OPTIONS}
             displayValue={(v) =>
               v ? (
-                <span>{v} min</span>
+                <span className="font-mono text-xs">{v} min</span>
               ) : (
                 <span className="text-muted-foreground/70">No estimate</span>
               )
@@ -390,25 +390,25 @@ function Overview({ task, patch }: { task: Task; patch: PatchFn }) {
         {task.recurrenceRule ? (
           <div className="flex items-center gap-2">
             <RepeatIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="text-sm">{task.recurrenceRule}</span>
+            <span className="font-mono text-xs">{task.recurrenceRule}</span>
           </div>
         ) : null}
       </div>
 
-      <div className="border-t pt-4">
+      <div className="border-t pt-3">
         <TagManager entityType="task" entityId={task.id} tags={task.tags || []} />
       </div>
 
       <CustomFieldsDisplay entityType="tasks" values={task.customFields} />
 
-      <div className="flex items-center gap-4 border-t pt-4 text-xs text-muted-foreground">
+      <div className="flex items-center gap-4 border-t pt-3 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
           <Clock className="h-3 w-3" />
-          Created {format(parseISO(task.createdAt), "MMM d, yyyy HH:mm")}
+          Created <span className="font-mono">{format(parseISO(task.createdAt), "MMM d, yyyy HH:mm")}</span>
         </span>
         <span className="flex items-center gap-1">
           <Clock className="h-3 w-3" />
-          Updated {format(parseISO(task.updatedAt), "MMM d, yyyy HH:mm")}
+          Updated <span className="font-mono">{format(parseISO(task.updatedAt), "MMM d, yyyy HH:mm")}</span>
         </span>
       </div>
     </div>

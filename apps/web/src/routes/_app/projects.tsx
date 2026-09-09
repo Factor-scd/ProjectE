@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, useApiQuery, useApiMutation } from "@/lib/api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { api, useApiQuery } from "@/lib/api";
 import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
 import { useOpenCreateDialog } from "@/hooks/use-open-create-dialog";
-import { Plus, Pencil, Trash2, FolderKanban, Users, Calendar, ListTodo, GripVertical } from "lucide-react";
+import { Plus, Pencil, Trash2, Calendar, LayoutGrid, List } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -15,10 +15,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { EntityDetailPanel } from "@/components/entities/entity-detail-panel";
 import { LoadingState, EmptyState, ErrorState } from "@/components/state";
 import { PROJECT_STATUS, TASK_STATUS } from "@/lib/status-colors";
@@ -95,9 +93,80 @@ function ProjectForm({ project, onClose }: { project?: Project; onClose: () => v
   );
 }
 
+function ProgressBar({ value, color }: { value: number; color?: string | null }) {
+  return (
+    <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+      <div
+        className="h-full rounded-full transition-all"
+        style={{
+          width: `${value}%`,
+          backgroundColor: color || "hsl(var(--primary))",
+        }}
+      />
+    </div>
+  );
+}
+
+function ProjectCard({
+  project,
+  onOpenDetail,
+  onOpenPanel,
+}: {
+  project: Project;
+  onOpenDetail: (p: Project) => void;
+  onOpenPanel: (p: Project) => void;
+}) {
+  const status = PROJECT_STATUS[project.status];
+  return (
+    <Card
+      className="cursor-pointer border rounded-lg transition-colors hover:bg-muted/20"
+      onClick={() => onOpenDetail(project)}
+    >
+      <CardHeader className="pb-1.5">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: project.color || "#3b82f6" }} />
+          <CardTitle className="text-base truncate">{project.name}</CardTitle>
+          <div className="ml-auto flex items-center gap-1.5">
+            {status && (
+              <Badge variant="secondary" className="font-mono text-[10px] gap-1.5">
+                <span className={cn("h-1.5 w-1.5 rounded-full", status.dot)} />
+                {status.label}
+              </Badge>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={(e) => { e.stopPropagation(); onOpenPanel(project); }}
+              aria-label={"Edit " + project.name}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {project.description && (
+          <p className="text-sm text-muted-foreground line-clamp-2 mb-2">{project.description}</p>
+        )}
+        <div className="mb-2">
+          <ProgressBar value={project.progress} color={project.color} />
+        </div>
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span className="font-mono">{project.completedCount}/{project.taskCount} tasks</span>
+          {project.targetDate && (
+            <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{new Date(project.targetDate).toLocaleDateString()}</span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ProjectsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [view, setView] = useState<"grid" | "list">("grid");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -157,16 +226,24 @@ function ProjectsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Projects</h1>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button aria-label="New project"><Plus className="h-4 w-4 mr-2" />New Project</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>New Project</DialogTitle></DialogHeader>
-            <ProjectForm onClose={() => setCreateOpen(false)} />
-          </DialogContent>
-        </Dialog>
+        <h1 className="text-xl font-bold">Projects</h1>
+        <div className="flex items-center gap-2">
+          <Tabs value={view} onValueChange={(v) => setView(v as "grid" | "list")}>
+            <TabsList>
+              <TabsTrigger value="grid" aria-label="Grid view"><LayoutGrid className="h-4 w-4" /></TabsTrigger>
+              <TabsTrigger value="list" aria-label="List view"><List className="h-4 w-4" /></TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button aria-label="New project"><Plus className="h-4 w-4 mr-2" />New Project</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>New Project</DialogTitle></DialogHeader>
+              <ProjectForm onClose={() => setCreateOpen(false)} />
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {isLoading ? (
@@ -175,42 +252,63 @@ function ProjectsPage() {
         <ErrorState message="Failed to load projects." onRetry={() => refetch()} />
       ) : projects.length === 0 ? (
         <EmptyState title="No projects yet" description="Create your first project to get started." />
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      ) : view === "grid" ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {projects.map((project) => (
-            <Card key={project.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => openProjectDetail(project)}>
-              <CardHeader className="pb-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: project.color || "#3b82f6" }} />
-                  <CardTitle className="text-base truncate">{project.name}</CardTitle>
-                  <Badge className={cn("ml-auto text-[10px]", PROJECT_STATUS[project.status]?.badge)}>
-                    {PROJECT_STATUS[project.status]?.label ?? project.status}
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 shrink-0"
-                    onClick={(e) => { e.stopPropagation(); openProjectPanel(project); }}
-                    aria-label={"Edit " + project.name}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {project.description && (
-                  <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{project.description}</p>
-                )}
-                <Progress value={project.progress} className="h-1.5 mb-2" />
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{project.completedCount}/{project.taskCount} tasks</span>
-                  {project.targetDate && (
-                    <span><Calendar className="h-3 w-3 inline mr-1" />{new Date(project.targetDate).toLocaleDateString()}</span>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+            <ProjectCard
+              key={project.id}
+              project={project}
+              onOpenDetail={openProjectDetail}
+              onOpenPanel={openProjectPanel}
+            />
           ))}
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {projects.map((project) => {
+            const status = PROJECT_STATUS[project.status];
+            return (
+              <Card
+                key={project.id}
+                className="cursor-pointer border rounded-lg transition-colors hover:bg-muted/20"
+                onClick={() => openProjectDetail(project)}
+              >
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: project.color || "#3b82f6" }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm truncate">{project.name}</span>
+                        {status && (
+                          <Badge variant="secondary" className="font-mono text-[10px] gap-1.5 shrink-0">
+                            <span className={cn("h-1.5 w-1.5 rounded-full", status.dot)} />
+                            {status.label}
+                          </Badge>
+                        )}
+                      </div>
+                      {project.description && (
+                        <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{project.description}</p>
+                      )}
+                    </div>
+                    <ProgressBar value={project.progress} color={project.color} />
+                    <span className="font-mono text-xs text-muted-foreground shrink-0 w-12 text-right">{project.completedCount}/{project.taskCount}</span>
+                    {project.targetDate && (
+                      <span className="text-xs text-muted-foreground shrink-0 flex items-center gap-1"><Calendar className="h-3 w-3" />{new Date(project.targetDate).toLocaleDateString()}</span>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0"
+                      onClick={(e) => { e.stopPropagation(); openProjectPanel(project); }}
+                      aria-label={"Edit " + project.name}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
@@ -232,7 +330,7 @@ function ProjectsPage() {
             </TabsList>
             <TabsContent value="overview" className="space-y-4 pt-4">
               <div className="flex items-center gap-2 mb-2">
-                <Progress value={selectedProject.progress} className="h-2 flex-1" />
+                <ProgressBar value={selectedProject.progress} color={selectedProject.color} />
                 <span className="text-sm font-medium">{selectedProject.progress}%</span>
               </div>
               <ProjectForm project={selectedProject} onClose={() => setPanelOpen(false)} />

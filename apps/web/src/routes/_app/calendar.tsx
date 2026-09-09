@@ -77,7 +77,7 @@ function CustomToolbar({ date, onNavigate, label }: any) {
   const goToToday = () => onNavigate(Navigate.TODAY);
 
   return (
-    <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+    <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
       <div className="flex items-center gap-1">
         <Button variant="outline" size="icon" onClick={goToBack} aria-label="Previous">
           <ChevronLeft className="h-4 w-4" />
@@ -88,7 +88,7 @@ function CustomToolbar({ date, onNavigate, label }: any) {
         <Button variant="outline" size="icon" onClick={goToNext} aria-label="Next">
           <ChevronRight className="h-4 w-4" />
         </Button>
-        <span className="ml-2 text-lg font-semibold">{label}</span>
+        <span className="ml-2 text-lg font-semibold font-mono">{label}</span>
       </div>
     </div>
   );
@@ -132,7 +132,7 @@ function EventForm({ event, onClose }: { event?: CalendarEvent; onClose: () => v
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3">
       <div>
         <Label htmlFor="title">Title</Label>
         <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Event title" required />
@@ -141,7 +141,7 @@ function EventForm({ event, onClose }: { event?: CalendarEvent; onClose: () => v
         <input type="checkbox" id="allDay" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="rounded" />
         <Label htmlFor="allDay">All day</Label>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         <div>
           <Label htmlFor="start">Start</Label>
           <Input id="start" type={allDay ? "date" : "datetime-local"} value={startTime} onChange={(e) => setStartTime(e.target.value)} required />
@@ -276,9 +276,9 @@ function CalendarPage() {
   }, []);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Calendar</h1>
+        <h1 className="text-xl font-bold">Calendar</h1>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button aria-label="New event"><Plus className="h-4 w-4 mr-2" />New Event</Button>
@@ -358,10 +358,10 @@ function CalendarPage() {
             <DialogTitle>{selectedEvent?.title || "Event"}</DialogTitle>
           </DialogHeader>
           {selectedEvent && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="text-sm">
-                <p><strong>Start:</strong> {new Date(selectedEvent.startTime).toLocaleString()}</p>
-                {selectedEvent.endTime && <p><strong>End:</strong> {new Date(selectedEvent.endTime).toLocaleString()}</p>}
+                <p><strong>Start:</strong> <span className="font-mono">{new Date(selectedEvent.startTime).toLocaleString()}</span></p>
+                {selectedEvent.endTime && <p><strong>End:</strong> <span className="font-mono">{new Date(selectedEvent.endTime).toLocaleString()}</span></p>}
                 {selectedEvent.description && <p className="mt-2">{selectedEvent.description}</p>}
               </div>
               <EventForm event={selectedEvent} onClose={() => setEventDetailOpen(false)} />

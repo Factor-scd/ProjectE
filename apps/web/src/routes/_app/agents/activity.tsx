@@ -25,6 +25,11 @@ const ACTION_TYPES = [
   { id: "completed", label: "Completed", color: "bg-purple-500" },
 ];
 
+const AGENT_COLORS = [
+  "bg-cyan-500", "bg-amber-500", "bg-violet-500", "bg-rose-500",
+  "bg-emerald-500", "bg-orange-500", "bg-sky-500", "bg-pink-500",
+];
+
 function AgentActivityPage() {
   const queryClient = useQueryClient();
   const [agentFilter, setAgentFilter] = useState("");
@@ -114,20 +119,25 @@ function AgentActivityPage() {
     return agent?.name || "Unknown Agent";
   };
 
+  const getAgentColor = (agentId: string) => {
+    const idx = agents.findIndex((a) => a.id === agentId);
+    return AGENT_COLORS[idx >= 0 ? idx % AGENT_COLORS.length : 0];
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Agent Activity</h1>
+        <h1 className="text-xl font-bold">Agent Activity</h1>
         <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["agent-activity"] })}>
-          <RefreshCw className="h-4 w-4 mr-2" />Refresh
+          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />Refresh
         </Button>
       </div>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
         <Select value={agentFilter} onValueChange={setAgentFilter}>
-          <SelectTrigger className="w-44">
-            <Bot className="h-4 w-4 mr-2" />
+          <SelectTrigger className="w-44 h-8">
+            <Bot className="h-3.5 w-3.5 mr-1.5" />
             <SelectValue placeholder="All agents" />
           </SelectTrigger>
           <SelectContent>
@@ -138,8 +148,8 @@ function AgentActivityPage() {
           </SelectContent>
         </Select>
         <Select value={actionFilter} onValueChange={setActionFilter}>
-          <SelectTrigger className="w-36">
-            <Activity className="h-4 w-4 mr-2" />
+          <SelectTrigger className="w-36 h-8">
+            <Activity className="h-3.5 w-3.5 mr-1.5" />
             <SelectValue placeholder="All actions" />
           </SelectTrigger>
           <SelectContent>
@@ -149,8 +159,8 @@ function AgentActivityPage() {
             ))}
           </SelectContent>
         </Select>
-        <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-36 h-9" placeholder="From" />
-        <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-36 h-9" placeholder="To" />
+        <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-36 h-8 font-mono text-xs" placeholder="From" />
+        <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-36 h-8 font-mono text-xs" placeholder="To" />
       </div>
 
       {/* Timeline */}
@@ -159,36 +169,36 @@ function AgentActivityPage() {
       ) : activities.length === 0 ? (
         <EmptyState title="No activity found" description="Agent activity will appear here as agents run" />
       ) : (
-        <div className="space-y-1">
+        <div className="border rounded-lg divide-y divide-border">
           {activities.map((a, idx) => (
-            <div key={a.id || idx} className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors">
-              <div className="flex flex-col items-center shrink-0">
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback className="text-xs bg-primary/10 text-primary">
-                    {getAgentName(a.agentId).slice(0, 2).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                {idx < activities.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
+            <div key={a.id || idx} className="flex items-start gap-2.5 px-3 py-2 hover:bg-muted/20 transition-colors">
+              {/* Colored agent indicator */}
+              <div className="flex flex-col items-center shrink-0 pt-0.5">
+                <div className={cn("w-2 h-2 rounded-full", getAgentColor(a.agentId))} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">{getAgentName(a.agentId)}</span>
-                  <div className={cn("w-1.5 h-1.5 rounded-full", getActionColor(a.action))} />
-                  <span className="text-sm text-muted-foreground">{a.action}</span>
-                  <Badge variant="outline" className="text-[10px]">{a.entityType}</Badge>
+                  <span className={cn(
+                    "text-[10px] font-mono px-1.5 py-0.5 rounded",
+                    getActionColor(a.action) + "/15",
+                    "text-foreground"
+                  )}>
+                    {a.action}
+                  </span>
+                  <Badge variant="outline" className="text-[9px] font-mono px-1 py-0">{a.entityType}</Badge>
                 </div>
-                {a.description && <p className="text-sm text-muted-foreground mt-0.5">{a.description}</p>}
+                {a.description && <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{a.description}</p>}
                 {!a.description && a.details && Object.keys(a.details).length > 0 && (
-                  <p className="text-sm text-muted-foreground mt-0.5">{JSON.stringify(a.details)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{JSON.stringify(a.details)}</p>
                 )}
-                {a.errorMessage && <p className="text-sm text-destructive mt-0.5">{a.errorMessage}</p>}
-                <div className="flex items-center gap-2 mt-1">
-                  <Clock className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">{format(parseISO(a.createdAt), "MMM d, HH:mm:ss")}</span>
+                {a.errorMessage && <p className="text-xs text-destructive mt-0.5">{a.errorMessage}</p>}
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-[10px] font-mono text-muted-foreground">{format(parseISO(a.createdAt), "MMM d, HH:mm:ss")}</span>
                   {a.entityId && (
-                    <span className="text-xs text-muted-foreground">
-                      <ExternalLink className="h-3 w-3 inline mr-0.5" />
-                      {a.entityId.slice(0, 8)}...
+                    <span className="text-[10px] font-mono text-muted-foreground">
+                      <ExternalLink className="h-2.5 w-2.5 inline mr-0.5" />
+                      {a.entityId.slice(0, 8)}
                     </span>
                   )}
                 </div>

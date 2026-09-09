@@ -23,10 +23,10 @@ export const TASK_STATUS: Record<string, StatusToken> = {
 
 /** Task priority. Badges use a soft tint (matching text + translucent bg). */
 export const PRIORITY: Record<string, { label: string; badge: string }> = {
-  low: { label: "Low", badge: "text-slate-500 bg-slate-500/10" },
-  medium: { label: "Medium", badge: "text-blue-500 bg-blue-500/10" },
-  high: { label: "High", badge: "text-orange-500 bg-orange-500/10" },
-  urgent: { label: "Urgent", badge: "text-red-500 bg-red-500/10" },
+  low: { label: "Low", badge: "text-slate-600 bg-slate-500/15" },
+  medium: { label: "Medium", badge: "text-blue-600 bg-blue-500/15" },
+  high: { label: "High", badge: "text-orange-600 bg-orange-500/15" },
+  urgent: { label: "Urgent", badge: "text-red-600 bg-red-500/15" },
 };
 
 /** Project lifecycle statuses. */

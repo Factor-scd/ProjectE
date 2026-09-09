@@ -50,30 +50,30 @@ function SortableTaskCard({ task, stateName, stateColor, onClick, onEdit }: { ta
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={onClick}>
-        <CardContent className="p-3">
+      <Card className="cursor-pointer border rounded-lg transition-colors hover:bg-muted/20" onClick={onClick}>
+        <CardContent className="p-2.5">
           <div className="flex items-start gap-2">
             <GripVertical className="h-4 w-4 mt-1 shrink-0 text-muted-foreground" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{task.title}</p>
-              <div className="flex flex-wrap gap-1.5 mt-2">
+              <div className="flex flex-wrap gap-1 mt-1.5">
                 {stateName && (
-                  <Badge variant="secondary" className="text-[10px] gap-1" style={stateColor ? { backgroundColor: stateColor + "20", color: stateColor } : undefined}>
+                  <Badge variant="secondary" className="font-mono text-[10px] gap-1" style={stateColor ? { backgroundColor: stateColor + "20", color: stateColor } : undefined}>
                     <span className="h-1.5 w-1.5 rounded-full" style={stateColor ? { backgroundColor: stateColor } : undefined} />
                     {stateName}
                   </Badge>
                 )}
                 {task.dueDate && (
-                  <Badge variant="outline" className="text-[10px]">
+                  <Badge variant="outline" className="font-mono text-[10px]">
                     <Calendar className="h-3 w-3 mr-1" />
                     {new Date(task.dueDate).toLocaleDateString()}
                   </Badge>
                 )}
-                <Badge variant="secondary" className={cn("text-[10px]", PRIORITY[task.priority]?.badge)}>
+                <Badge variant="secondary" className={cn("font-mono text-[10px]", PRIORITY[task.priority]?.badge)}>
                   {PRIORITY[task.priority]?.label ?? task.priority}
                 </Badge>
                 {task.tags?.slice(0, 2).map((tag) => (
-                  <Badge key={tag.id} variant="outline" className="text-[10px]" style={{ borderColor: tag.color || undefined }}>
+                  <Badge key={tag.id} variant="outline" className="font-mono text-[10px]" style={{ borderColor: tag.color || undefined }}>
                     {tag.name}
                   </Badge>
                 ))}
@@ -172,7 +172,7 @@ function TaskForm({ task, onClose, projectId }: { task?: Task; onClose: () => vo
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3">
       <div>
         <Label htmlFor="title">Title <span className="text-xs text-muted-foreground">— try "Buy milk tomorrow 5pm #groceries p1"</span></Label>
         <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder='e.g. Report due tomorrow 5pm #work p1' required />
@@ -188,7 +188,7 @@ function TaskForm({ task, onClose, projectId }: { task?: Task; onClose: () => vo
         <Label htmlFor="desc">Description</Label>
         <Textarea id="desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description (optional)" rows={3} />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         {projectStates.length > 0 && (
           <div>
             <Label htmlFor="state">State</Label>
@@ -453,7 +453,7 @@ function TasksPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Tasks</h1>
+        <h1 className="text-xl font-bold">Tasks</h1>
         <div className="flex items-center gap-2">
           <Tabs value={view} onValueChange={(v) => setView(v as "board" | "list")}>
             <TabsList>
@@ -475,7 +475,7 @@ function TasksPage() {
         </div>
       </div>
 
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-1.5 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Search tasks..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
@@ -513,18 +513,18 @@ function TasksPage() {
         <ErrorState message="Failed to load tasks." onRetry={() => refetch()} />
       ) : view === "board" ? (
         <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             {columns.map((col) => (
               <ColumnDroppable key={col.id} id={col.id} className="bg-muted/50 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <div className={cn("w-2 h-2 rounded-full", col.colorClass)} />
                     <h3 className="font-semibold text-sm">{col.label}</h3>
-                    <Badge variant="secondary" className="text-[10px]">{col.tasks.length}</Badge>
+                    <Badge variant="secondary" className="font-mono text-[10px]">{col.tasks.length}</Badge>
                   </div>
                 </div>
                 <SortableContext items={col.tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-                  <div className="space-y-2 min-h-[100px]">
+                  <div className="space-y-1.5 min-h-[100px]">
                     {col.tasks.map((task) => {
                       const st = task.stateId ? stateById.get(task.stateId) : undefined;
                       return (
@@ -572,11 +572,11 @@ function TasksPage() {
               ) : tasks.map((task) => {
                 const st = task.stateId ? stateById.get(task.stateId) : undefined;
                 return (
-                  <TableRow key={task.id} className="cursor-pointer" onClick={() => openTaskDetail(task)}>
-                    <TableCell className="font-medium">{task.title}</TableCell>
-                    <TableCell>
+                  <TableRow key={task.id} className="cursor-pointer hover:bg-muted/30 py-2" onClick={() => openTaskDetail(task)}>
+                    <TableCell className="font-medium py-2">{task.title}</TableCell>
+                    <TableCell className="py-2">
                       {st ? (
-                        <Badge variant="secondary" className="text-[10px] gap-1" style={st.color ? { backgroundColor: st.color + "20", color: st.color } : undefined}>
+                        <Badge variant="secondary" className="font-mono text-[10px] gap-1" style={st.color ? { backgroundColor: st.color + "20", color: st.color } : undefined}>
                           <span className="h-1.5 w-1.5 rounded-full" style={st.color ? { backgroundColor: st.color } : undefined} />
                           {st.name}
                         </Badge>
@@ -584,13 +584,13 @@ function TasksPage() {
                         <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={cn("text-[10px]", PRIORITY[task.priority]?.badge)}>{task.priority}</Badge>
+                    <TableCell className="py-2">
+                      <Badge variant="outline" className={cn("font-mono text-[10px]", PRIORITY[task.priority]?.badge)}>{task.priority}</Badge>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="font-mono text-[10px] text-muted-foreground py-2">
                       {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "-"}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="py-2">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                           <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
@@ -620,7 +620,7 @@ function TasksPage() {
 
       <EntityDetailPanel open={panelOpen} onOpenChange={setPanelOpen} title={selectedTask?.title || "Task Details"}>
         {selectedTask && (
-          <div className="space-y-4">
+    <div className="space-y-3">
             <TaskForm task={selectedTask} onClose={() => setPanelOpen(false)} />
             <div className="pt-4 border-t">
               <AlertDialog>

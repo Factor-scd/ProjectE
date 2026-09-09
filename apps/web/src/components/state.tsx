@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
  */
 export function LoadingState({ label }: { label?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-12 text-muted-foreground">
-      <Loader2 className="h-6 w-6 animate-spin" />
-      {label ? <p className="text-sm">{label}</p> : null}
+    <div className="flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground">
+      <Loader2 className="h-5 w-5 animate-spin" />
+      {label ? <p className="text-xs">{label}</p> : null}
     </div>
   );
 }
@@ -24,22 +24,24 @@ export function EmptyState({
   title,
   description,
   action,
+  color,
 }: {
   icon?: LucideIcon;
   title: string;
   description?: string;
   action?: ReactNode;
+  color?: string;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-        <Icon className="h-6 w-6 text-muted-foreground" />
+    <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+        <Icon className={`h-5 w-5 ${color ?? "text-muted-foreground"}`} />
       </div>
-      <div className="space-y-1">
-        <p className="font-semibold">{title}</p>
-        {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+      <div className="space-y-0.5">
+        <p className="text-sm font-semibold">{title}</p>
+        {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
       </div>
-      {action ? <div className="pt-1">{action}</div> : null}
+      {action ? <div className="pt-0.5">{action}</div> : null}
     </div>
   );
 }
@@ -50,12 +52,12 @@ export function EmptyState({
  */
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-      <AlertCircle className="h-8 w-8 text-destructive" />
-      <p className="text-sm font-medium text-destructive">{message}</p>
+    <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+      <AlertCircle className="h-5 w-5 text-destructive" />
+      <p className="text-xs font-medium text-destructive font-mono">{message}</p>
       {onRetry ? (
         <Button variant="outline" size="sm" onClick={onRetry}>
-          <RotateCw className="h-4 w-4" />
+          <RotateCw className="h-3 w-3" />
           Retry
         </Button>
       ) : null}

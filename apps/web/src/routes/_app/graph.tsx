@@ -342,7 +342,7 @@ function GraphPage() {
       {/* Graph canvas area */}
       <div ref={containerRef} className="flex-1 relative bg-muted/20">
         {/* Toolbar */}
-        <div className="absolute top-4 left-4 z-10 flex flex-wrap items-center gap-2">
+        <div className="absolute top-3 left-3 z-10 flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
@@ -356,10 +356,13 @@ function GraphPage() {
           <Button variant="outline" size="icon" onClick={() => setFilterOpen(true)} aria-label="Filters">
             <Filter className="h-4 w-4" />
           </Button>
+          <Badge variant="secondary" className="font-mono text-[10px]">
+            {displayNodes.length} nodes · {displayEdges.length} edges
+          </Badge>
         </div>
 
         {/* Zoom controls */}
-        <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-1">
+        <div className="absolute bottom-3 right-3 z-10 flex flex-col gap-1">
           <Button variant="secondary" size="icon" onClick={handleZoomIn} aria-label="Zoom in">
             <ZoomIn className="h-4 w-4" />
           </Button>
@@ -373,9 +376,9 @@ function GraphPage() {
 
         {/* Performance warning */}
         {exceeded && (
-          <div className="absolute top-4 right-4 z-10">
-            <Badge variant="destructive" className="text-xs">
-              Showing {MAX_NODES} of {filteredNodes.length} nodes (cap reached)
+          <div className="absolute top-3 right-3 z-10">
+            <Badge variant="destructive" className="text-xs font-mono">
+              Showing <span className="font-semibold">{MAX_NODES}</span> of <span className="font-semibold">{filteredNodes.length}</span> nodes
             </Badge>
           </div>
         )}
@@ -418,9 +421,12 @@ function GraphPage() {
             <SheetTitle>Filters</SheetTitle>
           </SheetHeader>
           <ScrollArea className="h-full pr-4">
-            <div className="space-y-6 pt-4">
+            <div className="space-y-4 pt-4">
               <div>
-                <h3 className="text-sm font-semibold mb-2">Entity Types</h3>
+                <h3 className="text-sm font-semibold mb-2 flex items-center justify-between">
+                  Entity Types
+                  <span className="font-mono text-[10px] text-muted-foreground">{enabledTypes.size}/{ENTITY_TYPES.length}</span>
+                </h3>
                 {ENTITY_TYPES.map((type) => (
                   <div key={type} className="flex items-center gap-2 py-1">
                     <Checkbox
@@ -437,7 +443,10 @@ function GraphPage() {
               </div>
               <Separator />
               <div>
-                <h3 className="text-sm font-semibold mb-2">Relationship Types</h3>
+                <h3 className="text-sm font-semibold mb-2 flex items-center justify-between">
+                  Relationship Types
+                  <span className="font-mono text-[10px] text-muted-foreground">{enabledRelationships.size}/{RELATIONSHIP_TYPES.length}</span>
+                </h3>
                 {RELATIONSHIP_TYPES.map((type) => (
                   <div key={type} className="flex items-center gap-2 py-1">
                     <Checkbox
@@ -464,12 +473,12 @@ function GraphPage() {
             <SheetTitle>{selectedNode?.label || "Node"}</SheetTitle>
           </SheetHeader>
           {selectedNode && (
-            <div className="space-y-4 pt-4">
+            <div className="space-y-3 pt-4">
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: selectedNode.color }} />
-                <Badge variant="secondary">{selectedNode.type}</Badge>
+                <Badge variant="secondary" className="font-mono">{selectedNode.type}</Badge>
               </div>
-              <p className="text-sm text-muted-foreground">ID: {selectedNode.id}</p>
+              <p className="text-sm text-muted-foreground font-mono">ID: {selectedNode.id}</p>
               <Separator />
               {NODE_TYPE_ROUTES[selectedNode.type] ? (
                 <Button
@@ -484,7 +493,12 @@ function GraphPage() {
                 </p>
               )}
               <Separator />
-              <h4 className="text-sm font-semibold">Connected nodes</h4>
+              <h4 className="text-sm font-semibold flex items-center justify-between">
+                Connected nodes
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {displayEdges.filter((e) => e.source === selectedNode.id || e.target === selectedNode.id).length}
+                </span>
+              </h4>
               <div className="space-y-1">
                 {displayEdges
                   .filter((e) => e.source === selectedNode.id || e.target === selectedNode.id)
@@ -510,7 +524,7 @@ function GraphPage() {
                             </span>
                           </>
                         )}
-                        <Badge variant="outline" className="text-[10px]">{e.type.replace(/_/g, " ")}</Badge>
+                        <Badge variant="outline" className="text-[10px] font-mono">{e.type.replace(/_/g, " ")}</Badge>
                       </div>
                     ) : null;
                   })}

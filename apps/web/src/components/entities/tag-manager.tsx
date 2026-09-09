@@ -6,14 +6,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { X } from "lucide-react";
 import type { Tag, PaginatedResponse } from "@/lib/types";
 
-const ENTITY_ROUTES: Record<"task" | "habit" | "note", string> = {
+const ENTITY_ROUTES: Record<"task" | "habit" | "note" | "project", string> = {
   task: "tasks",
   habit: "habits",
   note: "notes",
+  project: "projects",
 };
 
 interface TagManagerProps {
-  entityType: "task" | "habit" | "note";
+  entityType: "task" | "habit" | "note" | "project";
   entityId: string;
   tags: Tag[];
 }

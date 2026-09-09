@@ -33,7 +33,7 @@ function AppLayout() {
         <Topbar />
         <main
           id="main-content"
-          className="flex-1 overflow-auto p-[calc(1rem*var(--density-scale))] md:p-[calc(1.5rem*var(--density-scale))]"
+          className="flex-1 overflow-auto p-[calc(0.75rem*var(--density-scale))] md:p-[calc(1rem*var(--density-scale))]"
           tabIndex={-1}
         >
           <Outlet />

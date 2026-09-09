@@ -10,6 +10,7 @@ import {
 const shortcutGroups = [
   {
     heading: "Navigation",
+    color: "text-blue-500",
     shortcuts: [
       { keys: "g then d", description: "Go to Dashboard" },
       { keys: "g then t", description: "Go to Tasks" },
@@ -23,6 +24,7 @@ const shortcutGroups = [
   },
   {
     heading: "Create",
+    color: "text-amber-500",
     shortcuts: [
       { keys: "n then t", description: "New task" },
       { keys: "n then h", description: "New habit" },
@@ -33,6 +35,7 @@ const shortcutGroups = [
   },
   {
     heading: "General",
+    color: "text-muted-foreground",
     shortcuts: [
       { keys: "⌘K / Ctrl+K", description: "Open command palette" },
       { keys: "/", description: "Open command palette" },
@@ -43,6 +46,7 @@ const shortcutGroups = [
   },
   {
     heading: "Command Palette",
+    color: "text-muted-foreground",
     shortcuts: [
       { keys: "↑↓", description: "Navigate items" },
       { keys: "Enter", description: "Select item" },
@@ -62,24 +66,24 @@ export function ShortcutsHelp() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md border">
         <DialogHeader>
           <DialogTitle>Keyboard Shortcuts</DialogTitle>
           <DialogDescription>
             Use these shortcuts to navigate quickly. Press two-key combos like "g then t" in sequence within 1.5 seconds.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <div className="space-y-3">
           {shortcutGroups.map((group) => (
             <div key={group.heading}>
-              <h4 className="mb-2 text-sm font-semibold text-muted-foreground">
+              <h4 className={`mb-1 text-[10px] font-semibold uppercase tracking-wider ${group.color}`}>
                 {group.heading}
               </h4>
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {group.shortcuts.map((s) => (
                   <div
                     key={s.keys}
-                    className="flex items-center justify-between text-sm"
+                    className="flex items-center justify-between py-0.5 text-xs"
                   >
                     <span className="text-muted-foreground">{s.description}</span>
                     <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">

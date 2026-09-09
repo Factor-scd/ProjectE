@@ -67,7 +67,7 @@ export function Topbar() {
 
   return (
     <header
-      className="sticky top-0 z-10 flex h-14 items-center gap-4 border-b bg-card px-6"
+      className="sticky top-0 z-10 flex h-10 items-center gap-4 border-b bg-topbar px-6 backdrop-blur-sm"
       role="banner"
     >
       {/* Mobile menu */}
@@ -78,19 +78,20 @@ export function Topbar() {
         onClick={() => setMobileOpen(true)}
         aria-label="Open navigation menu"
       >
-        <Menu className="h-5 w-5" />
+        <Menu className="h-4 w-4" />
       </Button>
 
       {/* Search input */}
       <div className="flex-1 md:max-w-sm">
         <Button
           variant="outline"
+          size="sm"
           className="w-full justify-start text-muted-foreground"
           onClick={openPalette}
           aria-label="Open search (Cmd+K)"
         >
-          <Search className="mr-2 h-4 w-4" aria-hidden="true" />
-          Search or jump to...{" "}
+          <Search className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="truncate">Search or jump to...</span>
           <kbd className="ml-auto pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
             ⌘K
           </kbd>
@@ -101,7 +102,7 @@ export function Topbar() {
       <DomainPicker />
 
       {/* Right side */}
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-1">
         {/* Quick add */}
         <TooltipProvider>
           <Tooltip>
@@ -109,10 +110,11 @@ export function Topbar() {
               <Button
                 variant="ghost"
                 size="icon"
+                className="h-8 w-8"
                 onClick={openPalette}
                 aria-label="Quick add"
               >
-                <Plus className="h-5 w-5" />
+                <Plus className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Quick add (Cmd+K)</TooltipContent>
@@ -125,8 +127,8 @@ export function Topbar() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
-                    <Bell className="h-5 w-5" />
+                  <Button variant="ghost" size="icon" className="h-8 w-8 relative" aria-label="Notifications">
+                    <Bell className="h-4 w-4" />
                     {count > 0 && (
                       <span
                         aria-hidden="true"
@@ -177,9 +179,9 @@ export function Topbar() {
         {/* User avatar */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-9 w-9">
-              <Avatar className="h-8 w-8">
-                <AvatarFallback className="text-xs">U</AvatarFallback>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Avatar className="h-7 w-7">
+                <AvatarFallback className="text-[10px]">{userInitials}</AvatarFallback>
               </Avatar>
             </Button>
           </DropdownMenuTrigger>

@@ -12,7 +12,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { formatDistanceToNow, parseISO } from "date-fns";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorState, LoadingState } from "@/components/state";
 import { useApiQuery } from "@/lib/api";
 import type { ActivityItem } from "@/lib/types";
@@ -66,15 +65,15 @@ function ActivityRow({ item }: { item: ActivityItem }) {
   const summary = changesSummary(item.action, item.changes);
 
   return (
-    <div className="flex items-start gap-3">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+    <div className="flex items-start gap-2.5 py-2">
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
+        <Icon className="h-3 w-3 text-muted-foreground" />
       </div>
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
           <span className="text-sm font-medium text-foreground">{item.actor}</span>
           <span className="text-sm text-muted-foreground">{meta.label}</span>
-          <span className="text-xs text-muted-foreground/70">
+          <span className="font-mono text-[11px] text-muted-foreground/70">
             {formatDistanceToNow(parseISO(item.createdAt), { addSuffix: true })}
           </span>
         </p>
@@ -102,29 +101,24 @@ export function EntityActivity({ entityType, entityId, limit }: EntityActivityPr
   const items = data?.items ?? [];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Activity</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? <LoadingState label="Loading activity..." /> : null}
-        {isError ? (
-          <ErrorState
-            message={error instanceof Error ? error.message : "Failed to load activity"}
-            onRetry={() => refetch()}
-          />
-        ) : null}
-        {!isLoading && !isError && items.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">No activity yet</p>
-        ) : null}
-        {!isLoading && !isError && items.length > 0 ? (
-          <div className="space-y-3">
-            {items.map((item) => (
-              <ActivityRow key={item.id} item={item} />
-            ))}
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
+    <div>
+      {isLoading ? <LoadingState label="Loading activity..." /> : null}
+      {isError ? (
+        <ErrorState
+          message={error instanceof Error ? error.message : "Failed to load activity"}
+          onRetry={() => refetch()}
+        />
+      ) : null}
+      {!isLoading && !isError && items.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">No activity yet</p>
+      ) : null}
+      {!isLoading && !isError && items.length > 0 ? (
+        <div className="divide-y">
+          {items.map((item) => (
+            <ActivityRow key={item.id} item={item} />
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }

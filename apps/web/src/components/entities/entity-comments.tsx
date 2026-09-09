@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorState, LoadingState } from "@/components/state";
 import { api, useApiMutation, useApiQuery } from "@/lib/api";
@@ -166,7 +165,7 @@ function CommentThread({ node, onDelete, deletePending }: CommentThreadProps) {
           <div className="min-w-0 flex-1">
             <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <span className="text-sm font-medium">{comment.author}</span>
-              <span className="text-xs text-muted-foreground">
+              <span className="font-mono text-[11px] text-muted-foreground">
                 {formatDistanceToNow(parseISO(comment.createdAt), { addSuffix: true })}
               </span>
             </p>
@@ -250,37 +249,32 @@ export function EntityComments({ entityType, entityId }: EntityCommentsProps) {
   const tree = useMemo(() => buildCommentTree(data?.items ?? []), [data?.items]);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Comments</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <CommentComposer entityType={entityType} entityId={entityId} />
-        {isLoading ? <LoadingState label="Loading comments..." /> : null}
-        {isError ? (
-          <ErrorState
-            message={error instanceof Error ? error.message : "Failed to load comments"}
-            onRetry={() => refetch()}
-          />
-        ) : null}
-        {!isLoading && !isError && tree.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            No comments yet — start the conversation.
-          </p>
-        ) : null}
-        {!isLoading && !isError && tree.length > 0 ? (
-          <div className="space-y-4">
-            {tree.map((node) => (
-              <CommentThread
-                key={node.comment.id}
-                node={node}
-                onDelete={(id) => deleteMutation.mutate(id)}
-                deletePending={deleteMutation.isPending}
-              />
-            ))}
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
+    <div className="space-y-4">
+      <CommentComposer entityType={entityType} entityId={entityId} />
+      {isLoading ? <LoadingState label="Loading comments..." /> : null}
+      {isError ? (
+        <ErrorState
+          message={error instanceof Error ? error.message : "Failed to load comments"}
+          onRetry={() => refetch()}
+        />
+      ) : null}
+      {!isLoading && !isError && tree.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          No comments yet — start the conversation.
+        </p>
+      ) : null}
+      {!isLoading && !isError && tree.length > 0 ? (
+        <div className="divide-y">
+          {tree.map((node) => (
+            <CommentThread
+              key={node.comment.id}
+              node={node}
+              onDelete={(id) => deleteMutation.mutate(id)}
+              deletePending={deleteMutation.isPending}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }

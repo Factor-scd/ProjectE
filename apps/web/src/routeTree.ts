@@ -14,7 +14,10 @@ import { Route as analyticsRoute } from "./routes/_app/analytics";
 import { Route as agentsRoute } from "./routes/_app/agents";
 import { Route as agentActivityRoute } from "./routes/_app/agents/activity";
 import { Route as dailyRoute } from "./routes/_app/daily";
+import { Route as inboxRoute } from "./routes/_app/inbox";
+import { Route as reportsRoute } from "./routes/_app/reports";
 import { Route as settingsRoute } from "./routes/_app/settings";
+import { Route as templatesRoute } from "./routes/_app/templates";
 import { Route as taskDetailRoute } from "./routes/_app/tasks/$id";
 import { Route as habitDetailRoute } from "./routes/_app/habits/$id";
 import { Route as noteDetailRoute } from "./routes/_app/notes/$id";
@@ -33,7 +36,10 @@ const appChildren = [
   agentsRoute,
   agentActivityRoute,
   dailyRoute,
+  inboxRoute,
+  reportsRoute,
   settingsRoute,
+  templatesRoute,
   taskDetailRoute,
   habitDetailRoute,
   noteDetailRoute,

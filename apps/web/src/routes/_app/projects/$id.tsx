@@ -30,6 +30,7 @@ import {
 } from "@/components/entities/inline-edit";
 import { EntityActivity } from "@/components/entities/entity-activity";
 import { EntityComments } from "@/components/entities/entity-comments";
+import { TagManager } from "@/components/entities/tag-manager";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -263,7 +264,7 @@ function Overview({ project, patch }: { project: Project; patch: PatchFn }) {
   const countdown = targetCountdown(project.targetDate);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <p className="mb-1 text-sm font-semibold text-muted-foreground">Description</p>
         <InlineTextarea
@@ -275,19 +276,19 @@ function Overview({ project, patch }: { project: Project; patch: PatchFn }) {
         />
       </div>
 
-      <div className="rounded-lg border bg-muted/30 p-4">
+      <div className="rounded-lg border bg-muted/30 p-3">
         <div className="flex items-center gap-2">
           <ListTodo className="h-4 w-4 text-muted-foreground" />
           <p className="text-sm font-semibold">Progress</p>
-          <span className="ml-auto text-sm font-medium">{project.progress}%</span>
+          <span className="ml-auto font-mono text-xs font-medium">{project.progress}%</span>
         </div>
-        <Progress value={project.progress} className="mt-3 h-2" />
-        <p className="mt-2 text-xs text-muted-foreground">
+        <Progress value={project.progress} className="mt-2 h-1.5" />
+        <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">
           {project.completedCount} of {project.taskCount} tasks done · {project.progress}%
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
           <InlineDate
@@ -300,27 +301,18 @@ function Overview({ project, patch }: { project: Project; patch: PatchFn }) {
         </div>
       </div>
 
-      {project.tags && project.tags.length > 0 ? (
-        <div>
-          <p className="mb-2 text-sm font-semibold text-muted-foreground">Tags</p>
-          <div className="flex flex-wrap gap-2">
-            {project.tags.map((t) => (
-              <Badge key={t.id} variant="secondary">
-                {t.name}
-              </Badge>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      <div className="border-t pt-3">
+        <TagManager entityType="project" entityId={project.id} tags={project.tags || []} />
+      </div>
 
-      <div className="flex items-center gap-4 border-t pt-4 text-xs text-muted-foreground">
+      <div className="flex items-center gap-4 border-t pt-3 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
           <Clock className="h-3 w-3" />
-          Created {format(parseISO(project.createdAt), "MMM d, yyyy HH:mm")}
+          Created <span className="font-mono">{format(parseISO(project.createdAt), "MMM d, yyyy HH:mm")}</span>
         </span>
         <span className="flex items-center gap-1">
           <Clock className="h-3 w-3" />
-          Updated {format(parseISO(project.updatedAt), "MMM d, yyyy HH:mm")}
+          Updated <span className="font-mono">{format(parseISO(project.updatedAt), "MMM d, yyyy HH:mm")}</span>
         </span>
       </div>
     </div>

@@ -34,6 +34,7 @@ export function useKeyboardShortcuts() {
 
     // g+letter navigation sequences
     const navMap: Record<string, string> = {
+      "g i": "/inbox",
       "g d": "/",
       "g t": "/tasks",
       "g h": "/habits",
@@ -41,6 +42,7 @@ export function useKeyboardShortcuts() {
       "g n": "/notes",
       "g c": "/calendar",
       "g g": "/graph",
+      "g r": "/reports",
       "g s": "/settings",
     };
 

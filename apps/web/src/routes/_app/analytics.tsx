@@ -57,9 +57,9 @@ function AnalyticsPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Analytics</h1>
+        <h1 className="text-xl font-bold">Analytics</h1>
         <Select value={range} onValueChange={setRange}>
           <SelectTrigger className="w-32">
             <Calendar className="h-4 w-4 mr-2" />
@@ -78,27 +78,27 @@ function AnalyticsPage() {
       ) : analyticsError ? (
         <ErrorState message={analyticsError.message || "Failed to load analytics"} onRetry={refetchAnalytics} />
       ) : (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {/* Tasks completed per day */}
-        <Card>
-          <CardHeader className="p-4 pb-0 flex flex-row items-center justify-between">
+        <Card className="border rounded-lg hover:bg-muted/20 transition-colors">
+          <CardHeader className="p-3 pb-0 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold">Tasks Completed</CardTitle>
             <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => downloadCSV("tasks-completed.csv", [["Date", "Completed"], ...dailyItems.map((d) => [d.date, String(d.completed)])])}><Download className="h-3.5 w-3.5" /></Button>
           </CardHeader>
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <LineChart data={dailyItems} xKey="date" yKey="completed" />
           </CardContent>
         </Card>
 
         {/* Tasks created vs completed */}
-        <Card>
-          <CardHeader className="p-4 pb-0 flex flex-row items-center justify-between">
+        <Card className="border rounded-lg hover:bg-muted/20 transition-colors">
+          <CardHeader className="p-3 pb-0 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold">Created vs Completed</CardTitle>
             <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => downloadCSV("tasks-created-vs-completed.csv", [["Date", "Created", "Completed"], ...dailyItems.map((d) => [d.date, String(d.created), String(d.completed)])])}><Download className="h-3.5 w-3.5" /></Button>
           </CardHeader>
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <BarChart data={dailyItems} xKey="date" yKey="created" yKey2="completed" color="#f97316" color2="#3b82f6" />
-            <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded bg-orange-500" /> Created</span>
               <span className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded bg-blue-500" /> Completed</span>
             </div>
@@ -106,26 +106,26 @@ function AnalyticsPage() {
         </Card>
 
         {/* Habit completion rate */}
-        <Card>
-          <CardHeader className="p-4 pb-0 flex flex-row items-center justify-between">
+        <Card className="border rounded-lg hover:bg-muted/20 transition-colors">
+          <CardHeader className="p-3 pb-0 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold">Habit Completion</CardTitle>
             <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => downloadCSV("habit-completion.csv", [["Habit", "Rate"], ...habitRateData.map((d) => [d.name, String(d.value)])])}><Download className="h-3.5 w-3.5" /></Button>
           </CardHeader>
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <PieChartSimple data={habitRateData} labelKey="name" valueKey="value" />
           </CardContent>
         </Card>
 
         {/* Project progress */}
-        <Card>
-          <CardHeader className="p-4 pb-0 flex flex-row items-center justify-between">
+        <Card className="border rounded-lg hover:bg-muted/20 transition-colors">
+          <CardHeader className="p-3 pb-0 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold">Project Progress</CardTitle>
             <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => downloadCSV("project-progress.csv", [["Project", "Total Tasks", "Completed", "Progress"], ...(projectData?.projects || []).map((p) => [p.name, String(p.totalTasks), String(p.completedTasks), String(Math.round(p.progress * 100)) + "%"])])}><Download className="h-3.5 w-3.5" /></Button>
           </CardHeader>
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             {projectData?.projects.length ? (
               <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">{projectData.totalProjects} project{projectData.totalProjects === 1 ? "" : "s"} · progress is % of tasks done</p>
+                <p className="text-xs text-muted-foreground"><span className="font-mono font-semibold">{projectData.totalProjects}</span> project{projectData.totalProjects === 1 ? "" : "s"} · progress is % of tasks done</p>
                 <HorizontalBar
                   data={projectData.projects.map((p) => ({ name: p.name, progress: Math.round(p.progress * 100) }))}
                   xKey="name"
@@ -140,12 +140,12 @@ function AnalyticsPage() {
         </Card>
 
         {/* Tasks by project (pie) */}
-        <Card>
-          <CardHeader className="p-4 pb-0 flex flex-row items-center justify-between">
+        <Card className="border rounded-lg hover:bg-muted/20 transition-colors">
+          <CardHeader className="p-3 pb-0 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold">Tasks by Project</CardTitle>
             <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => downloadCSV("tasks-by-project.csv", [["Project", "Total Tasks"], ...(projectData?.projects || []).map((p) => [p.name, String(p.totalTasks)])])}><Download className="h-3.5 w-3.5" /></Button>
           </CardHeader>
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             {projectData?.projects.length ? (
               <PieChartSimple data={projectData.projects.map((p) => ({ name: p.name, value: p.totalTasks }))} labelKey="name" valueKey="value" />
             ) : (
@@ -155,36 +155,36 @@ function AnalyticsPage() {
         </Card>
 
         {/* Productivity heatmap */}
-        <Card>
-          <CardHeader className="p-4 pb-0 flex flex-row items-center justify-between">
+        <Card className="border rounded-lg hover:bg-muted/20 transition-colors">
+          <CardHeader className="p-3 pb-0 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold">Productivity Heatmap</CardTitle>
             <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => downloadCSV("heatmap.csv", [["Date", "Count"], ...dailyItems.map((d) => [d.date, String(d.completed)])])}><Download className="h-3.5 w-3.5" /></Button>
           </CardHeader>
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <CalendarHeatmap data={dailyItems.map((d) => ({ date: d.date, count: d.completed }))} days={parseInt(range)} />
           </CardContent>
         </Card>
 
         {/* Velocity */}
-        <Card>
-          <CardHeader className="p-4 pb-0 flex flex-row items-center justify-between">
+        <Card className="border rounded-lg hover:bg-muted/20 transition-colors">
+          <CardHeader className="p-3 pb-0 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold">Velocity</CardTitle>
-            <span className="text-xs text-muted-foreground">avg {velocityData?.avg ?? 0}/day</span>
+            <span className="text-xs text-muted-foreground font-mono">avg <span className="font-semibold">{velocityData?.avg ?? 0}</span>/day</span>
           </CardHeader>
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             {velocityData?.items ? <LineChart data={velocityData.items} xKey="date" yKey="completed" /> : <p className="text-sm text-muted-foreground">No data</p>}
           </CardContent>
         </Card>
 
         {/* Cycle time */}
-        <Card>
-          <CardHeader className="p-4 pb-0 flex flex-row items-center justify-between">
+        <Card className="border rounded-lg hover:bg-muted/20 transition-colors">
+          <CardHeader className="p-3 pb-0 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold">Cycle Time</CardTitle>
           </CardHeader>
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <div className="text-center py-4">
-              <p className="text-2xl font-bold">{cycleData ? `${cycleData.median}d median · ${cycleData.avg}d avg` : "—"}</p>
-              <p className="text-xs text-muted-foreground">{cycleData?.count ?? 0} tasks completed in range</p>
+              <p className="text-lg font-bold font-mono">{cycleData ? <>{cycleData.median}d median · {cycleData.avg}d avg</> : "—"}</p>
+              <p className="text-xs text-muted-foreground font-mono">{cycleData?.count ?? 0} tasks completed in range</p>
             </div>
           </CardContent>
         </Card>

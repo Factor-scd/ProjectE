@@ -194,7 +194,7 @@ function NoteDetail() {
 
 function EditorTab({ note, patch }: { note: Note; patch: PatchFn }) {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <p className="mb-1 text-sm font-semibold text-muted-foreground">Content</p>
         <div className="rounded-lg border">
@@ -207,18 +207,18 @@ function EditorTab({ note, patch }: { note: Note; patch: PatchFn }) {
         </div>
       </div>
 
-      <div className="border-t pt-4">
+      <div className="border-t pt-3">
         <TagManager entityType="note" entityId={note.id} tags={note.tags || []} />
       </div>
 
-      <div className="flex items-center gap-4 border-t pt-4 text-xs text-muted-foreground">
+      <div className="flex items-center gap-4 border-t pt-3 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
           <Clock className="h-3 w-3" />
-          Created {format(parseISO(note.createdAt), "MMM d, yyyy HH:mm")}
+          Created <span className="font-mono">{format(parseISO(note.createdAt), "MMM d, yyyy HH:mm")}</span>
         </span>
         <span className="flex items-center gap-1">
           <Clock className="h-3 w-3" />
-          Updated {format(parseISO(note.updatedAt), "MMM d, yyyy HH:mm")}
+          Updated <span className="font-mono">{format(parseISO(note.updatedAt), "MMM d, yyyy HH:mm")}</span>
         </span>
       </div>
     </div>

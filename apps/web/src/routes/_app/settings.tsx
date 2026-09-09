@@ -18,7 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { useThemeStore, ACCENT_PALETTE, type ThemeMode, type AccentColor } from "@/lib/stores/use-theme-store";
+import { useThemeStore, type ThemeMode } from "@/lib/stores/use-theme-store";
 import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import type { Domain, CustomField, Webhook as WebhookType, ErrorLog, Agent, PaginatedResponse } from "@/lib/types";
 
@@ -34,21 +34,18 @@ const SETTINGS_TABS = [
   { id: "error-log", label: "Error Log", icon: AlertCircle },
 ] as const;
 
-const ACCENT_COLORS = Object.entries(ACCENT_PALETTE).map(([key, val]) => ({
-  name: val.name,
-  value: key as AccentColor,
-}));
-
 const SHORTCUTS_MAP: Record<string, string> = {
   "Cmd+K": "Command palette",
   "Cmd+N": "New task",
+  "g+i": "Go to Inbox",
+  "g+d": "Go to Dashboard",
   "g+t": "Go to Tasks",
   "g+h": "Go to Habits",
   "g+p": "Go to Projects",
   "g+n": "Go to Notes",
   "g+c": "Go to Calendar",
   "g+g": "Go to Graph",
-  "g+d": "Go to Dashboard",
+  "g+r": "Go to Reports",
   "g+s": "Go to Settings",
   "n+t": "New task",
   "n+h": "New habit",
@@ -60,7 +57,7 @@ const SHORTCUTS_MAP: Record<string, string> = {
 // ─── Appearance Tab ──────────────────────────────────────────────────────
 
 function AppearanceTab() {
-  const { mode, setMode, accent, setAccent } = useThemeStore();
+  const { mode, setMode } = useThemeStore();
   const [fontSize, setFontSize] = useState(localStorage.getItem("font-size") || "normal");
   const [density, setDensity] = useState(localStorage.getItem("density") || "comfortable");
   const [sidebarPos, setSidebarPos] = useState(localStorage.getItem("sidebar-position") || "left");
@@ -100,20 +97,6 @@ function AppearanceTab() {
               <span className="text-xs font-medium">{t.label}</span>
             </button>
           ))}
-        </div>
-      </div>
-      <Separator />
-      <div>
-        <h3 className="text-lg font-semibold mb-3">Accent Color</h3>
-        <div className="flex gap-3">
-          {ACCENT_COLORS.map((c) => {
-            const palette = ACCENT_PALETTE[c.value];
-            return (
-              <button key={c.value} onClick={() => setAccent(c.value)}
-                className={cn("w-10 h-10 rounded-full border-2 transition-all", accent === c.value ? "border-foreground scale-110" : "border-transparent")}
-                style={{ backgroundColor: "hsl(" + palette.hsl + ")" }} aria-label={c.name} />
-            );
-          })}
         </div>
       </div>
       <Separator />

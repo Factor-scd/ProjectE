@@ -38,19 +38,19 @@ function CalendarSidebar({ selectedDate, onSelectDate }: { selectedDate: Date; o
   const noteDates = new Set(notes.map((n) => n.date.slice(0, 10)));
 
   return (
-    <div className="w-64 shrink-0">
-      <div className="flex items-center justify-between mb-3">
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
-          <ChevronLeft className="h-4 w-4" />
+    <div className="w-56 shrink-0">
+      <div className="flex items-center justify-between mb-2">
+        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
+          <ChevronLeft className="h-3.5 w-3.5" />
         </Button>
-        <span className="text-sm font-semibold">{format(currentMonth, "MMMM yyyy")}</span>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
-          <ChevronRight className="h-4 w-4" />
+        <span className="text-xs font-semibold font-mono">{format(currentMonth, "MMM yyyy")}</span>
+        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
+          <ChevronRight className="h-3.5 w-3.5" />
         </Button>
       </div>
-      <div className="grid grid-cols-7 gap-0.5 text-center">
+      <div className="grid grid-cols-7 gap-px text-center">
         {dayNames.map((d) => (
-          <div key={d} className="text-[10px] text-muted-foreground font-medium py-1">{d}</div>
+          <div key={d} className="text-[9px] text-muted-foreground font-mono font-medium py-0.5">{d}</div>
         ))}
         {Array.from({ length: startDay }).map((_, i) => (
           <div key={"empty-" + i} />
@@ -65,21 +65,25 @@ function CalendarSidebar({ selectedDate, onSelectDate }: { selectedDate: Date; o
               key={key}
               onClick={() => onSelectDate(d)}
               className={cn(
-                "h-8 w-8 rounded-full text-xs flex items-center justify-center transition-colors relative",
-                isSelected ? "bg-primary text-primary-foreground" : today ? "bg-primary/10 text-primary font-semibold" : "hover:bg-muted",
+                "h-7 w-7 rounded text-[11px] font-mono flex items-center justify-center transition-colors relative",
+                isSelected
+                  ? "bg-primary text-primary-foreground"
+                  : today
+                    ? "bg-primary/10 text-primary font-semibold"
+                    : "hover:bg-muted/40 text-foreground",
               )}
             >
               {format(d, "d")}
               {hasNote && !isSelected && (
-                <div className="absolute bottom-0.5 w-1 h-1 rounded-full bg-primary" />
+                <div className="absolute bottom-0.5 w-1 h-1 rounded-full bg-emerald-500" />
               )}
             </button>
           );
         })}
       </div>
-      <div className="mt-3">
-        <Button variant="outline" size="sm" className="w-full" onClick={() => onSelectDate(new Date())}>
-          <Calendar className="h-3.5 w-3.5 mr-2" />Today
+      <div className="mt-2">
+        <Button variant="outline" size="sm" className="w-full h-7 text-xs" onClick={() => onSelectDate(new Date())}>
+          <Calendar className="h-3 w-3 mr-1.5" />Today
         </Button>
       </div>
     </div>
@@ -247,19 +251,19 @@ function DailyNoteEditor({ date }: { date: Date }) {
   };
 
   return (
-    <div className="flex-1 space-y-4">
+    <div className="flex-1 space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold">{format(date, "EEEE, MMMM d, yyyy")}</h2>
+        <h2 className="text-xl font-bold font-mono">{format(date, "EEE, MMM d, yyyy")}</h2>
         <div className="flex items-center gap-2">
           {noteId && (
             <>
-              <Badge variant="secondary" className="text-[10px]">
+              <Badge variant="secondary" className="text-[10px] font-mono">
                 <Save className="h-3 w-3 mr-1" />Saved
               </Badge>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" aria-label="Delete daily note">
-                    <Trash2 className="h-4 w-4" />
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label="Delete daily note">
+                    <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
@@ -279,10 +283,10 @@ function DailyNoteEditor({ date }: { date: Date }) {
       </div>
 
       {/* Mood & Energy */}
-      <div className="flex gap-6">
+      <div className="flex gap-5">
         <div>
-          <p className="text-xs text-muted-foreground mb-1">Mood</p>
-          <div role="radiogroup" aria-label="Mood" className="flex gap-1">
+          <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mb-1">Mood</p>
+          <div role="radiogroup" aria-label="Mood" className="flex gap-0.5">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => (
               <button
                 key={v}
@@ -291,7 +295,7 @@ function DailyNoteEditor({ date }: { date: Date }) {
                 aria-label={`Mood ${v}`}
                 onClick={() => handleMoodChange(v)}
                 className={cn(
-                  "w-6 h-6 rounded text-[10px] font-medium transition-colors",
+                  "w-5 h-5 rounded text-[9px] font-mono font-medium transition-colors",
                   mood === v ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/70 text-muted-foreground"
                 )}
               >
@@ -301,8 +305,8 @@ function DailyNoteEditor({ date }: { date: Date }) {
           </div>
         </div>
         <div>
-          <p className="text-xs text-muted-foreground mb-1">Energy</p>
-          <div role="radiogroup" aria-label="Energy" className="flex gap-1">
+          <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mb-1">Energy</p>
+          <div role="radiogroup" aria-label="Energy" className="flex gap-0.5">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => (
               <button
                 key={v}
@@ -311,7 +315,7 @@ function DailyNoteEditor({ date }: { date: Date }) {
                 aria-label={`Energy ${v}`}
                 onClick={() => handleEnergyChange(v)}
                 className={cn(
-                  "w-6 h-6 rounded text-[10px] font-medium transition-colors",
+                  "w-5 h-5 rounded text-[9px] font-mono font-medium transition-colors",
                   energy === v ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/70 text-muted-foreground"
                 )}
               >
@@ -326,16 +330,16 @@ function DailyNoteEditor({ date }: { date: Date }) {
 
       {/* Editor */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">Loading...</div>
+        <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">Loading...</div>
       ) : isNew && !content ? (
-        <div className="text-center py-8 space-y-4">
-          <p className="text-muted-foreground">No note for this day</p>
-          {tasksDue.length > 0 && <p className="text-xs text-muted-foreground">{tasksDue.length} tasks due · {habitsToday.length} habits</p>}
+        <div className="text-center py-6 space-y-3">
+          <p className="text-muted-foreground text-sm">No note for this day</p>
+          {tasksDue.length > 0 && <p className="text-[10px] font-mono text-muted-foreground">{tasksDue.length} tasks due · {habitsToday.length} habits</p>}
           <div className="flex gap-2 justify-center">
-            <Button variant="outline" onClick={() => textareaRef.current?.focus()}>
-              <Plus className="h-4 w-4 mr-2" />Start Writing
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => textareaRef.current?.focus()}>
+              <Plus className="h-3 w-3 mr-1" />Start Writing
             </Button>
-            <Button variant="secondary" onClick={insertTemplate}>Insert Daily Template</Button>
+            <Button variant="secondary" size="sm" className="h-7 text-xs" onClick={insertTemplate}>Insert Daily Template</Button>
           </div>
         </div>
       ) : (
@@ -344,7 +348,7 @@ function DailyNoteEditor({ date }: { date: Date }) {
           value={content}
           onChange={(e) => handleContentChange(e.target.value)}
           placeholder="Write your daily note here..."
-          className="w-full min-h-[300px] bg-transparent border-none outline-none resize-none text-base leading-relaxed placeholder:text-muted-foreground/50"
+          className="w-full min-h-[280px] bg-transparent border-none outline-none resize-none text-sm font-mono leading-relaxed placeholder:text-muted-foreground/50"
         />
       )}
     </div>
@@ -357,10 +361,10 @@ function DailyNotesPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
 
   return (
-    <div className="flex gap-6 h-[calc(100vh-5rem)]">
+    <div className="flex gap-4 h-[calc(100vh-5rem)]">
       <CalendarSidebar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
       <Separator orientation="vertical" />
-      <ScrollArea className="flex-1 pr-4">
+      <ScrollArea className="flex-1 pr-3">
         <DailyNoteEditor date={selectedDate} />
       </ScrollArea>
     </div>
