@@ -30,6 +30,7 @@ import type { Task, State, StateGroup, PaginatedResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { parseTaskInput } from "@/lib/nlp";
 import { RecurrencePicker } from "@/components/tasks/recurrence-picker";
+import { showUndoToast } from "@/lib/undo/use-undo-toast";
 
 const STATE_GROUP_COLUMNS: { id: StateGroup; label: string; colorClass: string }[] = [
   { id: "backlog", label: "Backlog", colorClass: "bg-slate-400" },
@@ -340,7 +341,23 @@ function TasksPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete("/tasks/" + id),
-    onSuccess: () => {
+    onSuccess: (_, deletedId) => {
+      const task = tasks.find((t) => t.id === deletedId);
+      if (task) {
+        showUndoToast(
+          "task",
+          deletedId,
+          {
+            title: task.title,
+            priority: task.priority,
+            dueDate: task.dueDate,
+            description: task.description,
+            domain: task.domainId || undefined,
+          },
+          queryClient,
+          ["tasks"],
+        );
+      }
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
       setPanelOpen(false);
     },

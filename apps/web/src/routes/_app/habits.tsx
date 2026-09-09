@@ -20,6 +20,7 @@ import { EntityDetailPanel } from "@/components/entities/entity-detail-panel";
 import { LoadingState, EmptyState, ErrorState } from "@/components/state";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { showUndoToast } from "@/lib/undo/use-undo-toast";
 import type { Habit, HabitCompletion, PaginatedResponse } from "@/lib/types";
 
 function HabitForm({ habit, onClose }: { habit?: Habit; onClose: () => void }) {
@@ -163,7 +164,27 @@ function HabitsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete("/habits/" + id),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["habits"] }); setPanelOpen(false); },
+    onSuccess: (_, deletedId) => {
+      const habit = habits.find((h) => h.id === deletedId) || selectedHabit;
+      if (habit) {
+        showUndoToast(
+          "habit",
+          deletedId,
+          {
+            name: habit.name,
+            description: habit.description,
+            frequency: habit.frequency,
+            difficulty: habit.difficulty,
+            goalPerPeriod: habit.goalPerPeriod,
+            domain: habit.domainId || undefined,
+          },
+          queryClient,
+          ["habits"],
+        );
+      }
+      queryClient.invalidateQueries({ queryKey: ["habits"] });
+      setPanelOpen(false);
+    },
   });
 
   const openHabitDetail = (habit: Habit) => {
