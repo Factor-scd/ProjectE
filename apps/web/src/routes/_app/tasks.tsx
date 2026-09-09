@@ -9,7 +9,7 @@ import { useOpenCreateDialog } from "@/hooks/use-open-create-dialog";
 import { DndContext, DragOverlay, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, useDroppable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Plus, GripVertical, Pencil, Trash2, Calendar, ListTodo, Layout as LayoutIcon, Search, MoreHorizontal } from "lucide-react";
+import { Plus, GripVertical, Pencil, Trash2, Calendar, ListTodo, Layout as LayoutIcon, Search, MoreHorizontal, Bookmark, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,7 @@ import { PRIORITY } from "@/lib/status-colors";
 import type { Task, State, StateGroup, PaginatedResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { parseTaskInput } from "@/lib/nlp";
+import { useSavedViewsStore } from "@/lib/stores/use-saved-views-store";
 import { RecurrencePicker } from "@/components/tasks/recurrence-picker";
 import { BulkActionBar } from "@/components/tasks/bulk-action-bar";
 import { showUndoToast } from "@/lib/undo/use-undo-toast";
@@ -270,6 +271,11 @@ function TasksPage() {
   const projects = projectsData?.items || [];
 
   const [filterProjectId, setFilterProjectId] = useState("");
+  const [saveViewOpen, setSaveViewOpen] = useState(false);
+  const [viewName, setViewName] = useState("");
+  const savedViews = useSavedViewsStore((s) => s.views);
+  const addSavedView = useSavedViewsStore((s) => s.addView);
+  const removeSavedView = useSavedViewsStore((s) => s.removeView);
 
   const { data: statesData } = useApiQuery<{ items: State[] }>(
     ["states", filterProjectId],
@@ -696,6 +702,82 @@ function TasksPage() {
             </SelectContent>
           </Select>
         )}
+
+        {/* Saved views */}
+        {savedViews.length > 0 && (
+          <Select
+            value=""
+            onValueChange={(id) => {
+              const view = savedViews.find((v) => v.id === id);
+              if (view) {
+                setSearch(view.filters.search);
+                setFilterProjectId(view.filters.projectId);
+                setSelectedStateId(view.filters.stateId);
+              }
+            }}
+          >
+            <SelectTrigger className="w-44"><SelectValue placeholder="Saved views" /></SelectTrigger>
+            <SelectContent>
+              {savedViews.map((v) => (
+                <SelectItem key={v.id} value={v.id} className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Bookmark className="h-3 w-3" />
+                    {v.name}
+                  </span>
+                  <button
+                    className="ml-auto hover:text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeSavedView(v.id);
+                    }}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        <Dialog open={saveViewOpen} onOpenChange={setSaveViewOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1">
+              <Bookmark className="h-3.5 w-3.5" /> Save View
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Save Current Filters</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <Input
+                placeholder="View name"
+                value={viewName}
+                onChange={(e) => setViewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && viewName.trim()) {
+                    addSavedView(viewName.trim(), { search, projectId: filterProjectId, stateId: selectedStateId, priority: "" });
+                    setViewName("");
+                    setSaveViewOpen(false);
+                  }
+                }}
+              />
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setSaveViewOpen(false)}>Cancel</Button>
+                <Button
+                  disabled={!viewName.trim()}
+                  onClick={() => {
+                    addSavedView(viewName.trim(), { search, projectId: filterProjectId, stateId: selectedStateId, priority: "" });
+                    setViewName("");
+                    setSaveViewOpen(false);
+                  }}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {isLoading ? (
