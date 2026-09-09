@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { createRoute } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -398,18 +398,239 @@ function CustomFieldsTab() {
 
 // ─── Keyboard Shortcuts Tab ────────────────────────────────────────────────
 
+import { shortcuts as shortcutRegistry, type ShortcutDefinition } from "@/lib/shortcuts/registry";
+
+function loadRemaps(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem("project-e-shortcut-remaps") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveRemaps(remaps: Record<string, string>) {
+  localStorage.setItem("project-e-shortcut-remaps", JSON.stringify(remaps));
+  window.dispatchEvent(new CustomEvent("shortcuts-changed"));
+}
+
+function formatKeyCombo(keys: string[]): string {
+  return keys.join("+");
+}
+
 function ShortcutsTab() {
+  const [remaps, setRemaps] = useState<Record<string, string>>(loadRemaps);
+  const [recordingId, setRecordingId] = useState<string | null>(null);
+  const [pendingKeys, setPendingKeys] = useState<string[]>([]);
+  const [collisionWarning, setCollisionWarning] = useState<string | null>(null);
+  const recordingRef = useRef<HTMLDivElement | null>(null);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, ShortcutDefinition[]>();
+    for (const s of shortcutRegistry) {
+      const cat = s.category || "general";
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(s);
+    }
+    return map;
+  }, []);
+
+  const categoryLabels: Record<string, string> = {
+    navigation: "Navigation",
+    create: "Create",
+    general: "General",
+    palette: "Palette",
+  };
+
+  // Keydown handler while recording
+  useEffect(() => {
+    if (!recordingId) return;
+
+    const handler = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (e.key === "Escape") {
+        setRecordingId(null);
+        setPendingKeys([]);
+        setCollisionWarning(null);
+        return;
+      }
+
+      if (e.key === "Enter") {
+        if (pendingKeys.length === 0) return;
+
+        const combo = formatKeyCombo(pendingKeys);
+        // Check for collisions with other shortcuts
+        const existing = shortcutRegistry.find((s) => {
+          if (s.id === recordingId) return false;
+          const currentKeys = remaps[s.id] || s.defaultKeys;
+          return currentKeys === combo;
+        });
+        if (existing) {
+          setCollisionWarning(
+            `"${combo}" is already assigned to "${existing.description}". Choose a different combination.`
+          );
+          return;
+        }
+
+        setRemaps((prev) => {
+          const next = { ...prev, [recordingId]: combo };
+          saveRemaps(next);
+          return next;
+        });
+        setRecordingId(null);
+        setPendingKeys([]);
+        setCollisionWarning(null);
+        return;
+      }
+
+      // Build key combo from event
+      const parts: string[] = [];
+      if (e.ctrlKey || e.metaKey) parts.push("Mod");
+      if (e.altKey) parts.push("Alt");
+      if (e.shiftKey) parts.push("Shift");
+      const key = e.key.toLowerCase();
+      if (!["control", "meta", "alt", "shift"].includes(key)) {
+        parts.push(e.key.length === 1 ? e.key.toUpperCase() : e.key);
+      }
+      setPendingKeys(parts);
+    };
+
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [recordingId, pendingKeys, remaps]);
+
+  const handleReset = (id: string) => {
+    setRemaps((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      saveRemaps(next);
+      return next;
+    });
+  };
+
+  const getCurrentKeys = (shortcut: ShortcutDefinition): string => {
+    return remaps[shortcut.id] || shortcut.defaultKeys;
+  };
+
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold">Keyboard Shortcuts</h3>
-      <div className="space-y-1">
-        {Object.entries(SHORTCUTS_MAP).map(([key, desc]) => (
-          <div key={key} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-muted/50">
-            <span className="text-sm">{desc}</span>
-            <kbd className="px-2 py-0.5 text-xs font-mono bg-muted rounded border">{key}</kbd>
-          </div>
-        ))}
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold">Keyboard Shortcuts</h3>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setRemaps({});
+            saveRemaps({});
+          }}
+        >
+          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+          Reset All
+        </Button>
       </div>
+      <p className="text-sm text-muted-foreground">
+        Click "Record" to remap a shortcut. Press your desired key combination, then Enter to save or Esc to cancel.
+      </p>
+
+      {recordingId && (
+        <div
+          ref={recordingRef}
+          className="flex items-center justify-between p-3 rounded-lg border border-primary bg-primary/5"
+        >
+          <div>
+            <p className="text-sm font-medium">Recording shortcut for:</p>
+            <p className="text-xs text-muted-foreground">
+              {shortcutRegistry.find((s) => s.id === recordingId)?.description}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <kbd className="px-2 py-1 text-sm font-mono bg-muted rounded border min-w-[6rem] text-center">
+              {pendingKeys.length > 0 ? formatKeyCombo(pendingKeys) : "Press keys..."}
+            </kbd>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setRecordingId(null);
+                setPendingKeys([]);
+                setCollisionWarning(null);
+              }}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {collisionWarning && (
+        <div className="p-3 rounded-lg border border-destructive bg-destructive/5 text-sm text-destructive">
+          {collisionWarning}
+        </div>
+      )}
+
+      {Array.from(grouped.entries()).map(([category, shortcuts]) => (
+        <div key={category}>
+          <h4 className="text-sm font-medium text-muted-foreground mb-2 mt-4 first:mt-0">
+            {categoryLabels[category] || category}
+          </h4>
+          <div className="space-y-1">
+            {shortcuts.map((shortcut) => {
+              const isRecording = recordingId === shortcut.id;
+              const isRemapped = !!remaps[shortcut.id];
+              return (
+                <div
+                  key={shortcut.id}
+                  className={cn(
+                    "flex items-center justify-between py-2 px-3 rounded-lg transition-colors",
+                    isRecording ? "bg-primary/5 ring-1 ring-primary" : "hover:bg-muted/50"
+                  )}
+                >
+                  <span className="text-sm">{shortcut.description}</span>
+                  <div className="flex items-center gap-2">
+                    <kbd
+                      className={cn(
+                        "px-2 py-0.5 text-xs font-mono rounded border",
+                        isRemapped ? "bg-primary/10 border-primary/30" : "bg-muted"
+                      )}
+                    >
+                      {getCurrentKeys(shortcut)}
+                    </kbd>
+                    {isRecording ? (
+                      <span className="text-xs text-primary animate-pulse">Listening...</span>
+                    ) : (
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => {
+                            setRecordingId(shortcut.id);
+                            setPendingKeys([]);
+                            setCollisionWarning(null);
+                          }}
+                        >
+                          Record
+                        </Button>
+                        {isRemapped && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs text-muted-foreground"
+                            onClick={() => handleReset(shortcut.id)}
+                          >
+                            Reset
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -893,6 +1114,16 @@ function ErrorLogTab() {
 
 function SettingsPage() {
   const [activeTab, setActiveTab] = useState("appearance");
+
+  // Listen for open-settings-tab event dispatched by the command registry
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (typeof detail === "string") setActiveTab(detail);
+    };
+    document.addEventListener("open-settings-tab", handler);
+    return () => document.removeEventListener("open-settings-tab", handler);
+  }, []);
 
   return (
     <div className="flex flex-col md:flex-row gap-2 md:gap-6 h-auto md:h-[calc(100vh-5rem)]">
