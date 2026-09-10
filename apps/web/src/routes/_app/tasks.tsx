@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -9,7 +9,7 @@ import { useOpenCreateDialog } from "@/hooks/use-open-create-dialog";
 import { DndContext, DragOverlay, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, useDroppable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Plus, GripVertical, Pencil, Trash2, Calendar, ListTodo, Layout as LayoutIcon, Search, MoreHorizontal, Bookmark, X } from "lucide-react";
+import { Plus, GripVertical, Pencil, Trash2, Calendar, ListTodo, Layout as LayoutIcon, MoreHorizontal, Bookmark, X, CalendarDays } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,30 +21,33 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { EntityDetailPanel } from "@/components/entities/entity-detail-panel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
 import { LoadingState, EmptyState, ErrorState } from "@/components/state";
 import { CustomFieldInputs } from "@/components/custom-fields/custom-field-inputs";
 import { PRIORITY } from "@/lib/status-colors";
-import type { Task, State, StateGroup, PaginatedResponse } from "@/lib/types";
+import type { Task, State, PaginatedResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { parseTaskInput } from "@/lib/nlp";
 import { useSavedViewsStore } from "@/lib/stores/use-saved-views-store";
 import { RecurrencePicker } from "@/components/tasks/recurrence-picker";
 import { BulkActionBar } from "@/components/tasks/bulk-action-bar";
+import { FilterBar, type DueFilter } from "@/components/filters/filter-bar";
+import { QuickAddBar } from "@/components/tasks/quick-add-bar";
+import { TaskDetailPanel } from "@/components/tasks/task-detail-panel";
 import { showUndoToast } from "@/lib/undo/use-undo-toast";
+import { format, parseISO, startOfDay, endOfDay, addDays, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isToday } from "date-fns";
 
-const STATE_GROUP_COLUMNS: { id: StateGroup; label: string; colorClass: string }[] = [
-  { id: "backlog", label: "Backlog", colorClass: "bg-slate-400" },
-  { id: "unstarted", label: "Unstarted", colorClass: "bg-slate-500" },
-  { id: "started", label: "Started", colorClass: "bg-blue-500" },
-  { id: "completed", label: "Completed", colorClass: "bg-green-500" },
-  { id: "cancelled", label: "Cancelled", colorClass: "bg-red-500" },
+/** Fallback columns when no project is selected (group by task status). */
+const FALLBACK_COLUMNS: { id: string; label: string; colorClass: string; statuses: string[] }[] = [
+  { id: "todo", label: "Todo", colorClass: "bg-slate-400", statuses: ["todo"] },
+  { id: "in_progress", label: "In Progress", colorClass: "bg-blue-500", statuses: ["in_progress"] },
+  { id: "done", label: "Done", colorClass: "bg-green-500", statuses: ["done"] },
+  { id: "cancelled", label: "Cancelled", colorClass: "bg-red-500", statuses: ["cancelled"] },
 ];
 
-function SortableTaskCard({ task, stateName, stateColor, onClick, onEdit }: { task: Task; stateName?: string; stateColor?: string | null; onClick: () => void; onEdit?: () => void }) {
+function SortableTaskCard({ task, stateName, stateColor, projectName, onClick, onEdit }: { task: Task; stateName?: string; stateColor?: string | null; projectName?: string; onClick: () => void; onEdit?: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
 
   const style = {
@@ -53,42 +56,47 @@ function SortableTaskCard({ task, stateName, stateColor, onClick, onEdit }: { ta
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const overdue = task.dueDate && !task.completedAt && new Date(task.dueDate) < new Date();
+
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <Card className="cursor-pointer border rounded-lg transition-colors hover:bg-muted/20" onClick={onClick}>
+      <Card className="cursor-pointer rounded-lg border border-[#d9dee7] bg-white transition-colors hover:bg-[#f7f8fa]" onClick={onClick}>
         <CardContent className="p-2.5">
           <div className="flex items-start gap-2">
-            <GripVertical className="h-4 w-4 mt-1 shrink-0 text-muted-foreground" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{task.title}</p>
-              <div className="flex flex-wrap gap-1 mt-1.5">
+            <GripVertical className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{task.title}</p>
+              <div className="mt-1.5 flex flex-wrap gap-1">
                 {stateName && (
-                  <Badge variant="secondary" className="font-mono text-[10px] gap-1" style={stateColor ? { backgroundColor: stateColor + "20", color: stateColor } : undefined}>
+                  <Badge variant="secondary" className="gap-1 font-mono text-[10px]" style={stateColor ? { backgroundColor: stateColor + "20", color: stateColor } : undefined}>
                     <span className="h-1.5 w-1.5 rounded-full" style={stateColor ? { backgroundColor: stateColor } : undefined} />
                     {stateName}
                   </Badge>
                 )}
                 {task.dueDate && (
-                  <Badge variant="outline" className="font-mono text-[10px]">
-                    <Calendar className="h-3 w-3 mr-1" />
+                  <Badge variant="outline" className={cn("font-mono text-[10px]", overdue && "border-[#ffccc7] bg-[#fff2f0] text-[#820014]")}>
+                    <Calendar className="mr-1 h-3 w-3" />
                     {new Date(task.dueDate).toLocaleDateString()}
                   </Badge>
                 )}
                 <Badge variant="secondary" className={cn("font-mono text-[10px]", PRIORITY[task.priority]?.badge)}>
                   {PRIORITY[task.priority]?.label ?? task.priority}
                 </Badge>
-                {task.tags?.slice(0, 2).map((tag) => (
+                {task.tags?.slice(0, 3).map((tag) => (
                   <Badge key={tag.id} variant="outline" className="font-mono text-[10px]" style={{ borderColor: tag.color || undefined }}>
                     {tag.name}
                   </Badge>
                 ))}
               </div>
+              {projectName && (
+                <p className="mt-1 truncate text-[11px] text-muted-foreground">{projectName}</p>
+              )}
             </div>
             {onEdit && (
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 -mt-1 -mr-1 shrink-0"
+                className="-mr-1 -mt-1 h-7 w-7 shrink-0"
                 onClick={(e) => { e.stopPropagation(); onEdit(); }}
                 aria-label={"Edit " + task.title}
               >
@@ -169,6 +177,7 @@ function TaskForm({ task, onClose, projectId }: { task?: Task; onClose: () => vo
     if (recurrenceRule) data.recurrenceRule = recurrenceRule;
     const customFields = { ...customFieldValues };
     if (Object.keys(customFields).length > 0) data.customFields = customFields;
+    if (projectId && !task) data.projectId = projectId;
     if (task) {
       updateMutation.mutate(data);
     } else {
@@ -182,8 +191,8 @@ function TaskForm({ task, onClose, projectId }: { task?: Task; onClose: () => vo
         <Label htmlFor="title">Title <span className="text-xs text-muted-foreground">— try "Buy milk tomorrow 5pm #groceries p1"</span></Label>
         <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder='e.g. Report due tomorrow 5pm #work p1' required />
         {parsed && (parsed.dueDate || parsed.priority || parsed.tags.length > 0) && (
-          <div className="flex flex-wrap gap-1 mt-1.5">
-            {parsed.dueDate && <Badge variant="outline" className="text-[10px]">Due {new Date(parsed.dueDate).toLocaleDateString()} {new Date(parsed.dueDate).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</Badge>}
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {parsed.dueDate && <Badge variant="outline" className="border-[#91caff] bg-[#e6f4ff] text-[10px] text-[#002c8c]">Due {new Date(parsed.dueDate).toLocaleDateString()} {new Date(parsed.dueDate).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</Badge>}
             {parsed.priority && <Badge variant="secondary" className="text-[10px]">Priority {parsed.priority}</Badge>}
             {parsed.tags.map(t => <Badge key={t} variant="outline" className="text-[10px]">#{t}</Badge>)}
           </div>
@@ -242,14 +251,106 @@ function TaskForm({ task, onClose, projectId }: { task?: Task; onClose: () => vo
   );
 }
 
+function applyDueFilter(tasks: Task[], dueFilter: DueFilter): Task[] {
+  if (dueFilter === "all") return tasks;
+  const now = new Date();
+  const todayStart = startOfDay(now);
+  const todayEnd = endOfDay(now);
+  const weekEnd = endOfDay(addDays(now, 7));
+  return tasks.filter((t) => {
+    if (dueFilter === "none") return !t.dueDate;
+    if (!t.dueDate) return false;
+    const d = new Date(t.dueDate);
+    if (dueFilter === "overdue") return d < now && !t.completedAt;
+    if (dueFilter === "today") return d >= todayStart && d <= todayEnd;
+    if (dueFilter === "week") return d >= todayStart && d <= weekEnd;
+    return true;
+  });
+}
+
+function TasksCalendar({ tasks, onSelectTask }: { tasks: Task[]; onSelectTask: (t: Task) => void }) {
+  const [month, setMonth] = useState(() => startOfMonth(new Date()));
+  const days = useMemo(() => {
+    const start = startOfWeek(startOfMonth(month));
+    const end = endOfWeek(endOfMonth(month));
+    return eachDayOfInterval({ start, end });
+  }, [month]);
+
+  const byDay = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const t of tasks) {
+      if (!t.dueDate) continue;
+      const key = format(parseISO(t.dueDate), "yyyy-MM-dd");
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(t);
+    }
+    return map;
+  }, [tasks]);
+
+  return (
+    <div className="rounded-lg border border-[#d9dee7] bg-white">
+      <div className="flex items-center justify-between border-b border-[#f1f1f1] px-3 py-2">
+        <h3 className="font-mono text-sm font-semibold">{format(month, "MMMM yyyy")}</h3>
+        <div className="flex gap-1">
+          <Button variant="outline" size="sm" className="h-7" onClick={() => setMonth(startOfMonth(new Date()))}>Today</Button>
+          <Button variant="outline" size="sm" className="h-7" onClick={() => setMonth(addDays(startOfMonth(month), -15))}>←</Button>
+          <Button variant="outline" size="sm" className="h-7" onClick={() => setMonth(addDays(endOfMonth(month), 15))}>→</Button>
+        </div>
+      </div>
+      <div className="grid grid-cols-7 border-b border-[#f1f1f1] bg-[#fafafa]">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+          <div key={d} className="px-2 py-1 text-center text-[11px] font-semibold text-muted-foreground">{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7">
+        {days.map((day) => {
+          const key = format(day, "yyyy-MM-dd");
+          const dayTasks = byDay.get(key) || [];
+          return (
+            <div
+              key={key}
+              className={cn(
+                "min-h-[84px] border-b border-r border-[#f1f1f1] p-1 [&:nth-child(7n)]:border-r-0",
+                !isSameMonth(day, month) && "bg-[#fafafa]/60 text-muted-foreground"
+              )}
+            >
+              <p className={cn("px-1 font-mono text-[11px]", isToday(day) && "font-bold text-[#1677ff]")}>
+                {format(day, "d")}
+              </p>
+              <div className="space-y-0.5">
+                {dayTasks.slice(0, 3).map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => onSelectTask(t)}
+                    className="block w-full truncate rounded border border-[#91caff] bg-[#e6f4ff] px-1 py-0.5 text-left text-[11px] text-[#002c8c] hover:bg-[#bae0ff]"
+                  >
+                    {t.title}
+                  </button>
+                ))}
+                {dayTasks.length > 3 && (
+                  <p className="px-1 text-[10px] text-muted-foreground">+{dayTasks.length - 3} more</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function TasksPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [view, setView] = useState<"board" | "list">("board");
+  const [view, setView] = useState<"board" | "list" | "calendar">("board");
   const [search, setSearch] = useState("");
+  const [priority, setPriority] = useState("");
+  const [dueFilter, setDueFilter] = useState<DueFilter>("all");
   const [selectedStateId, setSelectedStateId] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [panelTaskId, setPanelTaskId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number>(-1);
@@ -264,11 +365,12 @@ function TasksPage() {
 
   const activeDomainId = useApiDomain();
 
-  const { data: projectsData } = useApiQuery<PaginatedResponse<{ id: string; name: string }>>(
+  const { data: projectsData } = useApiQuery<PaginatedResponse<{ id: string; name: string; color?: string | null }>>(
     ["projects", activeDomainId],
     "/projects?limit=200" + (activeDomainId ? "&domain=" + activeDomainId : "")
   );
   const projects = projectsData?.items || [];
+  const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
 
   const [filterProjectId, setFilterProjectId] = useState("");
   const [saveViewOpen, setSaveViewOpen] = useState(false);
@@ -282,19 +384,22 @@ function TasksPage() {
     "/states?projectId=" + filterProjectId,
     { enabled: !!filterProjectId }
   );
-  const projectStates = statesData?.items || [];
-
-  const stateGroupOf = useMemo(() => {
-    const map = new Map<string, StateGroup>();
-    for (const s of projectStates) map.set(s.id, s.group);
-    return map;
-  }, [projectStates]);
+  const projectStates = useMemo(() => (statesData?.items || []).sort((a, b) => a.sortOrder - b.sortOrder), [statesData]);
 
   const stateById = useMemo(() => {
     const map = new Map<string, State>();
     for (const s of projectStates) map.set(s.id, s);
     return map;
   }, [projectStates]);
+
+  const groupedQuery = useQuery({
+    queryKey: ["task-groups", activeDomainId, filterProjectId],
+    queryFn: () =>
+      api.get<{ groups: { id: string; name: string; color: string | null; group?: string; tasks: Task[] }[]; totalItems: number }>(
+        "/tasks/grouped?group_by=state" + (activeDomainId ? "&domain=" + activeDomainId : "") + (filterProjectId ? "&project_id=" + filterProjectId : "")
+      ),
+    enabled: !!filterProjectId,
+  });
 
   const taskQueryParams = () =>
     new URLSearchParams({
@@ -303,15 +408,17 @@ function TasksPage() {
       ...(search ? { search } : {}),
       ...(filterProjectId ? { project_id: filterProjectId } : {}),
       ...(selectedStateId ? { state_id: selectedStateId } : {}),
+      ...(priority ? { priority } : {}),
     }).toString();
 
   const { data: tasksData, isLoading, isError, refetch } = useApiQuery<PaginatedResponse<Task>>(
-    ["tasks", activeDomainId, search, filterProjectId, selectedStateId],
+    ["tasks", activeDomainId, search, filterProjectId, selectedStateId, priority],
     "/tasks?" + taskQueryParams()
   );
 
-  const tasks = tasksData?.items || [];
-  const hasMoreTasks = tasks.length < (tasksData?.totalItems || 0);
+  const allTasks = tasksData?.items || [];
+  const tasks = useMemo(() => applyDueFilter(allTasks, dueFilter), [allTasks, dueFilter]);
+  const hasMoreTasks = allTasks.length < (tasksData?.totalItems || 0);
   const [loadingMoreTasks, setLoadingMoreTasks] = useState(false);
 
   // Keyboard navigation for list view
@@ -358,36 +465,6 @@ function TasksPage() {
             });
           }
           break;
-        case "J":
-          if (e.shiftKey) {
-            e.preventDefault();
-            if (tasks.length > 1) {
-              const newOrder = tasks.map((t) => t.id);
-              const idx = currentIdx;
-              const nextIdx = Math.min(idx + 1, tasks.length - 1);
-              if (idx !== nextIdx) {
-                [newOrder[idx], newOrder[nextIdx]] = [newOrder[nextIdx], newOrder[idx]];
-                reorderMutation.mutate({ orderedIds: newOrder });
-                setSelectedRowIndex(nextIdx);
-              }
-            }
-          }
-          break;
-        case "K":
-          if (e.shiftKey) {
-            e.preventDefault();
-            if (tasks.length > 1) {
-              const newOrder = tasks.map((t) => t.id);
-              const idx = currentIdx;
-              const nextIdx = Math.max(idx - 1, 0);
-              if (idx !== nextIdx) {
-                [newOrder[idx], newOrder[nextIdx]] = [newOrder[nextIdx], newOrder[idx]];
-                reorderMutation.mutate({ orderedIds: newOrder });
-                setSelectedRowIndex(nextIdx);
-              }
-            }
-          }
-          break;
         case "Enter":
           if (selectedRowIndex >= 0 && selectedRowIndex < tasks.length) {
             e.preventDefault();
@@ -407,7 +484,6 @@ function TasksPage() {
             e.preventDefault();
             const task = tasks[selectedRowIndex];
             const newStatus = task.status === "done" ? "todo" : "done";
-            stateUpdateMutation.mutate({ taskId: task.id, stateId: task.stateId || "" });
             api.patch(`/tasks/${task.id}`, { status: newStatus }).then(() => {
               queryClient.invalidateQueries({ queryKey: ["tasks"] });
             });
@@ -425,7 +501,7 @@ function TasksPage() {
 
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [view, tasks, selectedRowIndex, selectedTaskIds]);
+  }, [view, tasks, selectedRowIndex, selectedTaskIds, queryClient]);
 
   // Hide kbd hint after 5 seconds
   useEffect(() => {
@@ -439,9 +515,9 @@ function TasksPage() {
     setLoadingMoreTasks(true);
     try {
       const next = await api.get<PaginatedResponse<Task>>(
-        "/tasks?" + new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(taskQueryParams())), offset: String(tasks.length) }).toString()
+        "/tasks?" + new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(taskQueryParams())), offset: String(allTasks.length) }).toString()
       );
-      queryClient.setQueryData<PaginatedResponse<Task>>(["tasks", activeDomainId, search, filterProjectId, selectedStateId], (old) => {
+      queryClient.setQueryData<PaginatedResponse<Task>>(["tasks", activeDomainId, search, filterProjectId, selectedStateId, priority], (old) => {
         if (!old) return old;
         const seen = new Set(old.items.map((t) => t.id));
         return { ...old, items: [...old.items, ...next.items.filter((t) => !seen.has(t.id))] };
@@ -456,8 +532,17 @@ function TasksPage() {
       api.patch<Task>("/tasks/" + taskId, { stateId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["task-groups"] });
     },
     onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+  });
+
+  const statusUpdateMutation = useMutation({
+    mutationFn: ({ taskId, status }: { taskId: string; status: string }) =>
+      api.patch<Task>("/tasks/" + taskId, { status }),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
   });
@@ -548,15 +633,12 @@ function TasksPage() {
     useSensor(KeyboardSensor)
   );
 
-  const taskGroupOf = useCallback(
-    (task: Task): StateGroup => {
-      if (task.stateId) {
-        const group = stateGroupOf.get(task.stateId);
-        if (group) return group;
-      }
-      return "unstarted";
+  const columnOfTask = useCallback(
+    (task: Task): string => {
+      if (filterProjectId) return task.stateId || "__none__";
+      return task.status || "todo";
     },
-    [stateGroupOf]
+    [filterProjectId]
   );
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -574,25 +656,26 @@ function TasksPage() {
     const draggedTask = tasks.find((t) => t.id === taskId);
     if (!draggedTask) return;
 
-    const columnTasks = (group: StateGroup) =>
+    const columnTasks = (colId: string) =>
       tasks
-        .filter((t) => taskGroupOf(t) === group)
+        .filter((t) => columnOfTask(t) === colId)
         .sort((a, b) => a.order - b.order);
 
-    let targetGroup: StateGroup;
+    const allColumnIds = columns.map((c) => c.id);
+    let targetColumn: string;
     let insertIndex: number;
-    if (STATE_GROUP_COLUMNS.some((c) => c.id === overId)) {
-      targetGroup = overId as StateGroup;
+    if (allColumnIds.includes(overId)) {
+      targetColumn = overId;
       insertIndex = -1;
     } else {
       const overTask = tasks.find((t) => t.id === overId);
       if (!overTask) return;
-      targetGroup = taskGroupOf(overTask);
-      const overIndex = columnTasks(targetGroup).findIndex((t) => t.id === overId);
+      targetColumn = columnOfTask(overTask);
+      const overIndex = columnTasks(targetColumn).findIndex((t) => t.id === overId);
       insertIndex = overIndex === -1 ? -1 : overIndex;
     }
 
-    const targetIds = columnTasks(targetGroup)
+    const targetIds = columnTasks(targetColumn)
       .map((t) => t.id)
       .filter((id) => id !== taskId);
     if (insertIndex === -1) {
@@ -601,15 +684,15 @@ function TasksPage() {
       targetIds.splice(Math.min(insertIndex, targetIds.length), 0, taskId);
     }
 
-    const currentIds = columnTasks(targetGroup).map((t) => t.id);
+    const currentIds = columnTasks(targetColumn).map((t) => t.id);
     const unchanged =
       currentIds.length === targetIds.length &&
       currentIds.every((id, i) => id === targetIds[i]);
     if (unchanged) return;
 
-    const groupChanged = taskGroupOf(draggedTask) !== targetGroup;
+    const groupChanged = columnOfTask(draggedTask) !== targetColumn;
     const orderById = new Map(targetIds.map((id, i) => [id, i]));
-    queryClient.setQueryData<PaginatedResponse<Task>>(["tasks", activeDomainId, search, filterProjectId, selectedStateId], (old) => {
+    queryClient.setQueryData<PaginatedResponse<Task>>(["tasks", activeDomainId, search, filterProjectId, selectedStateId, priority], (old) => {
       if (!old) return old;
       return {
         ...old,
@@ -620,10 +703,12 @@ function TasksPage() {
       };
     });
 
-    if (groupChanged && draggedTask.projectId) {
-      const firstStateInGroup = projectStates.find((s) => s.group === targetGroup && s.projectId === draggedTask.projectId);
-      if (firstStateInGroup) {
-        stateUpdateMutation.mutate({ taskId, stateId: firstStateInGroup.id });
+    if (groupChanged) {
+      if (filterProjectId && targetColumn !== "__none__") {
+        stateUpdateMutation.mutate({ taskId, stateId: targetColumn });
+      } else if (!filterProjectId) {
+        const statusMap: Record<string, string> = { todo: "todo", in_progress: "in_progress", done: "done", cancelled: "cancelled" };
+        if (statusMap[targetColumn]) statusUpdateMutation.mutate({ taskId, status: statusMap[targetColumn] });
       }
     }
     reorderMutation.mutate({ orderedIds: targetIds });
@@ -635,32 +720,66 @@ function TasksPage() {
 
   const openTaskPanel = (task: Task) => {
     setSelectedTask(task);
+    setPanelTaskId(task.id);
     setPanelOpen(true);
   };
 
+  const clearFilters = () => {
+    setSearch("");
+    setFilterProjectId("");
+    setSelectedStateId("");
+    setPriority("");
+    setDueFilter("all");
+  };
+
   const columns = useMemo(() => {
-    return STATE_GROUP_COLUMNS.map((col) => ({
-      ...col,
-      tasks: tasks
-        .filter((t) => taskGroupOf(t) === col.id)
-        .sort((a, b) => a.order - b.order),
+    if (filterProjectId) {
+      const groups = groupedQuery.data?.groups;
+      if (groups) {
+        return groups.map((g) => ({
+          id: g.id,
+          label: g.name,
+          color: g.color,
+          tasks: applyDueFilter(
+            g.tasks.filter((t) =>
+              (!search || t.title.toLowerCase().includes(search.toLowerCase())) &&
+              (!selectedStateId || t.stateId === selectedStateId) &&
+              (!priority || t.priority === priority)
+            ),
+            dueFilter
+          ).sort((a, b) => a.order - b.order),
+        }));
+      }
+      return projectStates.map((s) => ({
+        id: s.id,
+        label: s.name,
+        color: s.color,
+        tasks: tasks.filter((t) => t.stateId === s.id).sort((a, b) => a.order - b.order),
+      }));
+    }
+    return FALLBACK_COLUMNS.map((col) => ({
+      id: col.id,
+      label: col.label,
+      colorClass: col.colorClass,
+      tasks: tasks.filter((t) => col.statuses.includes(t.status)).sort((a, b) => a.order - b.order),
     }));
-  }, [tasks, taskGroupOf]);
+  }, [filterProjectId, groupedQuery.data, projectStates, tasks, search, selectedStateId, priority, dueFilter]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Tasks</h1>
         <div className="flex items-center gap-2">
-          <Tabs value={view} onValueChange={(v) => setView(v as "board" | "list")}>
+          <Tabs value={view} onValueChange={(v) => setView(v as "board" | "list" | "calendar")}>
             <TabsList>
               <TabsTrigger value="board" aria-label="Board view"><LayoutIcon className="h-4 w-4" /></TabsTrigger>
               <TabsTrigger value="list" aria-label="List view"><ListTodo className="h-4 w-4" /></TabsTrigger>
+              <TabsTrigger value="calendar" aria-label="Calendar view"><CalendarDays className="h-4 w-4" /></TabsTrigger>
             </TabsList>
           </Tabs>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
-              <Button aria-label="New task"><Plus className="h-4 w-4 mr-2" />New Task</Button>
+              <Button aria-label="New task"><Plus className="mr-2 h-4 w-4" />New Task</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
@@ -672,67 +791,46 @@ function TasksPage() {
         </div>
       </div>
 
-      <div className="flex gap-1.5 flex-wrap">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search tasks..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
-        </div>
-        <Select value={filterProjectId} onValueChange={setFilterProjectId}>
-          <SelectTrigger className="w-44"><SelectValue placeholder="All projects" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">All projects</SelectItem>
-            {projects.map((p) => (
-              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {filterProjectId && projectStates.length > 0 && (
-          <Select value={selectedStateId} onValueChange={setSelectedStateId}>
-            <SelectTrigger className="w-40"><SelectValue placeholder="All states" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">All states</SelectItem>
-              {projectStates.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  <span className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color || "#94a3b8" }} />
-                    {s.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+      <QuickAddBar projectId={filterProjectId || undefined} onMoreOptions={() => setCreateOpen(true)} />
 
-        {/* Saved views */}
+      <FilterBar
+        search={search}
+        onSearchChange={setSearch}
+        projects={projects}
+        projectId={filterProjectId}
+        onProjectChange={(v) => { setFilterProjectId(v); setSelectedStateId(""); }}
+        states={projectStates}
+        stateId={selectedStateId}
+        onStateChange={setSelectedStateId}
+        priority={priority}
+        onPriorityChange={setPriority}
+        dueFilter={dueFilter}
+        onDueChange={setDueFilter}
+        onClearAll={clearFilters}
+      />
+
+      <div className="flex flex-wrap items-center gap-1.5">
         {savedViews.length > 0 && (
           <Select
             value=""
-            onValueChange={(id) => {
-              const view = savedViews.find((v) => v.id === id);
-              if (view) {
-                setSearch(view.filters.search);
-                setFilterProjectId(view.filters.projectId);
-                setSelectedStateId(view.filters.stateId);
+            onValueChange={(vid) => {
+              const v = savedViews.find((sv) => sv.id === vid);
+              if (v) {
+                setSearch(v.filters.search);
+                setFilterProjectId(v.filters.projectId);
+                setSelectedStateId(v.filters.stateId);
+                setPriority(v.filters.priority);
               }
             }}
           >
-            <SelectTrigger className="w-44"><SelectValue placeholder="Saved views" /></SelectTrigger>
+            <SelectTrigger className="h-7 w-44 text-xs"><SelectValue placeholder="Saved views" /></SelectTrigger>
             <SelectContent>
               {savedViews.map((v) => (
-                <SelectItem key={v.id} value={v.id} className="flex items-center justify-between">
+                <SelectItem key={v.id} value={v.id}>
                   <span className="flex items-center gap-2">
                     <Bookmark className="h-3 w-3" />
                     {v.name}
                   </span>
-                  <button
-                    className="ml-auto hover:text-destructive"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeSavedView(v.id);
-                    }}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -741,7 +839,7 @@ function TasksPage() {
 
         <Dialog open={saveViewOpen} onOpenChange={setSaveViewOpen}>
           <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1">
+            <Button variant="outline" size="sm" className="h-7 gap-1 text-xs">
               <Bookmark className="h-3.5 w-3.5" /> Save View
             </Button>
           </DialogTrigger>
@@ -756,7 +854,7 @@ function TasksPage() {
                 onChange={(e) => setViewName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && viewName.trim()) {
-                    addSavedView(viewName.trim(), { search, projectId: filterProjectId, stateId: selectedStateId, priority: "" });
+                    addSavedView(viewName.trim(), { search, projectId: filterProjectId, stateId: selectedStateId, priority });
                     setViewName("");
                     setSaveViewOpen(false);
                   }
@@ -767,7 +865,7 @@ function TasksPage() {
                 <Button
                   disabled={!viewName.trim()}
                   onClick={() => {
-                    addSavedView(viewName.trim(), { search, projectId: filterProjectId, stateId: selectedStateId, priority: "" });
+                    addSavedView(viewName.trim(), { search, projectId: filterProjectId, stateId: selectedStateId, priority });
                     setViewName("");
                     setSaveViewOpen(false);
                   }}
@@ -778,6 +876,22 @@ function TasksPage() {
             </div>
           </DialogContent>
         </Dialog>
+        {savedViews.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {savedViews.map((v) => (
+              <Badge key={v.id} variant="outline" className="gap-1 text-[10px]">
+                {v.name}
+                <button
+                  className="ml-0.5 hover:text-destructive"
+                  onClick={() => removeSavedView(v.id)}
+                  aria-label={`Remove saved view ${v.name}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -786,18 +900,22 @@ function TasksPage() {
         <ErrorState message="Failed to load tasks." onRetry={() => refetch()} />
       ) : view === "board" ? (
         <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
             {columns.map((col) => (
-              <ColumnDroppable key={col.id} id={col.id} className="bg-muted/50 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
+              <ColumnDroppable key={col.id} id={col.id} className="rounded-lg border border-[#d9dee7] bg-[#f7f8fa] p-2.5">
+                <div className="mb-2 flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className={cn("w-2 h-2 rounded-full", col.colorClass)} />
-                    <h3 className="font-semibold text-sm">{col.label}</h3>
+                    {"color" in col && col.color ? (
+                      <div className="h-2 w-2 rounded-full" style={{ backgroundColor: col.color as string }} />
+                    ) : (
+                      <div className={cn("h-2 w-2 rounded-full", (col as any).colorClass || "bg-slate-400")} />
+                    )}
+                    <h3 className="text-sm font-semibold">{col.label}</h3>
                     <Badge variant="secondary" className="font-mono text-[10px]">{col.tasks.length}</Badge>
                   </div>
                 </div>
                 <SortableContext items={col.tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-                  <div className="space-y-1.5 min-h-[100px]">
+                  <div className="min-h-[100px] space-y-1.5">
                     {col.tasks.map((task) => {
                       const st = task.stateId ? stateById.get(task.stateId) : undefined;
                       return (
@@ -806,13 +924,14 @@ function TasksPage() {
                           task={task}
                           stateName={st?.name}
                           stateColor={st?.color}
-                          onClick={() => openTaskDetail(task)}
+                          projectName={!filterProjectId ? projectById.get(task.projectId || "")?.name : undefined}
+                          onClick={() => openTaskPanel(task)}
                           onEdit={() => openTaskPanel(task)}
                         />
                       );
                     })}
                     {col.tasks.length === 0 && (
-                      <p className="text-xs text-muted-foreground text-center py-4">No tasks</p>
+                      <p className="py-4 text-center text-xs text-muted-foreground">No tasks</p>
                     )}
                   </div>
                 </SortableContext>
@@ -820,17 +939,19 @@ function TasksPage() {
             ))}
           </div>
           <DragOverlay>
-            {activeId ? <div className="p-3 bg-card rounded-lg shadow-lg border opacity-80">Moving...</div> : null}
+            {activeId ? <div className="rounded-lg border bg-card p-3 opacity-80 shadow-lg">Moving...</div> : null}
           </DragOverlay>
         </DndContext>
+      ) : view === "calendar" ? (
+        <TasksCalendar tasks={tasks} onSelectTask={openTaskPanel} />
       ) : (
-        <div className="border rounded-lg relative">
+        <div className="relative rounded-lg border border-[#d9dee7] bg-white">
           {view === "list" && showKbdHint && (
-            <div className="absolute top-0 right-0 text-[10px] text-muted-foreground flex gap-3 p-2 z-10">
-              <span><kbd className="px-1 py-0.5 rounded border bg-muted font-mono">j</kbd>/<kbd className="px-1 py-0.5 rounded border bg-muted font-mono">k</kbd> navigate</span>
-              <span><kbd className="px-1 py-0.5 rounded border bg-muted font-mono">Enter</kbd> open</span>
-              <span><kbd className="px-1 py-0.5 rounded border bg-muted font-mono">e</kbd> edit</span>
-              <span><kbd className="px-1 py-0.5 rounded border bg-muted font-mono">x</kbd> toggle</span>
+            <div className="absolute right-0 top-0 z-10 flex gap-3 p-2 text-[10px] text-muted-foreground">
+              <span><kbd className="rounded border bg-muted px-1 py-0.5 font-mono">j</kbd>/<kbd className="rounded border bg-muted px-1 py-0.5 font-mono">k</kbd> navigate</span>
+              <span><kbd className="rounded border bg-muted px-1 py-0.5 font-mono">Enter</kbd> open</span>
+              <span><kbd className="rounded border bg-muted px-1 py-0.5 font-mono">e</kbd> edit</span>
+              <span><kbd className="rounded border bg-muted px-1 py-0.5 font-mono">x</kbd> toggle</span>
             </div>
           )}
           <Table>
@@ -865,7 +986,7 @@ function TasksPage() {
                     key={task.id}
                     data-row-index={idx}
                     className={cn(
-                      "cursor-pointer hover:bg-muted/30 py-2",
+                      "cursor-pointer py-2 hover:bg-muted/30",
                       idx === selectedRowIndex && "bg-accent/50 ring-1 ring-[hsl(var(--accent-hsl))]"
                     )}
                     onClick={(e) => {
@@ -880,7 +1001,7 @@ function TasksPage() {
                           return next;
                         });
                       } else {
-                        openTaskDetail(task);
+                        openTaskPanel(task);
                       }
                     }}
                   >
@@ -902,7 +1023,7 @@ function TasksPage() {
                         />
                       </TableCell>
                     )}
-                    <TableCell className="font-medium py-2">
+                    <TableCell className="py-2 font-medium">
                       {editingTaskId === task.id ? (
                         <Input
                           autoFocus
@@ -927,7 +1048,7 @@ function TasksPage() {
                     </TableCell>
                     <TableCell className="py-2">
                       {st ? (
-                        <Badge variant="secondary" className="font-mono text-[10px] gap-1" style={st.color ? { backgroundColor: st.color + "20", color: st.color } : undefined}>
+                        <Badge variant="secondary" className="gap-1 font-mono text-[10px]" style={st.color ? { backgroundColor: st.color + "20", color: st.color } : undefined}>
                           <span className="h-1.5 w-1.5 rounded-full" style={st.color ? { backgroundColor: st.color } : undefined} />
                           {st.name}
                         </Badge>
@@ -938,7 +1059,7 @@ function TasksPage() {
                     <TableCell className="py-2">
                       <Badge variant="outline" className={cn("font-mono text-[10px]", PRIORITY[task.priority]?.badge)}>{task.priority}</Badge>
                     </TableCell>
-                    <TableCell className="font-mono text-[10px] text-muted-foreground py-2">
+                    <TableCell className="py-2 font-mono text-[10px] text-muted-foreground">
                       {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "-"}
                     </TableCell>
                     <TableCell className="py-2">
@@ -947,7 +1068,8 @@ function TasksPage() {
                           <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openTaskPanel(task)}>Edit</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openTaskPanel(task)}>Quick view</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openTaskDetail(task)}>Open full page</DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate(task.id)}>Delete</DropdownMenuItem>
                         </DropdownMenuContent>
@@ -972,7 +1094,7 @@ function TasksPage() {
         </div>
       )}
 
-      {hasMoreTasks && (
+      {hasMoreTasks && view !== "calendar" && (
         <div className="flex justify-center pt-2">
           <Button variant="outline" size="sm" onClick={loadMoreTasks} disabled={loadingMoreTasks}>
             {loadingMoreTasks ? "Loading..." : "Load more tasks"}
@@ -980,30 +1102,39 @@ function TasksPage() {
         </div>
       )}
 
-      <EntityDetailPanel open={panelOpen} onOpenChange={setPanelOpen} title={selectedTask?.title || "Task Details"}>
-        {selectedTask && (
-    <div className="space-y-3">
-            <TaskForm task={selectedTask} onClose={() => setPanelOpen(false)} />
-            <div className="pt-4 border-t">
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" size="sm"><Trash2 className="h-4 w-4 mr-2" />Delete Task</Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete Task</AlertDialogTitle>
-                    <AlertDialogDescription>Are you sure you want to delete "{selectedTask.title}"? This action cannot be undone.</AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => deleteMutation.mutate(selectedTask.id)} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          </div>
-        )}
-      </EntityDetailPanel>
+      <TaskDetailPanel
+        taskId={panelTaskId}
+        open={panelOpen}
+        onOpenChange={(o) => {
+          setPanelOpen(o);
+          if (!o) {
+            setPanelTaskId(null);
+            setSelectedTask(null);
+          }
+        }}
+        onOpenFullPage={(t) => {
+          setPanelOpen(false);
+          openTaskDetail(t);
+        }}
+      />
+
+      {selectedTask && !panelOpen && (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <span className="hidden" />
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Task</AlertDialogTitle>
+              <AlertDialogDescription>Are you sure you want to delete "{selectedTask.title}"? This action cannot be undone.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => deleteMutation.mutate(selectedTask.id)} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }

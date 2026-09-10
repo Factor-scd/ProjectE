@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as appRoute } from "../_app";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -6,7 +6,7 @@ import { api, useApiQuery } from "@/lib/api";
 import { useApiDomain } from "@/lib/stores/use-active-domain-store";
 import { useRealtime } from "@/hooks/use-realtime";
 import { useOpenCreateDialog } from "@/hooks/use-open-create-dialog";
-import { Plus, Pencil, Trash2, Calendar, LayoutGrid, List } from "lucide-react";
+import { Plus, Pencil, Trash2, Calendar, LayoutGrid, List, Search, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -117,15 +117,16 @@ function ProjectCard({
   onOpenPanel: (p: Project) => void;
 }) {
   const status = PROJECT_STATUS[project.status];
+  const overdue = project.targetDate && project.status === "active" && new Date(project.targetDate) < new Date();
   return (
     <Card
-      className="cursor-pointer border rounded-lg transition-colors hover:bg-muted/20"
+      className="cursor-pointer rounded-lg border border-[#d9dee7] bg-white shadow-[0_1px_2px_#fafafa] transition-colors hover:bg-[#f7f8fa]"
       onClick={() => onOpenDetail(project)}
     >
       <CardHeader className="pb-1.5">
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: project.color || "#3b82f6" }} />
-          <CardTitle className="text-base truncate">{project.name}</CardTitle>
+          <div className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: project.color || "#1677ff" }} />
+          <CardTitle className="truncate text-base">{project.name}</CardTitle>
           <div className="ml-auto flex items-center gap-1.5">
             {status && (
               <Badge variant="secondary" className="font-mono text-[10px] gap-1.5">
@@ -155,9 +156,16 @@ function ProjectCard({
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span className="font-mono">{project.completedCount}/{project.taskCount} tasks</span>
           {project.targetDate && (
-            <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{new Date(project.targetDate).toLocaleDateString()}</span>
+            <span className={`flex items-center gap-1 ${overdue ? "font-semibold text-destructive" : ""}`}>
+              <Calendar className="h-3 w-3" />{new Date(project.targetDate).toLocaleDateString()}
+            </span>
           )}
         </div>
+        {project.updatedAt && (
+          <p className="mt-1.5 flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+            <Clock className="h-3 w-3" /> Updated {new Date(project.updatedAt).toLocaleDateString()}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -185,8 +193,19 @@ function ProjectsPage() {
     projectQueryUrl()
   );
 
-  const projects = projectsData?.items || [];
-  const hasMoreProjects = projects.length < (projectsData?.totalItems || 0);
+  const allProjects = projectsData?.items || [];
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const projects = useMemo(
+    () =>
+      allProjects.filter(
+        (p) =>
+          (!search || p.name.toLowerCase().includes(search.toLowerCase())) &&
+          (!statusFilter || p.status === statusFilter)
+      ),
+    [allProjects, search, statusFilter]
+  );
+  const hasMoreProjects = allProjects.length < (projectsData?.totalItems || 0);
   const [loadingMoreProjects, setLoadingMoreProjects] = useState(false);
 
   const loadMoreProjects = async () => {
@@ -246,14 +265,45 @@ function ProjectsPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[180px] flex-1 sm:max-w-xs">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input placeholder="Search projects..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 pl-8" aria-label="Search projects" />
+        </div>
+        <Select value={statusFilter || "__all__"} onValueChange={(v) => setStatusFilter(v === "__all__" ? "" : v)}>
+          <SelectTrigger className="h-8 w-40" aria-label="Filter by status"><SelectValue placeholder="All statuses" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All statuses</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="paused">Paused</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="archived">Archived</SelectItem>
+          </SelectContent>
+        </Select>
+        {(search || statusFilter) && (
+          <Button variant="ghost" size="sm" className="h-8" onClick={() => { setSearch(""); setStatusFilter(""); }}>
+            Clear
+          </Button>
+        )}
+        <span className="ml-auto font-mono text-xs text-muted-foreground">{projects.length} projects</span>
+      </div>
+
       {isLoading ? (
         <LoadingState label="Loading projects..." />
       ) : isError ? (
         <ErrorState message="Failed to load projects." onRetry={() => refetch()} />
       ) : projects.length === 0 ? (
-        <EmptyState title="No projects yet" description="Create your first project to get started." />
+        <EmptyState title={search || statusFilter ? "No matching projects" : "No projects yet"} description={search || statusFilter ? "Try clearing your filters." : "Create your first project to get started."} />
       ) : view === "grid" ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="flex min-h-[148px] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[#91caff] bg-[#e6f4ff]/40 text-sm font-medium text-[#002c8c] transition-colors hover:bg-[#e6f4ff]"
+          >
+            <Plus className="h-5 w-5" />
+            New project
+          </button>
           {projects.map((project) => (
             <ProjectCard
               key={project.id}

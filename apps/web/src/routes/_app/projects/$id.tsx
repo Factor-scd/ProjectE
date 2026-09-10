@@ -4,12 +4,16 @@ import { Route as appRoute } from "../../_app";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  Activity,
+  Boxes,
   Calendar,
   Clock,
   Flag,
   FolderKanban,
+  Layers,
   LayoutGrid,
   ListTodo,
+  MessageSquare,
   Plus,
   Repeat,
   Trash2,
@@ -19,7 +23,6 @@ import { differenceInCalendarDays, format, parseISO } from "date-fns";
 import { api, useApiQuery } from "@/lib/api";
 import { useRealtime } from "@/hooks/use-realtime";
 import { useOptimisticPatch } from "@/hooks/use-optimistic-patch";
-import { EntityDetailPage } from "@/components/entities/detail-page";
 import {
   InlineDate,
   InlineEdit,
@@ -153,66 +156,87 @@ function ProjectDetail() {
     onError: (err) => toast.error(errorMessage(err)),
   });
 
+  const [section, setSection] = useState<"tasks" | "overview" | "sections" | "modules" | "cycles" | "activity" | "comments">("tasks");
+
+  const { data: stats } = useApiQuery<{
+    total: number; completed: number; overdue: number; dueSoon: number; progress: number;
+  }>(["project-stats", id], "/projects/" + id + "/stats", { enabled: !!id });
+
   if (isLoading) return <LoadingState label="Loading project..." />;
   if (isError) {
     return <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />;
   }
   if (!project) return <ErrorState message="Project not found" />;
 
+  const taskCount = project.taskCount ?? project.tasks?.length ?? 0;
+  const sectionCount = project.sections?.length ?? 0;
+
+  const navItems: { value: typeof section; label: string; icon: React.ReactNode; count?: number }[] = [
+    { value: "tasks", label: "Tasks", icon: <ListTodo className="h-4 w-4" />, count: taskCount },
+    { value: "sections", label: "Sections", icon: <Layers className="h-4 w-4" />, count: sectionCount },
+    { value: "modules", label: "Modules", icon: <Boxes className="h-4 w-4" /> },
+    { value: "cycles", label: "Cycles", icon: <Repeat className="h-4 w-4" /> },
+    { value: "overview", label: "Overview", icon: <LayoutGrid className="h-4 w-4" /> },
+    { value: "activity", label: "Activity", icon: <Activity className="h-4 w-4" /> },
+    { value: "comments", label: "Comments", icon: <MessageSquare className="h-4 w-4" /> },
+  ];
+
   return (
-    <EntityDetailPage
-      backTo={{ to: "/projects", label: "Back to Projects" }}
-      title={
-        <InlineText
-          value={project.name}
-          onSave={(name) => patch({ id, data: { name } })}
-          placeholder="Untitled project"
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/projects" })}>
+          ← Projects
+        </Button>
+        <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#d9dee7] bg-[#f7f8fa]">
+          <FolderKanban className="h-5 w-5" style={{ color: project.color || "#1677ff" }} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-lg font-bold">
+            <InlineText
+              value={project.name}
+              onSave={(name) => patch({ id, data: { name } })}
+              placeholder="Untitled project"
+            />
+          </h3>
+        </div>
+        <InlineSelect
+          value={project.status}
+          options={PROJECT_STATUS_OPTIONS}
+          displayValue={(v) => (
+            <Badge className={PROJECT_STATUS[v]?.badge}>
+              {PROJECT_STATUS[v]?.label ?? v}
+            </Badge>
+          )}
+          onSave={(status) => patch({ id, data: { status } })}
         />
-      }
-      icon={<FolderKanban className="h-6 w-6" />}
-      badges={
-        <>
-          <InlineSelect
-            value={project.status}
-            options={PROJECT_STATUS_OPTIONS}
-            displayValue={(v) => (
-              <Badge className={PROJECT_STATUS[v]?.badge}>
-                {PROJECT_STATUS[v]?.label ?? v}
-              </Badge>
-            )}
-            onSave={(status) => patch({ id, data: { status } })}
-          />
-          <InlineEdit
-            value={project.color ?? ""}
-            onSave={(color) => patch({ id, data: { color: color || null } })}
-            showEditIcon={false}
-            title="Edit color"
-            display={() => (
-              <span
-                className="h-4 w-4 rounded-full"
-                style={{ backgroundColor: project.color || "#3b82f6" }}
-              />
-            )}
-            renderEdit={(v, onChange, commit) => (
-              <Input
-                type="color"
-                autoFocus
-                className="h-8 w-12"
-                value={v || "#3b82f6"}
-                onChange={(e) => {
-                  onChange(e.target.value);
-                  commit(e.target.value);
-                }}
-              />
-            )}
-          />
-        </>
-      }
-      actions={
+        <InlineEdit
+          value={project.color ?? ""}
+          onSave={(color) => patch({ id, data: { color: color || null } })}
+          showEditIcon={false}
+          title="Edit color"
+          display={() => (
+            <span
+              className="h-4 w-4 rounded-full border border-[#d9dee7]"
+              style={{ backgroundColor: project.color || "#1677ff" }}
+            />
+          )}
+          renderEdit={(v, onChange, commit) => (
+            <Input
+              type="color"
+              autoFocus
+              className="h-8 w-12"
+              value={v || "#1677ff"}
+              onChange={(e) => {
+                onChange(e.target.value);
+                commit(e.target.value);
+              }}
+            />
+          )}
+        />
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <Button variant="destructive">
-              <Trash2 className="h-4 w-4" /> Delete
+            <Button variant="destructive" size="sm">
+              <Trash2 className="h-4 w-4" />
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
@@ -234,29 +258,55 @@ function ProjectDetail() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      }
-      tabs={[
-        {
-          value: "overview",
-          label: "Overview",
-          content: <Overview project={project} patch={patch} />,
-        },
-        { value: "tasks", label: "Tasks", content: <ProjectTasks project={project} /> },
-        { value: "sections", label: "Sections", content: <Sections project={project} /> },
-        { value: "modules", label: "Modules", content: <ProjectModules project={project} /> },
-        { value: "cycles", label: "Cycles", content: <ProjectCycles project={project} /> },
-        {
-          value: "activity",
-          label: "Activity",
-          content: <EntityActivity entityType="project" entityId={id} />,
-        },
-        {
-          value: "comments",
-          label: "Comments",
-          content: <EntityComments entityType="project" entityId={id} />,
-        },
-      ]}
-    />
+      </div>
+
+      <div className="flex flex-col gap-4 md:flex-row">
+        <nav className="w-full shrink-0 space-y-1 md:w-52" aria-label="Project sections">
+          <div className="rounded-lg border border-[#d9dee7] bg-white p-3">
+            <div className="flex items-center gap-2">
+              <ListTodo className="h-4 w-4 text-muted-foreground" />
+              <p className="text-sm font-semibold">Progress</p>
+              <span className="ml-auto font-mono text-xs font-medium">{stats?.progress ?? project.progress ?? 0}%</span>
+            </div>
+            <Progress value={stats?.progress ?? project.progress ?? 0} className="mt-2 h-1.5" />
+            <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">
+              {stats?.completed ?? project.completedCount ?? 0} of {stats?.total ?? taskCount} done
+              {(stats?.overdue ?? 0) > 0 && <span className="text-destructive"> · {stats?.overdue} overdue</span>}
+            </p>
+          </div>
+          {navItems.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => setSection(item.value)}
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
+                section === item.value
+                  ? "border-b-2 border-b-[#1677ff] bg-[#e6f4ff]/60 font-semibold text-[#002c8c]"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              )}
+              aria-current={section === item.value ? "page" : undefined}
+            >
+              {item.icon}
+              <span className="flex-1 text-left">{item.label}</span>
+              {item.count !== undefined && (
+                <Badge variant="secondary" className="font-mono text-[10px]">{item.count}</Badge>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        <div className="min-w-0 flex-1 rounded-lg border border-[#d9dee7] bg-white p-4">
+          {section === "tasks" && <ProjectTasks project={project} />}
+          {section === "overview" && <Overview project={project} patch={patch} />}
+          {section === "sections" && <Sections project={project} />}
+          {section === "modules" && <ProjectModules project={project} />}
+          {section === "cycles" && <ProjectCycles project={project} />}
+          {section === "activity" && <EntityActivity entityType="project" entityId={id} />}
+          {section === "comments" && <EntityComments entityType="project" entityId={id} />}
+        </div>
+      </div>
+    </div>
   );
 }
 

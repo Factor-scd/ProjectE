@@ -13,12 +13,12 @@ export interface StatusToken {
   badge: string;
 }
 
-/** Task workflow statuses (board column dots + badges). */
+/** Task workflow statuses (board column dots + badges) — Buzzbee tints. */
 export const TASK_STATUS: Record<string, StatusToken> = {
-  todo: { label: "Todo", dot: "bg-slate-500", badge: "bg-slate-500 text-white" },
-  in_progress: { label: "In Progress", dot: "bg-blue-500", badge: "bg-blue-500 text-white" },
-  done: { label: "Done", dot: "bg-green-500", badge: "bg-green-500 text-white" },
-  cancelled: { label: "Cancelled", dot: "bg-red-500", badge: "bg-red-500 text-white" },
+  todo: { label: "Todo", dot: "bg-slate-400", badge: "bg-[#f1f1f1] text-[#2e2e2e] border border-[#dbdbdb]" },
+  in_progress: { label: "In Progress", dot: "bg-[#1677ff]", badge: "bg-[#e6f4ff] text-[#002c8c] border border-[#91caff]" },
+  done: { label: "Done", dot: "bg-[#52c41a]", badge: "bg-[#f6ffed] text-[#135200] border border-[#b6eb8f]" },
+  cancelled: { label: "Cancelled", dot: "bg-[#ff4d4f]", badge: "bg-[#fff2f0] text-[#820014] border border-[#ffccc7]" },
 };
 
 /** Task priority. Badges use a soft tint (matching text + translucent bg). */
@@ -29,12 +29,12 @@ export const PRIORITY: Record<string, { label: string; badge: string }> = {
   urgent: { label: "Urgent", badge: "text-red-600 bg-red-500/15" },
 };
 
-/** Project lifecycle statuses. */
+/** Project lifecycle statuses — Buzzbee tints. */
 export const PROJECT_STATUS: Record<string, StatusToken> = {
-  active: { label: "Active", dot: "bg-green-500", badge: "bg-green-500 text-white" },
-  paused: { label: "Paused", dot: "bg-amber-500", badge: "bg-amber-500 text-white" },
-  completed: { label: "Completed", dot: "bg-blue-500", badge: "bg-blue-500 text-white" },
-  archived: { label: "Archived", dot: "bg-slate-500", badge: "bg-slate-500 text-white" },
+  active: { label: "Active", dot: "bg-[#52c41a]", badge: "bg-[#f6ffed] text-[#135200] border border-[#b6eb8f]" },
+  paused: { label: "Paused", dot: "bg-[#faad14]", badge: "bg-[#fffbe6] text-[#874c00] border border-[#ffe58f]" },
+  completed: { label: "Completed", dot: "bg-[#1677ff]", badge: "bg-[#e6f4ff] text-[#002c8c] border border-[#91caff]" },
+  archived: { label: "Archived", dot: "bg-slate-400", badge: "bg-[#f1f1f1] text-[#646464] border border-[#dbdbdb]" },
 };
 
 /**
@@ -62,7 +62,7 @@ export const ENTITY: Record<string, string> = {
  * pick up the user's chosen accent color.
  */
 export const CALENDAR_EVENT: Record<string, string> = {
-  task: "var(--accent-hsl, 217 91% 60%)",
+  task: "var(--accent-hsl, 216 100% 54%)",
   habit: "142 71% 45%",
   project: "271 81% 56%",
   note: "24 95% 53%",

@@ -187,6 +187,12 @@ function CalendarPage() {
   const activeDomainId = useApiDomain();
   const [showTasks, setShowTasks] = useState(true);
   const [showHabits, setShowHabits] = useState(true);
+  const [filterProjectId, setFilterProjectId] = useState("");
+
+  const { data: calendarProjectsData } = useApiQuery<{ items: { id: string; name: string }[] }>(
+    ["projects", activeDomainId, "calendar"],
+    "/projects?limit=200" + (activeDomainId ? "&domain=" + activeDomainId : "")
+  );
 
   const fromISO = useMemo(() => { const d = new Date(date); d.setDate(1); d.setHours(0,0,0,0); d.setMonth(d.getMonth()-1); return d.toISOString(); }, [date]);
   const toISO = useMemo(() => { const d = new Date(date); d.setMonth(d.getMonth()+2); d.setDate(0); d.setHours(23,59,59,999); return d.toISOString(); }, [date]);
@@ -196,8 +202,8 @@ function CalendarPage() {
     `/calendar/events?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}` + (activeDomainId ? "&domain=" + activeDomainId : "")
   );
   const { data: unifiedData } = useApiQuery<{ items: CalendarEvent[] }>(
-    ["calendar-unified", activeDomainId, fromISO, toISO],
-    `/calendar/unified?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}` + (activeDomainId ? "&domain=" + activeDomainId : "")
+    ["calendar-unified", activeDomainId, fromISO, toISO, filterProjectId],
+    `/calendar/unified?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}` + (activeDomainId ? "&domain=" + activeDomainId : "") + (filterProjectId ? "&project_id=" + filterProjectId : "")
   );
   const events = useMemo(() => {
     if (!unifiedData?.items) return eventsData?.items || [];
@@ -352,6 +358,17 @@ function CalendarPage() {
         <div className="flex items-center gap-2">
           <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={showTasks} onChange={e=>setShowTasks(e.target.checked)} /> Tasks</label>
           <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={showHabits} onChange={e=>setShowHabits(e.target.checked)} /> Habits</label>
+          <select
+            value={filterProjectId}
+            onChange={(e) => setFilterProjectId(e.target.value)}
+            className="h-7 rounded-md border border-input bg-background px-2 text-xs"
+            aria-label="Filter calendar by project"
+          >
+            <option value="">All projects</option>
+            {(calendarProjectsData?.items || []).map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
         </div>
         <div className="flex items-center gap-1">
         {["month", "week", "day", "agenda"].map((name) => (

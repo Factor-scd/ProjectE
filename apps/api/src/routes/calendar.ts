@@ -237,9 +237,12 @@ calendarRoutes.get("/unified", async (c) => {
     await requireWorkspaceAccess(c, domainId);
     const from = fromStr ? new Date(fromStr) : new Date(new Date().setDate(new Date().getDate() - 7));
     const to = toStr ? new Date(toStr) : new Date(new Date().setDate(new Date().getDate() + 30));
+    const projectId = url.searchParams.get("project_id");
+    const taskConds: any[] = [eq(tasks.domainId, domainId), isNull(tasks.deletedAt), gte(tasks.dueDate, from), lte(tasks.dueDate, to)];
+    if (projectId) taskConds.push(eq(tasks.projectId, projectId));
     const [events, domainTasks, domainHabits] = await Promise.all([
       db.select().from(calendarEvents).where(and(eq(calendarEvents.domainId, domainId), gte(calendarEvents.startTime, from), lte(calendarEvents.startTime, to))).orderBy(asc(calendarEvents.startTime)),
-      db.select().from(tasks).where(and(eq(tasks.domainId, domainId), isNull(tasks.deletedAt), gte(tasks.dueDate, from), lte(tasks.dueDate, to))).orderBy(asc(tasks.dueDate)),
+      db.select().from(tasks).where(and(...taskConds)).orderBy(asc(tasks.dueDate)),
       db.select().from(habits).where(and(eq(habits.domainId, domainId), isNull(habits.deletedAt))),
     ]);
     const taskEvents = domainTasks.filter(t => t.dueDate).map(t => ({

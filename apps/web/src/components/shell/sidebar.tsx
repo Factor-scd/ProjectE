@@ -16,6 +16,7 @@ import {
   Bot,
   PenLine,
   Settings,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -24,6 +25,9 @@ import {
   FileBarChart,
   FileStack,
 } from "lucide-react";
+import { useApiQuery } from "@/lib/api";
+import { useApiDomain } from "@/lib/stores/use-active-domain-store";
+import type { PaginatedResponse, Project } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -115,6 +119,13 @@ export function Sidebar() {
       ? "right"
       : "left"
   );
+  const [projectsExpanded, setProjectsExpanded] = useState(true);
+  const activeDomainId = useApiDomain();
+  const { data: sidebarProjectsData } = useApiQuery<PaginatedResponse<Project>>(
+    ["projects", activeDomainId, "sidebar"],
+    "/projects?limit=50&status=active" + (activeDomainId ? "&domain=" + activeDomainId : "")
+  );
+  const sidebarProjects = sidebarProjectsData?.items || [];
 
   useEffect(() => {
     const onSidebarPositionChange = (event: Event) => {
@@ -182,7 +193,64 @@ export function Sidebar() {
   const navigation = (isCollapsed: boolean, onNavigate?: () => void) => (
     <ScrollArea className="flex-1 py-2">
       <nav className="flex flex-col gap-0.5 px-2" aria-label="Primary">
-        {navItems.map((item) => renderNavLink(item, isCollapsed, onNavigate))}
+        {navItems.map((item) => {
+          if (item.href === "/projects" && !isCollapsed) {
+            const projectsActive = isActive("/projects");
+            return (
+              <div key={item.href}>
+                <div className="flex items-center gap-1">
+                  <div className="flex-1">{renderNavLink(item, isCollapsed, onNavigate)}</div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0 text-muted-foreground"
+                    onClick={() => setProjectsExpanded((v) => !v)}
+                    aria-label={projectsExpanded ? "Collapse projects" : "Expand projects"}
+                    aria-expanded={projectsExpanded}
+                  >
+                    <ChevronDown className={cn("h-4 w-4 transition-transform", !projectsExpanded && "-rotate-90")} />
+                  </Button>
+                </div>
+                {projectsExpanded && (
+                  <div className="mb-1 ml-6 flex flex-col gap-0.5 border-l border-sidebar-border pl-2" aria-label="Projects">
+                    {sidebarProjects.slice(0, 8).map((p) => {
+                      const current = location.pathname === `/projects/${p.id}`;
+                      return (
+                        <Link
+                          key={p.id}
+                          to="/projects/$id"
+                          params={{ id: p.id }}
+                          onClick={onNavigate}
+                          className={cn(
+                            "flex items-center gap-2 truncate rounded-md px-2 py-1.5 text-[13px] transition-colors",
+                            current ? "bg-accent/50 font-semibold text-accent-foreground" : "text-muted-foreground hover:bg-accent/30 hover:text-accent-foreground"
+                          )}
+                          title={p.name}
+                        >
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: p.color || "#1677ff" }} />
+                          <span className="flex-1 truncate">{p.name}</span>
+                        </Link>
+                      );
+                    })}
+                    {sidebarProjects.length === 0 && (
+                      <p className="px-2 py-1 text-xs text-muted-foreground">No active projects</p>
+                    )}
+                    {(projectsActive || sidebarProjects.length > 8) && (
+                      <Link
+                        to="/projects"
+                        onClick={onNavigate}
+                        className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent/30 hover:text-accent-foreground"
+                      >
+                        View all projects →
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return renderNavLink(item, isCollapsed, onNavigate);
+        })}
       </nav>
       <Separator className="my-2" />
       <nav className="flex flex-col gap-0.5 px-2" aria-label="Workspace">

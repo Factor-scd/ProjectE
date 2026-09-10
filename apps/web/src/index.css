@@ -10,10 +10,10 @@
     --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "Cascadia Code", "Source Code Pro",
       Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
-    /* Control heights & sizing */
-    --control-height: 40px;
-    --control-height-sm: 32px;
-    --control-height-lg: 48px;
+    /* Control heights & sizing — Buzzbee 32px control grid */
+    --control-height: 32px;
+    --control-height-sm: 24px;
+    --control-height-lg: 40px;
     --size: 16px;
     --size-sm: 12px;
     --size-md: 20px;
@@ -27,30 +27,34 @@
     --duration-slow: 0.3s;
     --ease-default: cubic-bezier(0.645, 0.045, 0.355, 1);
 
-    /* Light mode — Buzzbee palette */
+    /* Light mode — Buzzbee palette (#1677ff accent, #01bec6 teal) */
     --background: 0 0% 100%;
     --foreground: 0 0% 6.7%;
-    --card: 220 13% 97%;
+    --card: 220 14% 97%;
     --card-foreground: 0 0% 6.7%;
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 6.7%;
-    --primary: 217 91% 60%;
+    --primary: 216 100% 54%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 96%;
+    --secondary: 220 14% 97%;
     --secondary-foreground: 0 0% 18%;
-    --muted: 210 40% 96%;
+    --muted: 220 14% 97%;
     --muted-foreground: 220 9% 45%;
-    --accent: 210 100% 95%;
-    --accent-foreground: 222 100% 27%;
+    --accent: 214 100% 95%;
+    --accent-foreground: 224 100% 27%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 214 32% 88%;
-    --input: 214 32% 88%;
-    --ring: 210 100% 75%;
+    --border: 214 24% 87%;
+    --input: 214 24% 87%;
+    --ring: 213 100% 77%;
     --radius: 0.5rem;
 
-    /* Interactive accent — pinned vibrant blue */
-    --accent-hsl: 217 91% 60%;
+    /* Interactive accent — Buzzbee primary #1677ff */
+    --accent-hsl: 216 100% 54%;
+    --brand-teal: 184 99% 39%;
+    --brand-primary-bg: 214 100% 95%;
+    --brand-primary-border: 213 100% 77%;
+    --brand-focus-ring: 0 0 0 3px #e6f4ff;
 
     /* Shell surfaces */
     --sidebar-bg: 0 0% 100%;

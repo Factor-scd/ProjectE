@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db, tasks, states as statesTable, taskTags, tags as tagsTable, taskDependencies, activityFeed, scheduledJobs, projects, sections } from "@project-e/db";
-import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { requireAuth, requireWorkspaceAccess, createErrorResponse, resolveActiveDomain, AuthError, isUuid } from "../middleware/auth";
 import { recordActivity } from "../middleware/activity";
 import { enqueueWebhooks } from "../middleware/webhook-queue";
@@ -95,6 +95,8 @@ taskRoutes.get("/", async (c) => {
     const parentId = url.searchParams.get("parent_id");
     const projectId = url.searchParams.get("project_id");
     const sectionId = url.searchParams.get("section_id");
+    const dueAfter = url.searchParams.get("due_after");
+    const dueBefore = url.searchParams.get("due_before");
     const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 200);
     const offset = parseInt(url.searchParams.get("offset") || "0");
     const order = url.searchParams.get("order") || "asc";
@@ -138,6 +140,14 @@ taskRoutes.get("/", async (c) => {
     }
     if (sectionId) {
       conditions.push(eq(tasks.sectionId, sectionId));
+    }
+    if (dueAfter) {
+      const d = new Date(dueAfter);
+      if (!Number.isNaN(d.getTime())) conditions.push(gte(tasks.dueDate, d));
+    }
+    if (dueBefore) {
+      const d = new Date(dueBefore);
+      if (!Number.isNaN(d.getTime())) conditions.push(lte(tasks.dueDate, d));
     }
     if (stateId) {
       conditions.push(eq(tasks.stateId, stateId));
@@ -246,6 +256,114 @@ taskRoutes.get("/", async (c) => {
     }
     console.error("[tasks] GET error:", error);
     return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to list tasks" } }, 500);
+  }
+});
+
+// GET /api/tasks/grouped — Board-ready grouping (by state, project, or priority)
+taskRoutes.get("/grouped", async (c) => {
+  try {
+    const user = await requireAuth(c);
+    const url = new URL(c.req.url);
+    const groupBy = url.searchParams.get("group_by") || "state";
+    const projectId = url.searchParams.get("project_id");
+    const priority = url.searchParams.get("priority");
+    const search = url.searchParams.get("search");
+    const dueAfter = url.searchParams.get("due_after");
+    const dueBefore = url.searchParams.get("due_before");
+    let domainId = url.searchParams.get("domain") || undefined;
+    if (!domainId) {
+      const active = await resolveActiveDomain(user);
+      domainId = active.id;
+    }
+    await requireWorkspaceAccess(c, domainId);
+
+    const conditions: any[] = [eq(tasks.domainId, domainId), isNull(tasks.deletedAt)];
+    if (projectId) conditions.push(eq(tasks.projectId, projectId));
+    if (priority) conditions.push(inArray(tasks.priority, priority.split(",") as any));
+    if (search) conditions.push(ilike(tasks.title, `%${search}%`));
+    if (dueAfter) {
+      const d = new Date(dueAfter);
+      if (!Number.isNaN(d.getTime())) conditions.push(gte(tasks.dueDate, d));
+    }
+    if (dueBefore) {
+      const d = new Date(dueBefore);
+      if (!Number.isNaN(d.getTime())) conditions.push(lte(tasks.dueDate, d));
+    }
+
+    const items = await db.select().from(tasks)
+      .where(and(...conditions))
+      .orderBy(asc(tasks.order))
+      .limit(500);
+
+    let taskTagMap = new Map<string, { id: string; name: string; color: string | null }[]>();
+    if (items.length > 0) {
+      const tagRows = await db.select({
+        taskId: taskTags.taskId, id: tagsTable.id, name: tagsTable.name, color: tagsTable.color,
+      }).from(taskTags).innerJoin(tagsTable, eq(taskTags.tagId, tagsTable.id))
+        .where(inArray(taskTags.taskId, items.map((t) => t.id)));
+      for (const row of tagRows) {
+        if (!taskTagMap.has(row.taskId)) taskTagMap.set(row.taskId, []);
+        taskTagMap.get(row.taskId)!.push({ id: row.id, name: row.name, color: row.color });
+      }
+    }
+    const withTags = items.map((t) => ({ ...t, tags: taskTagMap.get(t.id) || [] }));
+
+    if (groupBy === "state") {
+      const stateIds = [...new Set(withTags.map((t) => t.stateId).filter(Boolean))] as string[];
+      let stateList: typeof statesTable.$inferSelect[] = [];
+      if (projectId) {
+        stateList = await db.select().from(statesTable)
+          .where(and(eq(statesTable.projectId, projectId), isNull(statesTable.deletedAt)))
+          .orderBy(asc(statesTable.sortOrder));
+      } else if (stateIds.length > 0) {
+        stateList = await db.select().from(statesTable).where(inArray(statesTable.id, stateIds));
+      }
+      const byState = new Map<string | null, typeof withTags>();
+      for (const t of withTags) {
+        const key = t.stateId ?? null;
+        if (!byState.has(key)) byState.set(key, []);
+        byState.get(key)!.push(t);
+      }
+      const groups = stateList.map((s) => ({
+        id: s.id, name: s.name, color: s.color, group: s.group,
+        tasks: (byState.get(s.id) || []).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+      }));
+      const unassigned = (byState.get(null) || []).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      if (unassigned.length > 0) groups.unshift({ id: "__none__", name: "No state", color: null, group: "unstarted", tasks: unassigned } as any);
+      return c.json({ groups, totalItems: withTags.length });
+    }
+
+    if (groupBy === "priority") {
+      const order = ["urgent", "high", "medium", "low"] as const;
+      return c.json({
+        groups: order.map((p) => ({ id: p, name: p[0].toUpperCase() + p.slice(1), tasks: withTags.filter((t) => t.priority === p) })),
+        totalItems: withTags.length,
+      });
+    }
+
+    // group_by=project
+    const projectIds = [...new Set(withTags.map((t) => t.projectId).filter(Boolean))] as string[];
+    let projectList: { id: string; name: string; color: string | null }[] = [];
+    if (projectIds.length > 0) {
+      projectList = await db.select({ id: projects.id, name: projects.name, color: projects.color })
+        .from(projects).where(inArray(projects.id, projectIds));
+    }
+    const byProject = new Map<string | null, typeof withTags>();
+    for (const t of withTags) {
+      const key = t.projectId ?? null;
+      if (!byProject.has(key)) byProject.set(key, []);
+      byProject.get(key)!.push(t);
+    }
+    const groups = projectList.map((p) => ({ id: p.id, name: p.name, color: p.color, tasks: byProject.get(p.id) || [] }));
+    const inbox = byProject.get(null) || [];
+    if (inbox.length > 0) groups.unshift({ id: "__none__", name: "No project", color: null, tasks: inbox });
+    return c.json({ groups, totalItems: withTags.length });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    }
+    console.error("[tasks] GET /grouped error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to group tasks" } }, 500);
   }
 });
 

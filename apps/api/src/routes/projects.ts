@@ -316,6 +316,60 @@ projectRoutes.get("/:id", async (c) => {
   }
 });
 
+// GET /api/projects/:id/stats — Task counts by state group for board headers/progress
+projectRoutes.get("/:id/stats", async (c) => {
+  try {
+    const user = await requireAuth(c);
+    const id = c.req.param("id");
+    if (!isUuid(id)) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Resource not found" } }, 404);
+    }
+    const [project] = await db.select().from(projects)
+      .where(and(eq(projects.id, id), isNull(projects.deletedAt))).limit(1);
+    if (!project) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
+    }
+    await requireWorkspaceAccess(c, project.domainId);
+
+    const projectStates = await db.select().from(states)
+      .where(and(eq(states.projectId, id), isNull(states.deletedAt)))
+      .orderBy(asc(states.sortOrder));
+    const projectTasks = await db.select({ id: tasks.id, stateId: tasks.stateId, completedAt: tasks.completedAt, dueDate: tasks.dueDate })
+      .from(tasks).where(and(eq(tasks.projectId, id), isNull(tasks.deletedAt)));
+
+    const stateById = new Map(projectStates.map((s) => [s.id, s]));
+    const byGroup: Record<string, number> = { backlog: 0, unstarted: 0, started: 0, completed: 0, cancelled: 0 };
+    const byState: Record<string, number> = {};
+    for (const t of projectTasks) {
+      byState[t.stateId || "__none__"] = (byState[t.stateId || "__none__"] || 0) + 1;
+      const group = t.stateId ? stateById.get(t.stateId)?.group || "unstarted" : "unstarted";
+      byGroup[group] = (byGroup[group] || 0) + 1;
+    }
+    const now = new Date();
+    const overdue = projectTasks.filter((t) => t.dueDate && new Date(t.dueDate) < now && !t.completedAt).length;
+    const dueSoon = projectTasks.filter((t) => {
+      if (!t.dueDate || t.completedAt) return false;
+      const d = new Date(t.dueDate).getTime() - now.getTime();
+      return d >= 0 && d <= 7 * 24 * 60 * 60 * 1000;
+    }).length;
+    const total = projectTasks.length;
+    const completed = byGroup.completed || 0;
+
+    return c.json({
+      total, completed, overdue, dueSoon,
+      progress: total > 0 ? Math.round((completed / total) * 100) : 0,
+      byGroup, byState,
+      states: projectStates.map((s) => ({ id: s.id, name: s.name, color: s.color, group: s.group, count: byState[s.id] || 0 })),
+    });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return c.json({ error: { code: error.code, message: error.message } }, error.status as any);
+    }
+    console.error("[projects] GET /:id/stats error:", error);
+    return c.json({ error: { code: "INTERNAL_ERROR", message: "Failed to get project stats" } }, 500);
+  }
+});
+
 // PATCH /api/projects/:id — Update a project
 projectRoutes.patch("/:id", async (c) => {
   try {
