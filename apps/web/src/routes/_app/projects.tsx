@@ -271,7 +271,7 @@ function ProjectsPage() {
           <Input placeholder="Search projects..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 pl-8" aria-label="Search projects" />
         </div>
         <Select value={statusFilter || "__all__"} onValueChange={(v) => setStatusFilter(v === "__all__" ? "" : v)}>
-          <SelectTrigger className="h-8 w-40" aria-label="Filter by status"><SelectValue placeholder="All statuses" /></SelectTrigger>
+          <SelectTrigger className="h-8 w-full sm:w-40" aria-label="Filter by status"><SelectValue placeholder="All statuses" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All statuses</SelectItem>
             <SelectItem value="active">Active</SelectItem>

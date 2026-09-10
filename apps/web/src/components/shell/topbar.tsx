@@ -67,7 +67,7 @@ export function Topbar() {
 
   return (
     <header
-      className="sticky top-0 z-10 flex h-10 items-center gap-4 border-b bg-topbar px-6 backdrop-blur-sm"
+      className="sticky top-0 z-10 flex h-10 items-center gap-2 border-b bg-topbar px-3 md:gap-4 md:px-6 backdrop-blur-sm"
       role="banner"
     >
       {/* Mobile menu */}
@@ -91,18 +91,20 @@ export function Topbar() {
           aria-label="Open search (Cmd+K)"
         >
           <Search className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span className="truncate">Search or jump to...</span>
-          <kbd className="ml-auto pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+          <span className="truncate hidden sm:inline">Search or jump to...</span>
+          <kbd className="ml-auto pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
             ⌘K
           </kbd>
         </Button>
       </div>
 
       {/* Domain picker */}
-      <DomainPicker />
+      <div className="hidden sm:block">
+        <DomainPicker />
+      </div>
 
       {/* Right side */}
-      <div className="ml-auto flex items-center gap-1">
+      <div className="ml-auto flex items-center gap-0.5 md:gap-1">
         {/* Quick add */}
         <TooltipProvider>
           <Tooltip>
@@ -142,7 +144,7 @@ export function Topbar() {
               </TooltipTrigger>
               <TooltipContent>{tooltipText}</TooltipContent>
             </Tooltip>
-            <DropdownMenuContent align="end" className="w-80">
+            <DropdownMenuContent align="end" className="w-[calc(100vw-2rem)] max-w-80">
               <div className="flex items-center justify-between px-2 py-1.5">
                 <span className="text-sm font-medium">Notifications</span>
                 <Button

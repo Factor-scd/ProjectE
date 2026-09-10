@@ -370,7 +370,7 @@ function CalendarPage() {
             ))}
           </select>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
         {["month", "week", "day", "agenda"].map((name) => (
           <Button
             key={name}

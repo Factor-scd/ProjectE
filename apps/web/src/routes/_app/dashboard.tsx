@@ -9,7 +9,6 @@ import { Plus, Settings2, Trash2, ListTodo, Flame, FileText, FolderKanban, Calen
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -48,16 +47,16 @@ function TasksDueWidget() {
   const today = tasks.filter((t) => t.dueDate && isToday(parseISO(t.dueDate)));
   const overdue = tasks.filter((t) => t.dueDate && isPast(parseISO(t.dueDate)) && t.status !== "done");
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {today.length === 0 && overdue.length === 0 ? (
         <p className="text-xs text-muted-foreground">No tasks due today</p>
       ) : (
         <>
           {overdue.length > 0 && (
-            <div>
-              <p className="text-[10px] font-semibold text-destructive mb-0.5">Overdue ({overdue.length})</p>
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold text-destructive uppercase tracking-wide">Overdue ({overdue.length})</p>
               {overdue.slice(0, 3).map((t) => (
-                <div key={t.id} className="flex items-center gap-1.5 text-xs py-0.5">
+                <div key={t.id} className="flex items-center gap-2 text-xs py-0.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-destructive shrink-0" />
                   <span className="truncate flex-1">{t.title}</span>
                 </div>
@@ -65,10 +64,10 @@ function TasksDueWidget() {
             </div>
           )}
           {today.length > 0 && (
-            <div>
-              <p className="text-[10px] font-semibold text-amber-500 mb-0.5">Today ({today.length})</p>
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wide">Today ({today.length})</p>
               {today.slice(0, 5).map((t) => (
-                <div key={t.id} className="flex items-center gap-1.5 text-xs py-0.5">
+                <div key={t.id} className="flex items-center gap-2 text-xs py-0.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
                   <span className="truncate flex-1">{t.title}</span>
                 </div>
@@ -97,7 +96,7 @@ function HabitsTodayWidget() {
     onError: (err) => toast.error(err.message || "Failed to complete habit"),
   });
   return (
-    <div className="space-y-0.5">
+    <div className="space-y-1">
       {habits.length === 0 ? (
         <p className="text-xs text-muted-foreground">No habits yet</p>
       ) : (
@@ -108,7 +107,7 @@ function HabitsTodayWidget() {
             return d.getUTCFullYear() === today.getUTCFullYear() && d.getUTCMonth() === today.getUTCMonth() && d.getUTCDate() === today.getUTCDate();
           });
           return (
-            <div key={h.id} className="flex items-center gap-1.5 py-0.5">
+            <div key={h.id} className="flex items-center gap-2 py-0.5">
               <button
                 onClick={() => completeMutation.mutate(h.id)}
                 className={cn("w-3.5 h-3.5 rounded border shrink-0 flex items-center justify-center", doneToday ? "bg-green-500 border-green-500" : "border-muted-foreground/30 hover:border-primary")}
@@ -118,9 +117,9 @@ function HabitsTodayWidget() {
               </button>
               <span className="text-xs truncate flex-1">{h.name}</span>
               {h.streakCount > 0 && (
-                <Badge variant="secondary" className="text-[9px] px-1 shrink-0">
-                  <Flame className="h-2 w-2 mr-0" />{h.streakCount}
-                </Badge>
+                <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground shrink-0">
+                  <Flame className="h-2.5 w-2.5 text-orange-400" />{h.streakCount}
+                </span>
               )}
             </div>
           );
@@ -136,14 +135,14 @@ function RecentNotesWidget() {
   const { data } = useApiQuery<PaginatedResponse<Note>>(["recent-notes", activeDomainId], "/notes?limit=5&sort=-updated" + domainSuffix);
   const notes = data?.items || [];
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {notes.length === 0 ? (
         <p className="text-xs text-muted-foreground">No notes yet</p>
       ) : (
         notes.map((n) => (
-          <div key={n.id} className="text-xs py-1 border-b last:border-0">
+          <div key={n.id} className="text-xs py-1.5 border-b border-border/40 last:border-0">
             <p className="font-medium truncate">{n.title}</p>
-            <p className="text-[10px] text-muted-foreground">{format(parseISO(n.updatedAt), "MMM d, HH:mm")}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">{format(parseISO(n.updatedAt), "MMM d, HH:mm")}</p>
           </div>
         ))
       )}
@@ -157,17 +156,17 @@ function ActiveProjectsWidget() {
   const { data } = useApiQuery<PaginatedResponse<Project>>(["active-projects", activeDomainId], "/projects?limit=10&status=active" + domainSuffix);
   const projects = data?.items || [];
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {projects.length === 0 ? (
         <p className="text-xs text-muted-foreground">No active projects</p>
       ) : (
         projects.slice(0, 5).map((p) => (
-          <div key={p.id} className="space-y-0.5">
+          <div key={p.id} className="space-y-1">
             <div className="flex items-center justify-between text-xs">
-              <span className="truncate flex-1">{p.name}</span>
+              <span className="truncate flex-1 font-medium">{p.name}</span>
               <span className="text-[10px] font-mono text-muted-foreground shrink-0 ml-2">{p.progress || 0}%</span>
             </div>
-            <Progress value={p.progress || 0} className="h-1" />
+            <Progress value={p.progress || 0} className="h-1.5 bg-muted/50" />
           </div>
         ))
       )}
@@ -187,12 +186,12 @@ function UpcomingEventsWidget() {
     return start >= now && start <= weekFromNow;
   }).sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {upcoming.length === 0 ? (
         <p className="text-xs text-muted-foreground">No upcoming events</p>
       ) : (
         upcoming.slice(0, 5).map((e) => (
-          <div key={e.id} className="flex items-center gap-1.5 text-xs py-0.5">
+          <div key={e.id} className="flex items-center gap-2 text-xs py-0.5">
             <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: e.color || "#3b82f6" }} />
             <span className="truncate flex-1">{e.title}</span>
             <span className="text-[10px] text-muted-foreground shrink-0">{format(parseISO(e.startTime), "MMM d, HH:mm")}</span>
@@ -211,16 +210,16 @@ function StreakCounterWidget() {
   const bestStreak = Math.max(...habits.map((h) => h.streakCount || 0), 0);
   const totalActive = habits.filter((h) => h.streakCount > 0).length;
   return (
-    <div className="flex items-center gap-3 h-full">
-      <div className="flex flex-col items-center">
-        <Flame className="h-6 w-6 text-orange-500" />
-        <span className="text-xl font-mono font-semibold">{bestStreak}</span>
+    <div className="flex items-center justify-center gap-6 h-full">
+      <div className="flex flex-col items-center gap-0.5">
+        <Flame className="h-5 w-5 text-orange-500" />
+        <span className="text-lg font-mono font-semibold">{bestStreak}</span>
         <span className="text-[10px] text-muted-foreground">Best streak</span>
       </div>
-      <Separator orientation="vertical" />
-      <div className="flex flex-col items-center">
-        <span className="text-xl font-mono font-semibold">{totalActive}</span>
-        <span className="text-[10px] text-muted-foreground">Active streaks</span>
+      <Separator orientation="vertical" className="h-8" />
+      <div className="flex flex-col items-center gap-0.5">
+        <span className="text-lg font-mono font-semibold">{totalActive}</span>
+        <span className="text-[10px] text-muted-foreground">Active</span>
       </div>
     </div>
   );
@@ -257,18 +256,16 @@ function QuickCaptureWidget() {
     else createNote.mutate(text.trim());
   };
   return (
-    <form onSubmit={handleSubmit} className="flex gap-1.5">
-      <div className="flex-1 flex gap-1.5">
-        <Select value={type} onValueChange={(v) => setType(v as "task" | "note")}>
-          <SelectTrigger className="w-18 h-8 text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="task">Task</SelectItem>
-            <SelectItem value="note">Note</SelectItem>
-          </SelectContent>
-        </Select>
-        <Input placeholder="Quick capture..." value={text} onChange={(e) => setText(e.target.value)} className="h-8 font-mono text-xs" />
-      </div>
-      <Button type="button" size="sm" className="h-8 px-2.5 text-xs" disabled={!text.trim() || createTask.isPending || createNote.isPending} onClick={handleSubmit}>Add</Button>
+    <form onSubmit={handleSubmit} className="flex items-center gap-2">
+      <Select value={type} onValueChange={(v) => setType(v as "task" | "note")}>
+        <SelectTrigger className="w-[72px] h-8 text-xs shrink-0"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="task">Task</SelectItem>
+          <SelectItem value="note">Note</SelectItem>
+        </SelectContent>
+      </Select>
+      <Input placeholder="Quick capture..." value={text} onChange={(e) => setText(e.target.value)} className="h-8 flex-1 font-mono text-xs" />
+      <Button type="button" size="sm" className="h-8 px-3 text-xs shrink-0" disabled={!text.trim() || createTask.isPending || createNote.isPending} onClick={handleSubmit}>Add</Button>
     </form>
   );
 }
@@ -280,19 +277,19 @@ function ProductivityChartWidget() {
   const stats = data;
   if (!stats) return <p className="text-xs text-muted-foreground">Loading...</p>;
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-1.5">
-        <div className="text-center p-1.5 bg-muted/30 rounded">
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-2">
+        <div className="text-center p-2 bg-muted/30 rounded-md">
           <p className="text-base font-mono font-semibold">{stats.totalTasks || 0}</p>
-          <p className="text-[9px] text-muted-foreground">Total</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Total</p>
         </div>
-        <div className="text-center p-1.5 bg-muted/30 rounded">
+        <div className="text-center p-2 bg-muted/30 rounded-md">
           <p className="text-base font-mono font-semibold text-green-500">{stats.completedTasks || 0}</p>
-          <p className="text-[9px] text-muted-foreground">Done</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Done</p>
         </div>
-        <div className="text-center p-1.5 bg-muted/30 rounded">
+        <div className="text-center p-2 bg-muted/30 rounded-md">
           <p className="text-base font-mono font-semibold">{stats.taskCompletionRate || 0}%</p>
-          <p className="text-[9px] text-muted-foreground">Rate</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Rate</p>
         </div>
       </div>
       <p className="text-[10px] text-muted-foreground text-center">Last {stats.period || 30} days</p>
@@ -310,15 +307,15 @@ function StatsWidget() {
     <div className="grid grid-cols-3 gap-2 h-full items-center">
       <div className="text-center">
         <p className="text-xl font-mono font-semibold">{stats.totalTasks || 0}</p>
-        <p className="text-[10px] text-muted-foreground">Total Tasks</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5">Total Tasks</p>
       </div>
       <div className="text-center">
         <p className="text-xl font-mono font-semibold text-green-500">{stats.completedTasks || 0}</p>
-        <p className="text-[10px] text-muted-foreground">Completed</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5">Completed</p>
       </div>
       <div className="text-center">
         <p className="text-xl font-mono font-semibold">{stats.taskCompletionRate || 0}%</p>
-        <p className="text-[10px] text-muted-foreground">Rate</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5">Rate</p>
       </div>
     </div>
   );
@@ -345,12 +342,12 @@ function WidgetCard({ widget, onConfigure, onDelete }: { widget: DashboardWidget
   return (
     <div
       className={cn(
-        "h-full flex flex-col group border rounded-lg border-l-[3px] transition-colors hover:bg-muted/20 lg:[grid-column:span_var(--w)] lg:[grid-row:span_var(--h)]",
+        "min-h-0 h-full flex flex-col group border border-border/60 rounded-lg border-l-[3px] bg-card transition-shadow hover:shadow-md hover:shadow-black/5 lg:[grid-column:span_var(--w)] lg:[grid-row:span_var(--h)]",
         getWidgetBorder(widget.type)
       )}
       style={{ "--w": Math.min(widget.layout.w || 2, 4), "--h": widget.layout.h || 2 } as React.CSSProperties}
     >
-      <div className="px-2.5 pt-2.5 pb-0 flex flex-row items-center justify-between gap-2">
+      <div className="px-3 pt-2.5 pb-1 flex flex-row items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
           <Icon className={cn("h-3.5 w-3.5 shrink-0", getWidgetAccent(widget.type))} />
           <span className="text-xs font-semibold truncate">{widget.title || typeInfo?.label || widget.type}</span>
@@ -360,7 +357,7 @@ function WidgetCard({ widget, onConfigure, onDelete }: { widget: DashboardWidget
           <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive" onClick={onDelete} aria-label="Remove widget"><Trash2 className="h-3 w-3" /></Button>
         </div>
       </div>
-      <div className="p-2.5 flex-1 overflow-auto">
+      <div className="px-3 pb-3 pt-1 flex-1 overflow-hidden">
         <WidgetRenderer type={widget.type} />
       </div>
     </div>
@@ -377,9 +374,9 @@ function AddWidgetDialog({ open, onOpenChange, onAdd }: { open: boolean; onOpenC
             const Icon = wt.icon;
             return (
               <button key={wt.id} onClick={() => { onAdd(wt.id); onOpenChange(false); }}
-                className="flex flex-col items-center gap-1.5 p-3 rounded-lg border hover:bg-accent hover:border-primary transition-colors text-center">
+                className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border/60 hover:bg-accent hover:border-primary/40 transition-colors text-center">
                 <Icon className={cn("h-5 w-5", wt.accent)} />
-                <span className="text-[10px] font-medium">{wt.label}</span>
+                <span className="text-[10px] font-medium leading-tight">{wt.label}</span>
               </button>
             );
           })}
@@ -401,16 +398,16 @@ function ConfigureWidgetDialog({ widget, open, onOpenChange, onSave }: { widget:
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle className="text-sm">Configure Widget</DialogTitle></DialogHeader>
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div>
             <Label htmlFor="widget-title" className="text-xs">Title</Label>
-            <Input id="widget-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Widget title" className="h-8 text-xs mt-1" />
+            <Input id="widget-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Widget title" className="h-8 text-xs mt-1.5" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="widget-w" className="text-xs">Width (columns)</Label>
               <Select value={String(w)} onValueChange={(v) => setW(parseInt(v))}>
-                <SelectTrigger id="widget-w" className="h-8 text-xs mt-1"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="widget-w" className="h-8 text-xs mt-1.5"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="1">1 column</SelectItem>
                   <SelectItem value="2">2 columns</SelectItem>
@@ -422,7 +419,7 @@ function ConfigureWidgetDialog({ widget, open, onOpenChange, onSave }: { widget:
             <div>
               <Label htmlFor="widget-h" className="text-xs">Height (rows)</Label>
               <Select value={String(h)} onValueChange={(v) => setH(parseInt(v))}>
-                <SelectTrigger id="widget-h" className="h-8 text-xs mt-1"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="widget-h" className="h-8 text-xs mt-1.5"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="1">1 row</SelectItem>
                   <SelectItem value="2">2 rows</SelectItem>
@@ -432,7 +429,7 @@ function ConfigureWidgetDialog({ widget, open, onOpenChange, onSave }: { widget:
               </Select>
             </div>
           </div>
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2 pt-1">
             <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button size="sm" onClick={handleSave}>Save</Button>
           </div>
@@ -485,7 +482,7 @@ function DashboardPage() {
   };
   const handleDelete = (id: string) => { deleteMutation.mutate(id); };
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Dashboard</h1>
         <Button onClick={() => setAddOpen(true)} size="sm" aria-label="Add widget"><Plus className="h-3.5 w-3.5 mr-1.5" />Add Widget</Button>
@@ -493,7 +490,7 @@ function DashboardPage() {
       {isLoading ? (
         <div className="flex items-center justify-center py-10 text-xs text-muted-foreground">Loading dashboard...</div>
       ) : widgets.length === 0 ? (
-        <div className="text-center py-10 border rounded-lg border-dashed">
+        <div className="text-center py-12 border rounded-lg border-dashed border-border/60">
           <Zap className="h-6 w-6 mx-auto mb-2 text-muted-foreground/50" />
           <p className="text-xs text-muted-foreground mb-3">Your dashboard is empty. Add some widgets to get started.</p>
           <Button size="sm" onClick={() => {
@@ -505,7 +502,7 @@ function DashboardPage() {
           }}><Plus className="h-3.5 w-3.5 mr-1.5" />Add Default Widgets</Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 auto-rows-[minmax(110px,auto)] sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 auto-rows-[minmax(120px,auto)] sm:grid-cols-2 lg:grid-cols-4">
           {widgets.map((w) => (
             <WidgetCard key={w.id} widget={w} onConfigure={() => handleConfigure(w)} onDelete={() => handleDelete(w.id)} />
           ))}

@@ -253,7 +253,7 @@ function NotesPage() {
   }, [deleteMutation]);
 
   return (
-    <div className="flex flex-col md:flex-row h-auto min-h-[calc(100vh-8rem)] md:h-[calc(100vh-8rem)] -m-4 md:-m-6">
+    <div className="flex flex-col md:flex-row h-auto min-h-[calc(100vh-8rem)] md:h-[calc(100vh-8rem)]">
       {/* Left pane - note list */}
       <div className="w-full md:w-72 h-64 md:h-auto border-b md:border-b-0 md:border-r flex flex-col shrink-0">
         <div className="px-3 py-2 border-b">

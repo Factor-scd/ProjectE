@@ -338,7 +338,7 @@ function GraphPage() {
   }, []);
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] -m-4 md:-m-6">
+    <div className="flex h-[calc(100vh-8rem)]">
       {/* Graph canvas area */}
       <div ref={containerRef} className="flex-1 relative bg-muted/20">
         {/* Toolbar */}

@@ -117,7 +117,7 @@ function TemplatesPage() {
   );
 
   return (
-    <div className="flex flex-col h-auto min-h-[calc(100vh-8rem)] md:h-[calc(100vh-8rem)] -m-4 md:-m-6">
+    <div className="flex flex-col h-auto min-h-[calc(100vh-8rem)] md:h-[calc(100vh-8rem)]">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
         <div className="flex items-center gap-2">

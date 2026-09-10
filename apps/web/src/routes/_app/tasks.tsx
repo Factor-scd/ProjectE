@@ -823,7 +823,7 @@ function TasksPage() {
               }
             }}
           >
-            <SelectTrigger className="h-7 w-44 text-xs"><SelectValue placeholder="Saved views" /></SelectTrigger>
+            <SelectTrigger className="h-7 w-full sm:w-44 text-xs"><SelectValue placeholder="Saved views" /></SelectTrigger>
             <SelectContent>
               {savedViews.map((v) => (
                 <SelectItem key={v.id} value={v.id}>
@@ -945,7 +945,7 @@ function TasksPage() {
       ) : view === "calendar" ? (
         <TasksCalendar tasks={tasks} onSelectTask={openTaskPanel} />
       ) : (
-        <div className="relative rounded-lg border border-[#d9dee7] bg-white">
+        <div className="relative rounded-lg border border-[#d9dee7] bg-white overflow-x-auto">
           {view === "list" && showKbdHint && (
             <div className="absolute right-0 top-0 z-10 flex gap-3 p-2 text-[10px] text-muted-foreground">
               <span><kbd className="rounded border bg-muted px-1 py-0.5 font-mono">j</kbd>/<kbd className="rounded border bg-muted px-1 py-0.5 font-mono">k</kbd> navigate</span>

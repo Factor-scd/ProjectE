@@ -30,15 +30,10 @@ function CalendarSidebar({ selectedDate, onSelectDate }: { selectedDate: Date; o
   const activeDomainId = useApiDomain();
   const { data } = useApiQuery<{ items: DailyNote[]; totalItems: number }>(["daily-notes-list", activeDomainId], "/daily-notes" + (activeDomainId ? "?domain=" + activeDomainId : ""));
   const notes = data?.items || [];
-  // The API stores daily notes at UTC midnight (YYYY-MM-DDT00:00:00.000Z).
-  // Slicing off the time portion yields the calendar date the note belongs to
-  // regardless of the browser's timezone. parseISO + format would re-render the
-  // UTC instant in the local zone and shift the marker to the previous day for
-  // users west of UTC.
   const noteDates = new Set(notes.map((n) => n.date.slice(0, 10)));
 
   return (
-    <div className="w-56 shrink-0">
+    <div className="w-full md:w-56 shrink-0">
       <div className="flex items-center justify-between mb-2">
         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
           <ChevronLeft className="h-3.5 w-3.5" />
@@ -361,10 +356,10 @@ function DailyNotesPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
 
   return (
-    <div className="flex gap-4 h-[calc(100vh-5rem)]">
+    <div className="flex flex-col md:flex-row gap-4 h-auto md:h-[calc(100vh-5rem)]">
       <CalendarSidebar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
-      <Separator orientation="vertical" />
-      <ScrollArea className="flex-1 pr-3">
+      <Separator className="hidden md:block" orientation="vertical" />
+      <ScrollArea className="flex-1 md:pr-3 min-h-[60vh] md:min-h-0">
         <DailyNoteEditor date={selectedDate} />
       </ScrollArea>
     </div>

@@ -446,7 +446,7 @@ function ProjectTasks({ project }: { project: Project }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
+      <div className="flex flex-col sm:flex-row gap-2">
         <Input
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
@@ -460,7 +460,7 @@ function ProjectTasks({ project }: { project: Project }) {
           className="h-9"
         />
         <Select value={sectionId} onValueChange={setSectionId}>
-          <SelectTrigger className="h-9 w-44" aria-label="Section">
+          <SelectTrigger className="h-9 w-full sm:w-44" aria-label="Section">
             <SelectValue placeholder="No section" />
           </SelectTrigger>
           <SelectContent>
@@ -476,6 +476,7 @@ function ProjectTasks({ project }: { project: Project }) {
           size="sm"
           onClick={submitNewTask}
           disabled={!newTitle.trim() || addMutation.isPending}
+          className="sm:w-auto"
         >
           <Plus className="h-4 w-4" /> Add
         </Button>

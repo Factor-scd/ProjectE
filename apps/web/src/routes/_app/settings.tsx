@@ -582,7 +582,7 @@ function ShortcutsTab() {
                 <div
                   key={shortcut.id}
                   className={cn(
-                    "flex items-center justify-between py-2 px-3 rounded-lg transition-colors",
+                    "flex flex-col sm:flex-row sm:items-center sm:justify-between py-2 px-3 rounded-lg transition-colors gap-1 sm:gap-0",
                     isRecording ? "bg-primary/5 ring-1 ring-primary" : "hover:bg-muted/50"
                   )}
                 >

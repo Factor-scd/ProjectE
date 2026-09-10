@@ -227,12 +227,12 @@ function HabitsPage() {
           {habits.map((habit) => (
             <Card key={habit.id} className="cursor-pointer border hover:bg-muted/20 transition-colors" onClick={() => openHabitDetail(habit)}>
               <CardContent className="p-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <Flame className={cn("h-5 w-5 shrink-0", habit.streakCount > 0 ? "text-orange-500" : "text-muted-foreground")} />
                     <div className="min-w-0">
                       <p className="font-medium truncate">{habit.name}</p>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="font-mono text-xs text-muted-foreground">
                           <Flame className="h-3 w-3 inline mr-0.5" />
                           {habit.streakCount} day streak
@@ -242,7 +242,7 @@ function HabitsPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-2 sm:gap-3 shrink-0 pl-8 sm:pl-0">
                     <MiniGrid completions={habit.recentCompletions || []} />
                     <Button
                       size="sm"
